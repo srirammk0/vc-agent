@@ -1,5 +1,5 @@
 import { schedules } from "@trigger.dev/sdk/v3";
-import { synthesizeDailyBrief } from "../../lib/cerebras.js";
+import { synthesizeDailyBrief } from "../../lib/gemini.js";
 import { getRecentLogs, getShortlistContext } from "../../lib/brain.js";
 import { sendDailyBrief } from "../../lib/email.js";
 import { ScoredStartup } from "../../lib/types.js";

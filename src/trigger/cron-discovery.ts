@@ -1,5 +1,5 @@
 import { schedules } from "@trigger.dev/sdk/v3";
-import { reasonCronPlan, batchQualify, scoreCompany } from "../../lib/cerebras.js";
+import { reasonCronPlan, batchQualify, scoreCompany } from "../../lib/gemini.js";
 import { getSeenUrls, getShortlistContext, getSignals, addSeenUrls, addPassedCompany, addRejectedCompany, logRun, updateSignal } from "../../lib/brain.js";
 import { passesHardFilters } from "../../lib/filters.js";
 import { linkup } from "../../lib/linkup.js";

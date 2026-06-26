@@ -1,5 +1,5 @@
 import { task } from "@trigger.dev/sdk/v3";
-import { triage, qualify, scoreCompany } from "../../lib/cerebras.js";
+import { triage, qualify, scoreCompany } from "../../lib/gemini.js";
 import { getSeenUrls, getShortlistContext, addSeenUrls, addPassedCompany, addRejectedCompany, logRun, updateSignal } from "../../lib/brain.js";
 import { passesHardFilters } from "../../lib/filters.js";
 import { linkup } from "../../lib/linkup.js";
