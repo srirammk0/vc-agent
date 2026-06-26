@@ -1,14 +1,15 @@
 import { tasks } from "@trigger.dev/sdk/v3";
 import { monitorWebhookHandler } from "../../../../trigger/monitor-webhook.js";
 
-export async function POST(req: Request, { params }: { params: { monitor: string } }) {
+export async function POST(req: Request, { params }: { params: Promise<{ monitor: string }> }) {
   try {
     const body = await req.json();
     
     // Verify Parallel webhook signature (see Parallel docs)
     // const verified = verifyParallelSignature(req, body);
     
-    const source = params.monitor; // "x-monitor" or "linkedin-monitor"
+    const { monitor } = await params;
+    const source = monitor; // "x-monitor" or "linkedin-monitor"
     
     // Fallback parsing just in case event schema varies
     const content = body?.data?.event?.output?.content || body?.content || "No content";

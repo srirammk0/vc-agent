@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "NODE_NO_WARNINGS=1 npx trigger.dev@latest dev",
     "deploy": "NODE_NO_WARNINGS=1 npx trigger.dev@latest deploy",
+    "build": "next build",
+    "start": "next start",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
