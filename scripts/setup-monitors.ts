@@ -1,4 +1,8 @@
 import Parallel from "parallel-web";
+import pkg from "@next/env";
+
+const { loadEnvConfig } = pkg;
+loadEnvConfig(process.cwd());
 
 async function main() {
   if (!process.env.PARALLEL_API_KEY || !process.env.TRIGGER_WEBHOOK_URL) {

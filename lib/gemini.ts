@@ -5,8 +5,8 @@ const openai = new OpenAI({
   apiKey: process.env.GEMINI_API_KEY,
 });
 
-const PRIMARY_MODEL = 'gemini 3.1-flash-lite';
-const FALLBACK_MODEL = 'gemma 4 31b';
+const PRIMARY_MODEL = 'gemini-3.1-flash-lite';
+const FALLBACK_MODEL = 'gemma4-31b';
 
 const SCORING_SYSTEM_PROMPT = `
 You are a startup scout for an early-stage investor with a very specific thesis.
