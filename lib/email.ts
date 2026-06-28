@@ -293,3 +293,175 @@ export async function sendDailyRecap(
 
   console.log(`[email] Daily recap sent to ${process.env.GMAIL_TO} — "${subject}"`);
 }
+
+// ---------------------------------------------------------------------------
+// V3: run debrief based on Python agent's AgentResult JSON
+// ---------------------------------------------------------------------------
+
+interface V3HighSignalDetail {
+  name: string;
+  slug: string;
+  score: number;
+  stage: string;
+  raised: string;
+  what_they_do: string;
+  founder_background: string;
+  signal_url: string;
+}
+
+interface V3AgentResult {
+  trigger: string;
+  timestamp: string;
+  duration_seconds: number;
+  queries_run: number;
+  pages_enriched: number;
+  startups_found: number;
+  startups_updated: number;
+  alerts_sent: number;
+  skipped_known: number;
+  new_startups: string[];
+  high_signal: string[];
+  high_signal_details: V3HighSignalDetail[];
+}
+
+function scoreColorV3(score: number): string {
+  if (score >= 75) return "#b94f1c";
+  if (score >= 60) return "#2a6db5";
+  return "#555555";
+}
+
+function buildV3StartupCard(detail: V3HighSignalDetail): string {
+  return `
+  <tr>
+    <td style="padding:0 0 16px 0;">
+      <div style="border:1px solid #ebebeb;border-radius:8px;overflow:hidden;background:#ffffff;">
+        <table width="100%" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;">
+          <tr>
+            <td style="padding:20px 24px;vertical-align:top;background:#ffffff;">
+              <table width="100%" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin-bottom:12px;">
+                <tr>
+                  <td style="vertical-align:top;text-align:left;">
+                    <div style="margin-bottom:6px;">
+                      <span style="font-size:16px;font-weight:700;color:#111111;letter-spacing:-0.2px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">${detail.name}</span>
+                      <span style="display:inline-block;font-size:10px;font-weight:600;color:#10b981;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:4px;padding:2px 6px;margin-left:8px;vertical-align:middle;">High Signal</span>
+                    </div>
+                    <div style="font-size:13px;color:#666666;line-height:1.5;">${detail.what_they_do}</div>
+                  </td>
+                  <td width="60" style="vertical-align:top;text-align:right;width:60px;">
+                    <div style="font-size:20px;font-weight:700;color:${scoreColorV3(detail.score)};letter-spacing:-0.5px;line-height:1.1;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">${detail.score}</div>
+                    <div style="font-size:10px;color:#aaaaaa;text-transform:uppercase;letter-spacing:0.08em;line-height:1.1;">/ 100</div>
+                  </td>
+                </tr>
+              </table>
+              <div style="height:1px;background:#f0f0ee;margin-bottom:14px;"></div>
+              <table style="width:100%;border-collapse:collapse;">
+                <tr>
+                  <td style="width:50%;padding:4px 12px 4px 0;vertical-align:top;">
+                    <div style="font-size:10px;color:#aaaaaa;text-transform:uppercase;letter-spacing:0.08em;font-weight:600;margin-bottom:2px;">Stage</div>
+                    <div style="font-size:13px;color:#333333;font-weight:500;">${detail.stage} · ${detail.raised}</div>
+                  </td>
+                  <td style="width:50%;padding:4px 0 4px 12px;vertical-align:top;">
+                    <div style="font-size:10px;color:#aaaaaa;text-transform:uppercase;letter-spacing:0.08em;font-weight:600;margin-bottom:2px;">Founder</div>
+                    <div style="font-size:13px;color:#333333;font-weight:500;">${detail.founder_background}</div>
+                  </td>
+                </tr>
+                <tr>
+                  <td colspan="2" style="padding:8px 0 0 0;vertical-align:top;">
+                    <div style="font-size:10px;color:#aaaaaa;text-transform:uppercase;letter-spacing:0.08em;font-weight:600;margin-bottom:2px;">Signal</div>
+                    <div style="font-size:12px;"><a href="${detail.signal_url}" style="color:#3b7dd8;text-decoration:none;">${detail.signal_url}</a></div>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </div>
+    </td>
+  </tr>`;
+}
+
+export async function sendV3Debrief(summary: V3AgentResult): Promise<void> {
+  if (!process.env.GMAIL_TO) {
+    console.warn("[email] GMAIL_TO not set — skipping v3 debrief.");
+    return;
+  }
+
+  const runTime = new Date(summary.timestamp).toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZoneName: "short",
+  });
+
+  const highSignalCards = summary.high_signal_details
+    .map((d) => buildV3StartupCard(d))
+    .join("");
+
+  const otherSlugs = summary.new_startups
+    .filter((s) => !summary.high_signal.includes(s))
+    .map((s) => `<li style="font-size:13px;color:#555555;margin-bottom:4px;">${s}</li>`)
+    .join("");
+
+  const otherSection = otherSlugs
+    ? `<div style="margin-top:24px;">
+        <div style="font-size:12px;font-weight:600;color:#aaaaaa;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px;">Also discovered (score &lt; 75)</div>
+        <ul style="margin:0;padding-left:18px;">${otherSlugs}</ul>
+      </div>`
+    : "";
+
+  const body = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#f4f4f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f0;min-height:100vh;padding:32px 16px;">
+    <tr><td align="center">
+      <table width="640" cellpadding="0" cellspacing="0" style="max-width:640px;width:100%;background:#ffffff;border:1px solid #ebebeb;border-radius:8px;overflow:hidden;">
+        <tr>
+          <td style="padding:24px 32px 16px;background:#ffffff;">
+            <div style="font-size:10px;font-weight:600;color:#aaaaaa;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;">VC Research Agent v3</div>
+            <h1 style="font-size:24px;font-weight:700;color:#111111;margin:0 0 6px 0;letter-spacing:-0.5px;">${summary.startups_found} new startup${summary.startups_found !== 1 ? "s" : ""} found</h1>
+            <div style="font-size:12px;color:#888888;">
+              ${runTime} &middot; ${summary.trigger} run &middot; ${summary.duration_seconds}s &middot; ${summary.queries_run} queries &middot; ${summary.pages_enriched} pages enriched
+            </div>
+          </td>
+        </tr>
+        <tr><td style="padding:0 32px;background:#ffffff;"><div style="height:1px;background:#ebebeb;"></div></td></tr>
+        <tr>
+          <td style="padding:24px 32px 8px;background:#ffffff;">
+            ${summary.high_signal_details.length > 0
+              ? `<div style="font-size:12px;font-weight:600;color:#aaaaaa;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:14px;">High signal (score ≥ 75)</div>
+                 <table width="100%" cellpadding="0" cellspacing="0">${highSignalCards}</table>`
+              : `<div style="font-size:14px;color:#888888;text-align:center;padding:24px 0;">No high-signal startups this run.</div>`
+            }
+            ${otherSection}
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:20px 32px;background:#ffffff;border-top:1px solid #ebebeb;text-align:center;">
+            <div style="font-size:12px;color:#aaaaaa;">
+              <strong style="color:#666666;">VC Research Agent</strong> &middot; ${summary.skipped_known} skipped (already known)
+            </div>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
+  const subject = summary.high_signal_details.length > 0
+    ? `🚨 ${summary.high_signal_details.length} High-Signal Startup${summary.high_signal_details.length > 1 ? "s" : ""} — ${runTime}`
+    : `📋 Scout Run: ${summary.startups_found} Found — ${runTime}`;
+
+  await composio.tools.execute("GMAIL_SEND_EMAIL", {
+    userId: process.env.COMPOSIO_USER_ID!,
+    arguments: {
+      to: process.env.GMAIL_TO,
+      subject,
+      body,
+      is_html: true,
+    },
+    dangerouslySkipVersionCheck: true,
+  });
+
+  console.log(`[email] V3 debrief sent — "${subject}"`);
+}

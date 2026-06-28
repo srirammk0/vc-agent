@@ -1,7 +1,7 @@
 {
-  "name": "startup-scout",
-  "version": "1.0.0",
-  "description": "Automated startup discovery agent powered by Exa, Cerebras, and Composio",
+  "name": "vc-research-agent",
+  "version": "3.0.0",
+  "description": "VC research agent — Pydantic AI + DeepSeek V4 on NIM, Exa, Firecrawl, SendBlue",
   "type": "module",
   "scripts": {
     "dev": "NODE_NO_WARNINGS=1 npx trigger.dev@latest dev",
@@ -9,10 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@composio/core": "^0.3.0",
-    "@trigger.dev/sdk": "^3.0.0",
-    "exa-js": "^1.7.0",
-    "openai": "^4.0.0"
+    "@trigger.dev/sdk": "^3.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
