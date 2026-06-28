@@ -1,6 +1,5 @@
 import { tasks } from "@trigger.dev/sdk/v3";
-import { chatReply } from "../../../../trigger/agent.js";
-import { sendTypingIndicator } from "../../../../../lib/sendblue.js";
+import { sendTypingIndicator } from "../../../../../lib/sendblue";
 
 // Inbound iMessage from SendBlue. Configure this URL as the "receive" webhook
 // in the SendBlue dashboard:  https://<your-app>/api/webhooks/sendblue
@@ -42,7 +41,7 @@ export async function POST(req: Request) {
     console.error("[sendblue-webhook] typing indicator failed:", err);
   }
 
-  const handle = await tasks.trigger(chatReply.id, { message });
+  const handle = await tasks.trigger("chat-reply", { message });
   console.log(`[sendblue-webhook] chat run ${handle.id}: ${message.slice(0, 60)}`);
 
   // Acknowledge fast; the reply is sent asynchronously by the task.

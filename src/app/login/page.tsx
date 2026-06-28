@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { login } from "./actions.js";
+import { login } from "./actions";
 
 const CARD: React.CSSProperties = {
   background: "#ffffff",
