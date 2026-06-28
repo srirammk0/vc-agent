@@ -64,6 +64,39 @@ def _slugify(name: str) -> str:
     return slug or "unknown"
 
 
+def _heuristic_score(
+    founders: str, stage: str, raised: str, location: str, blurb: str
+) -> int:
+    """
+    Deterministic fallback score (0-100) from the fields save_startup already has.
+    Only used when the agent doesn't supply its own score.
+    """
+    text = f"{founders} {blurb}".lower()
+
+    founder = 0
+    if "y combinator" in text or " yc " in f" {text} ":
+        founder += 15
+    if any(x in text for x in ["stripe", "openai", "google", "meta", "apple", "deepmind"]):
+        founder += 10
+    if any(x in text for x in ["phd", "stanford", "mit", "berkeley", "cmu"]):
+        founder += 8
+    if "repeat founder" in text or "second-time" in text or "exited" in text:
+        founder += 7
+    founder = min(founder, 25)
+
+    ai = 20 if any(x in blurb.lower() for x in ["ai", "agent", "llm", "ml", "model"]) else 5
+
+    st = stage.lower()
+    stage_fit = 20 if any(x in st for x in ["pre-seed", "preseed", "seed", "stealth"]) else 5
+
+    recency = 15  # agent is told to downweight stale finds
+
+    geo = location.lower()
+    geo_fit = 10 if any(x in geo for x in ["san francisco", "sf", "new york", "nyc", "bay area", "remote"]) else 5
+
+    return founder + ai + stage_fit + recency + geo_fit
+
+
 # ---------- Agent-facing memory tools ----------
 
 async def save_startup(
@@ -81,9 +114,16 @@ async def save_startup(
     """
     Persist a startup to long-term memory (creates or updates by name).
     Call this for every genuinely new or meaningfully-updated startup you find.
+    Pass your own 0-100 `score` (judged against the thesis). If you leave it 0,
+    a deterministic heuristic score is computed automatically.
     """
     slug = _slugify(name)
     existing = _BRAIN["startups"].get(slug, {})
+
+    final_score = score or existing.get("score", 0)
+    if not final_score:
+        final_score = _heuristic_score(founders, stage, raised, location, one_liner or signal)
+
     _BRAIN["startups"][slug] = {
         "slug": slug,
         "name": name,
@@ -93,13 +133,13 @@ async def save_startup(
         "stage": stage or existing.get("stage", ""),
         "raised": raised or existing.get("raised", ""),
         "location": location or existing.get("location", ""),
-        "score": score if score else existing.get("score", 0),
+        "score": final_score,
         "status": status or existing.get("status", "new"),
         "signal": signal or existing.get("signal", ""),
         "found": existing.get("found", _now_date()),
         "updated": _now_date(),
     }
-    return f"saved startup '{name}' (slug={slug})"
+    return f"saved startup '{name}' (slug={slug}, score={final_score})"
 
 
 async def mark_seen(url: str) -> str:

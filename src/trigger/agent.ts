@@ -48,7 +48,7 @@ async function runAgent(payload: AgentPayload): Promise<AgentOutput> {
 export const researchSweep = schedules.task({
   id: "research-sweep",
   cron: { pattern: "0 */4 * * *", timezone: "America/Los_Angeles" },
-  maxDuration: 600,
+  maxDuration: 300,
   run: async () => runAgent({ mode: "sweep" }),
 });
 

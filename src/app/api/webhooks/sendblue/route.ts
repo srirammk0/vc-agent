@@ -1,5 +1,6 @@
 import { tasks } from "@trigger.dev/sdk/v3";
 import { chatReply } from "../../../../trigger/agent.js";
+import { sendTypingIndicator } from "../../../../../lib/sendblue.js";
 
 // Inbound iMessage from SendBlue. Configure this URL as the "receive" webhook
 // in the SendBlue dashboard:  https://<your-app>/api/webhooks/sendblue
@@ -32,6 +33,13 @@ export async function POST(req: Request) {
   const sender = digits(body.from_number || body.number);
   if (owner && sender && !sender.endsWith(owner.slice(-10))) {
     return Response.json({ ok: true, action: "ignored", reason: "unauthorized sender" });
+  }
+
+  // Show the "…" bubble right away so the owner knows the agent is working.
+  try {
+    await sendTypingIndicator();
+  } catch (err) {
+    console.error("[sendblue-webhook] typing indicator failed:", err);
   }
 
   const handle = await tasks.trigger(chatReply.id, { message });
