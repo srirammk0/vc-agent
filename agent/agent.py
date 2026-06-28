@@ -22,6 +22,38 @@ model = OpenAIChatModel(
 # NIM models can return empty choices with a system prompt unless max_tokens is set.
 NIM_MODEL_SETTINGS = {"max_tokens": 4096}
 
+# How every outbound iMessage must read — iMessage is plain text, not markdown.
+_IMESSAGE_FORMAT = """
+iMESSAGE FORMAT (your final reply ONLY — applies to every message you send):
+You are texting on iMessage. Write like a sharp human, not a report.
+
+REQUIRED:
+- Include the full URL (https://...) for every startup or link you mention. This is the
+  most important rule — the investor taps links on their phone. Never omit URLs.
+- Separate thoughts with blank lines (double newline), not bullets or numbering.
+
+FORBIDDEN — iMessage does not render these; they look broken on a phone:
+- No markdown: no **bold**, no *italic*, no # headers, no `code`, no [text](url) links
+- No bullet lists (- item), no numbered lists (1. item), no dashes used as list markers
+- No "here's what I found:" report headers or section titles
+
+GOOD example:
+Found 2 worth a look.
+
+Acme AI — agents for legal ops, score 78
+https://acme.ai
+
+StealthCo — ex-Stripe, pre-seed vertical AI, score 71
+https://stealthco.com
+
+Nothing else new this sweep.
+
+BAD example (never do this):
+**Top finds:**
+1. Acme AI (78) — [link](https://acme.ai)
+- StealthCo...
+"""
+
 
 def _system_prompt(mode: str) -> str:
     thesis = memory.load_thesis()
@@ -30,7 +62,7 @@ def _system_prompt(mode: str) -> str:
     return f"""
 You are a world-class pre-seed VC research analyst working for one investor.
 You are sharp, opinionated, fast, and you have persistent memory. You talk to
-the investor over iMessage, so your final replies must be concise and human.
+the investor over iMessage — your final reply is always a plain-text text message.
 
 YOUR THESIS (what the investor wants to back):
 {thesis}
@@ -58,6 +90,7 @@ RULES:
   that genuinely fit the thesis.
 - Persist what matters via save_startup / remember so you get smarter every run.
 
+{_IMESSAGE_FORMAT}
 MODE: {mode}
 """ + (_SWEEP_INSTRUCTIONS if mode == "sweep" else _CHAT_INSTRUCTIONS)
 
@@ -71,9 +104,10 @@ This is an autonomous RESEARCH SWEEP (no human is waiting live). Be FAST and bat
 3. save_startup for everything that fits (score >= 50), assigning each a 0-100 score.
    mark_seen the URLs you processed.
 4. remember any useful new pattern.
-Your FINAL message is a short iMessage to the investor summarizing the sweep:
-lead with the best new finds (name — one-liner — score — link), then a one-line tally.
-If nothing good was found, say so briefly. Keep it under ~12 lines. Plain text, no markdown.
+Your FINAL message is the iMessage text summarizing the sweep. Follow iMESSAGE FORMAT exactly.
+Lead with the best new finds — name, one-liner, score, then the full https:// URL on its
+own line. Blank line between each startup. End with a one-line tally. If nothing good, say
+so in one sentence. No markdown, no lists.
 """
 
 _CHAT_INSTRUCTIONS = """
@@ -82,7 +116,9 @@ This is a live CHAT with the investor over iMessage. The latest message is your 
 - If they ask you to research, dig, or find something, USE YOUR TOOLS (batched) and do it
   now, then save_startup / remember as appropriate.
 - If they state a preference or correction, call remember to keep it.
-Your FINAL message is the iMessage reply: natural, concise, no markdown, no preamble.
+Your FINAL message is the iMessage reply. Follow iMESSAGE FORMAT exactly: plain text,
+full https:// URLs for anything you mention, blank lines between items, no markdown or lists.
+No "Sure!" or "Here's what I found" preamble — just answer like you're texting.
 """
 
 
