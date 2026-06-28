@@ -1,78 +1,138 @@
-# Startup Scout Agent 🛰️
+# VC Research Agent
 
-An automated agent that runs hourly from 6:00 AM to 6:00 PM Pacific Time to discover, evaluate, and surface high-quality early-stage startups.
+An automated pre-seed startup scout that discovers, scores, and surfaces early-stage AI companies. A Python agent (Pydantic AI + DeepSeek V4 on NVIDIA NIM) runs on Trigger.dev; a Next.js dashboard on Vercel provides a manual trigger and Firecrawl webhook receiver.
 
 ## Architecture
 
-1. **Trigger.dev** runs the scheduled job hourly between 6:00 AM and 6:00 PM Pacific Time (`src/trigger/startup-scout.ts`).
-2. **Exa.ai** is queried using a rotating bank of search queries targeting AI infrastructure, fintech tooling, and founder pedigree.
-3. **Local Deduplication & Hard Filters**: Startups are checked against `seen-startups.md` by URL, and rigorously filtered by stage, funding, headcount, and age.
-4. **Exa.ai Enrichment**: The agent pulls website summaries, searches LinkedIn for founders and their prior roles, and runs 3 parallel signal searches (headcount, stability, traction) for up to 20 candidate startups.
-5. **Gemini 3.1 Flash Lite Scoring**: The startup data and registry are passed to `gemini-3.1-flash-lite` for a strict 1-10 evaluation across 5 dimensions (founder_pedigree, technical_moat, thesis_fit, traction_signals, market_timing) using JSON Mode.
-6. **Composio / Gmail**: Startups scoring $\geq 6.5/10$ overall and $\geq 6/10$ on thesis_fit are emailed directly to your inbox via a Composio-authenticated Gmail connection.
+```
+┌─────────────────┐     cron (every 4h PT)     ┌──────────────────┐
+│  Trigger.dev    │◄────────────────────────────│  vc-scout-cron   │
+│                 │                             └──────────────────┘
+│  vc-scout task  │◄──── POST /api/trigger ─────┌──────────────────┐
+│  (spawns Python)│                             │  Next.js (Vercel) │
+│                 │◄── POST /api/webhooks/ ─────│  dashboard        │
+└────────┬────────┘    firecrawl               └──────────────────┘
+         │
+         ▼
+┌─────────────────┐     Exa search + enrich     ┌──────────────────┐
+│  agent/         │────────────────────────────►│  Exa.ai          │
+│  main.py        │                             └──────────────────┘
+│  (Pydantic AI)  │     score + write           ┌──────────────────┐
+│                 │────────────────────────────►│  brain/ (markdown)│
+│                 │     iMessage alerts (≥75)   └──────────────────┘
+└─────────────────┘────────────────────────────► SendBlue
+```
+
+### Agent pipeline
+
+1. **Discovery** — `exa_search` and `social_search` run 6–8 web queries and 3–4 social queries per sweep.
+2. **Enrichment** — `exa_get_contents` fetches full page content for promising candidates (5–8 URLs max per run).
+3. **Deduplication** — known startups are loaded from `brain/index.md` and skipped.
+4. **Scoring** — `score_startup` rates each startup 0–100 across founder pedigree, AI-native fit, stage, recency, traction, and geo.
+5. **Persistence** — startups scoring ≥ 50 are written to `brain/startups/` via `write_startup`; the index is updated after each run.
+6. **Alerts** — startups scoring ≥ 75 trigger iMessage alerts via SendBlue.
+
+### Triggers
+
+| Trigger | Source | Behavior |
+|---|---|---|
+| `manual` | Dashboard "Run now" button → `/api/trigger` | Full discovery sweep |
+| `cron` | `vc-scout-cron` — every 4 hours PT | Full discovery sweep |
+| `firecrawl_monitor` | Firecrawl webhook → `/api/webhooks/firecrawl` | Enrich the changed page first, then targeted queries |
+
+Firecrawl monitors are configured in the Firecrawl dashboard (no API key in the agent). The webhook URL is your Vercel deployment at `/api/webhooks/firecrawl`.
+
+## Project structure
+
+```
+agent/           Python agent (Pydantic AI, tools, brain I/O)
+brain/           Markdown knowledge base (thesis, index, per-startup files)
+src/
+  trigger/       Trigger.dev task definitions
+  app/           Next.js dashboard + API routes
+lib/             Shared TS utilities (brain reader, SendBlue)
+```
+
 ## Setup
 
-1. **Install Dependencies**
-   ```bash
-   npm install
-   ```
+### 1. Install dependencies
 
-2. **Environment Variables**
-   Copy `.env.example` to `.env` and fill in the keys:
-   - `EXA_API_KEY`: From Exa dashboard
-   - `GEMINI_API_KEY`: From Google AI Studio
-   - `COMPOSIO_API_KEY`: From Composio dashboard
-   - `COMPOSIO_USER_ID`: The User ID you used during Composio Gmail onboarding
-   - `GMAIL_TO`: Where to send the debrief emails
+```bash
+npm install
+pip install -r requirements.txt
+```
 
-3. **Trigger.dev Project**
-   The `trigger.config.ts` is already wired to `proj_zkqctocaqceqitxjtbar`.
-   Ensure you are logged in to the Trigger CLI:
-   ```bash
-   npx trigger.dev@latest login
-   ```
+### 2. Environment variables
 
-## Running the Agent
+Copy `.env.example` to `.env` and fill in the keys. Two runtimes need env vars:
 
-**Local Dev**
-Run the job locally, triggering it from the Trigger.dev dashboard:
+| Runtime | Where to set | What runs there |
+|---|---|---|
+| **Trigger.dev** | Trigger.dev dashboard → Environment Variables | Python agent (LLM, Exa, SendBlue, Logfire) |
+| **Vercel** | Vercel project settings | Next.js app (run button, Firecrawl webhook) |
+
+Locally, set everything in `.env` so `npm run dev` works end-to-end. See `.env.example` for the full list and which runtime each var belongs to.
+
+### 3. Trigger.dev
+
+The project is wired to `proj_zkqctocaqceqitxjtbar` in `trigger.config.ts`.
+
+```bash
+npx trigger.dev@latest login
+npm run deploy          # deploy tasks to Trigger.dev cloud
+```
+
+After deploying, copy the production `TRIGGER_SECRET_KEY` (`tr_prod_…`) into Vercel so the dashboard can trigger runs.
+
+### 4. Firecrawl webhook (optional)
+
+In the Firecrawl dashboard, point your monitor's webhook at:
+
+```
+https://<your-vercel-domain>/api/webhooks/firecrawl
+```
+
+Set `FIRECRAWL_WEBHOOK_SECRET` on Vercel to match the `x-firecrawl-secret` header on the monitor. Optionally set `FIRECRAWL_MONITOR_ID` and `FIRECRAWL_MONITOR_NAME` for friendlier agent context.
+
+## Running locally
+
+**Trigger.dev dev server** (runs the agent when tasks are triggered):
+
 ```bash
 npm run dev
 ```
 
-**Deploy to Production**
-Deploy the schedule to run automatically on Trigger.dev's cloud:
+**Next.js dashboard** (separate terminal):
+
 ```bash
-npm run deploy
+npm run next:dev
 ```
 
-## How Deduplication Works
+Trigger a manual run from the dashboard at `http://localhost:3000`, or from the Trigger.dev dev UI.
 
-The `seen-startups.md` file is committed to your repository. It acts as a lightweight database. When the agent runs, it reads the file into memory and passes it to the LLM context. 
+## Deploying
 
-If a startup passes the scoring threshold, it is appended to the bottom of the Markdown file. Over time, this file becomes an archive of every startup the agent has surfaced.
+| Command | What it deploys |
+|---|---|
+| `npm run deploy` | Trigger.dev tasks only (agent + cron) |
+| `git push` | Vercel (Next.js app) if the repo is connected — does **not** redeploy Trigger.dev |
 
----
+A README-only push may still trigger a Vercel rebuild, but it won't change agent behavior. To update the agent or cron schedule, run `npm run deploy`.
 
-## Scaling to Postgres
+## Brain / deduplication
 
-> **Note**: When `seen-startups.md` exceeds ~500 entries, you will likely hit context length limits when passing it to Gemini. At that point, you should migrate to Postgres.
-> 
-> **Migration Steps**:
-> 1. Set up a Supabase/Neon Postgres database.
-> 2. Create the table:
->    ```sql
->    CREATE TABLE startups (
->      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
->      name TEXT NOT NULL,
->      url TEXT NOT NULL UNIQUE,
->      founder_name TEXT,
->      founder_linkedin TEXT,
->      one_liner TEXT,
->      funding_stage TEXT,
->      overall_score NUMERIC(3,1),
->      red_flags_count INTEGER DEFAULT 0,
->      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
->    );
->    ```
-> 3. Update `lib/dedup.ts` to `SELECT 1 FROM startups WHERE url = ?` instead of passing the full registry in-context.
+The `brain/` directory is the agent's memory:
+
+- `brain/thesis.md` — investment criteria passed to the LLM each run
+- `brain/index.md` — table of all known startups (used for dedup)
+- `brain/startups/<slug>.md` — per-startup dossiers
+- `brain/run-log.md` — append-only log of every run
+
+When the index grows large (~500+ entries), consider migrating dedup to Postgres (Supabase/Neon) and querying by URL instead of loading the full index into context.
+
+## Scoring thresholds
+
+| Score | Action |
+|---|---|
+| ≥ 50 | Written to brain |
+| ≥ 75 | iMessage alert via SendBlue |
