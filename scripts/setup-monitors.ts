@@ -13,7 +13,7 @@
 
 import "dotenv/config";
 
-const FIRECRAWL_API = "https://api.firecrawl.dev/v1";
+const FIRECRAWL_API = "https://api.firecrawl.dev/v2";
 const WEBHOOK_URL = process.env.FIRECRAWL_WEBHOOK_URL;
 const API_KEY = process.env.FIRECRAWL_API_KEY;
 
