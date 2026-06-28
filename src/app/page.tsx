@@ -1,5 +1,7 @@
-import { readIndex, listStartupSlugs } from "../../lib/brain.js";
+import { loadBrain, type Startup } from "../../lib/blob.js";
 import { RunButton } from "./components/RunButton.js";
+
+export const dynamic = "force-dynamic";
 
 const STATUS_COLORS: Record<string, string> = {
   new: "text-zinc-400",
@@ -9,42 +11,12 @@ const STATUS_COLORS: Record<string, string> = {
   pitched: "text-purple-400",
 };
 
-function parseIndexTable(markdown: string): Array<Record<string, string>> {
-  const rows: Array<Record<string, string>> = [];
-  const lines = markdown.split("\n");
-  let headers: string[] = [];
-  let inTable = false;
-
-  for (const line of lines) {
-    if (!line.startsWith("|")) continue;
-    const cells = line.split("|").map((c) => c.trim()).filter(Boolean);
-    if (cells.every((c) => /^[-:]+$/.test(c))) continue; // separator row
-
-    if (!inTable) {
-      headers = cells.map((h) => h.toLowerCase());
-      inTable = true;
-      continue;
-    }
-
-    const row: Record<string, string> = {};
-    headers.forEach((h, i) => { row[h] = cells[i] ?? "—"; });
-    rows.push(row);
-  }
-
-  return rows;
-}
-
 export default async function Home() {
-  let startups: Array<Record<string, string>> = [];
-  let totalCount = 0;
-
-  try {
-    const indexMd = await readIndex();
-    startups = parseIndexTable(indexMd);
-    totalCount = startups.length;
-  } catch {
-    // brain not accessible (Vercel deploy without local brain)
-  }
+  const brain = await loadBrain();
+  const startups: Startup[] = Object.values(brain.startups).sort(
+    (a, b) => (b.score || 0) - (a.score || 0)
+  );
+  const totalCount = startups.length;
 
   return (
     <div className="max-w-5xl mx-auto px-6 py-12">
@@ -55,7 +27,7 @@ export default async function Home() {
             VC Research Agent
           </h1>
           <p className="text-sm text-zinc-500 mt-0.5">
-            pre-seed AI startup discovery
+            pre-seed AI startup discovery · texts you on iMessage
           </p>
         </div>
         <div className="flex items-center gap-4">
@@ -83,18 +55,26 @@ export default async function Home() {
               </tr>
             </thead>
             <tbody>
-              {startups.map((s, i) => (
+              {startups.map((s) => (
                 <tr
-                  key={i}
+                  key={s.slug}
                   className="border-b border-zinc-800/50 last:border-0 hover:bg-zinc-900/50 transition-colors"
                 >
-                  <td className="px-4 py-3 font-medium text-zinc-100">{s.name}</td>
+                  <td className="px-4 py-3 font-medium text-zinc-100">
+                    {s.website ? (
+                      <a href={s.website} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                        {s.name}
+                      </a>
+                    ) : (
+                      s.name
+                    )}
+                  </td>
                   <td className="px-4 py-3">
                     <span
                       className={`font-semibold tabular-nums ${
-                        Number(s.score) >= 75
+                        s.score >= 75
                           ? "text-emerald-400"
-                          : Number(s.score) >= 60
+                          : s.score >= 60
                           ? "text-blue-400"
                           : "text-zinc-400"
                       }`}
@@ -107,9 +87,9 @@ export default async function Home() {
                       {s.status}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-zinc-400">{s.stage}</td>
-                  <td className="px-4 py-3 text-zinc-400">{s.raised}</td>
-                  <td className="px-4 py-3 text-zinc-500 text-xs">{s.found}</td>
+                  <td className="px-4 py-3 text-zinc-400">{s.stage || "—"}</td>
+                  <td className="px-4 py-3 text-zinc-400">{s.raised || "—"}</td>
+                  <td className="px-4 py-3 text-zinc-500 text-xs">{s.found || "—"}</td>
                 </tr>
               ))}
             </tbody>
@@ -119,14 +99,14 @@ export default async function Home() {
         <div className="border border-zinc-800 rounded-lg px-8 py-16 text-center">
           <p className="text-zinc-500 text-sm">No startups in brain yet.</p>
           <p className="text-zinc-600 text-xs mt-1">
-            Wait for the scheduled sweep or trigger a manual run.
+            Wait for the 4-hour sweep, text the agent, or hit run now.
           </p>
         </div>
       )}
 
       {/* Footer */}
       <div className="mt-8 flex items-center gap-6 text-xs text-zinc-600">
-        <span>Scout: every 4 hours PT + Firecrawl webhooks</span>
+        <span>Auto sweep: every 4 hours PT · chat it on iMessage</span>
         <span>·</span>
         <a
           href="https://cloud.trigger.dev"

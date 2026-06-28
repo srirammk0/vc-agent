@@ -14,7 +14,6 @@ async def exa_search(query: str, category: str = "company") -> list[dict]:
         query,
         num_results=10,
         category=category,
-        use_autoprompt=True,
     )
     return [
         {
@@ -51,15 +50,14 @@ async def exa_get_contents(urls: list[str]) -> list[dict]:
 
 async def social_search(query: str) -> list[dict]:
     """
-    Search X/Twitter and LinkedIn for funding announcements and launch signals.
-    Returns URLs and metadata only (Exa indexes these platforms natively).
-    Use for social signal discovery: YC announcements, pre-seed raises, launches.
+    Search LinkedIn for funding announcements and launch signals.
+    Returns URLs and metadata only (Exa indexes LinkedIn natively).
+    Use for social signal discovery: pre-seed raises, launches, accelerator news.
     """
     results = exa.search(
         query,
         num_results=15,
-        use_autoprompt=False,
-        include_domains=["twitter.com", "x.com", "linkedin.com"],
+        include_domains=["linkedin.com"],
     )
     return [
         {

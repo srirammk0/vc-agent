@@ -1,153 +1,128 @@
 import os
-import sys
-import time
-import json
 from datetime import datetime, timezone
 
-import logfire
 from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from openai import AsyncOpenAI
 
 from tools.exa import exa_search, exa_get_contents, social_search
-from tools.firecrawl import firecrawl_scrape
 from tools.scorer import score_startup
-from brain import load_thesis, write_startup, write_run_log, update_index, load_known_startups
+import brain as memory
 
 nim_client = AsyncOpenAI(
     base_url="https://integrate.api.nvidia.com/v1",
     api_key=os.environ["NVIDIA_API_KEY"],
 )
 
-# IMPORTANT: always pass chat_template_kwargs or NIM hangs indefinitely on DeepSeek V4
 model = OpenAIChatModel(
-    "deepseek-ai/deepseek-v4-pro",
+    "minimaxai/minimax-m3",
     provider=OpenAIProvider(openai_client=nim_client),
 )
 
 
-async def run_agent(payload: dict) -> dict:
-    start_time = time.time()
+def _system_prompt(mode: str) -> str:
+    thesis = memory.load_thesis()
+    brain_state = memory.brain_for_prompt(include_conversation=(mode == "chat"))
 
-    thesis = load_thesis()
-    known = load_known_startups()
-    trigger_type = payload.get("trigger", "manual")
-    timestamp = payload.get("timestamp", datetime.now(timezone.utc).isoformat())
-    monitor_context = payload.get("monitor_context")
+    return f"""
+You are a world-class pre-seed VC research analyst working for one investor.
+You are sharp, opinionated, fast, and you have persistent memory. You talk to
+the investor over iMessage, so your final replies must be concise and human.
 
-    monitor_block = ""
-    if monitor_context:
-        monitor_block = f"""
-FIRECRAWL MONITOR CONTEXT (a watched page just changed — start here):
-- monitor: {monitor_context.get("monitor_name", "unknown")}
-- url: {monitor_context.get("url", "unknown")}
-Scrape/enrich this page first, then branch out to related discovery queries.
-"""
-
-    system_prompt = f"""
-You are a startup research assistant for a pre-seed VC investor.
-
-Your job is to find and evaluate early-stage AI startups.
-Use your tools in this specific order for maximum efficiency:
-
-TOOL USAGE RULES:
-1. exa_search — use first for all discovery. Cheap, returns URLs only. Run 6-8 queries
-   covering different angles (company search, news, YC/SPC/FoundersInc signals).
-   Pass category="company" for company discovery, category="news" for announcements.
-2. social_search — use for X/LinkedIn signals (pre-seed announcements, accelerator news).
-   Run 3-4 social queries per scheduled run.
-3. exa_get_contents — use ONLY for promising candidates from step 1/2 that aren't in the
-   known list. Fetches full content. Limit to 5-8 URLs max per run to control costs.
-4. firecrawl_scrape — use ONLY if exa_get_contents doesn't return enough signal for a
-   specific startup's landing page. Use sparingly (1-2 per run max).
-5. score_startup — score each enriched startup.
-6. write_startup — write to brain for any startup scoring >= 50.
-
-THESIS:
+YOUR THESIS (what the investor wants to back):
 {thesis}
 
-ALREADY KNOWN STARTUPS (skip these entirely):
-{known}
+YOUR MEMORY (persistent across runs — this is what you already know):
+{brain_state}
 
-TRIGGER TYPE: {trigger_type}
-- "manual": full sweep — 6-8 exa_search + 3-4 social_search queries, enrich promising candidates
-- "cron": full sweep — same as manual, runs on a schedule
-- "firecrawl_monitor": a watched page changed — start from the monitor URL below, scrape/enrich it,
-  then run a few targeted exa_search/social_search queries around what you found
-{monitor_block}
-OUTPUT: Return ONLY valid JSON (no markdown wrapping). Schema:
-{{
-  "trigger": string,
-  "timestamp": string,
-  "duration_seconds": number,
-  "queries_run": number,
-  "pages_enriched": number,
-  "startups_found": number,
-  "startups_updated": number,
-  "alerts_sent": number,
-  "skipped_known": number,
-  "new_startups": [string],
-  "high_signal": [string],
-  "high_signal_details": [
-    {{
-      "name": string,
-      "slug": string,
-      "score": number,
-      "one_liner": string,
-      "website": string,
-      "founder_linkedin": string
-    }}
-  ]
-}}
+TOOLS:
+- exa_search(query, category) — discovery. category="company" or "news". Cheap, URLs only.
+- social_search(query) — LinkedIn signals (raises, launches, accelerator news).
+- exa_get_contents(urls) — fetch full text for the most promising URLs only (costs more).
+- score_startup(startup_data) — score a candidate 0-100 against the thesis.
+- save_startup(...) — write a new/updated startup to long-term memory. ALWAYS call this
+  for genuinely new finds or meaningful updates.
+- mark_seen(url) — record a URL so future sweeps skip it.
+- remember(note) — save a durable insight or a preference the investor tells you.
+
+RULES:
+- Use your memory. Do NOT re-report startups already in KNOWN STARTUPS unless something
+  changed. Skip URLs you've already seen.
+- Be aggressive and thorough in research, but ruthless about quality — only surface things
+  that genuinely fit the thesis.
+- Persist what matters via save_startup / remember so you get smarter every run.
+
+MODE: {mode}
+""" + (_SWEEP_INSTRUCTIONS if mode == "sweep" else _CHAT_INSTRUCTIONS)
+
+
+_SWEEP_INSTRUCTIONS = """
+This is an autonomous RESEARCH SWEEP (no human is waiting live).
+1. Run several exa_search + social_search queries across different angles (new raises,
+   stealth launches, accelerator batches, building-in-public, vertical AI, dev tools).
+2. exa_get_contents on the most promising NEW candidates (5-10 max).
+3. score_startup each, then save_startup for everything scoring >= 50. mark_seen URLs.
+4. remember any useful new pattern.
+Your FINAL message is a short iMessage to the investor summarizing the sweep:
+lead with the best new finds (name — one-liner — score — link), then a one-line tally.
+If nothing good was found, say so briefly. Keep it under ~12 lines. Plain text, no markdown.
 """
 
-    agent = Agent(
+_CHAT_INSTRUCTIONS = """
+This is a live CHAT with the investor over iMessage. The latest message is your task.
+- Answer directly and conversationally using your memory first.
+- If they ask you to research, dig, or find something, USE YOUR TOOLS and do it now,
+  then save_startup / remember as appropriate.
+- If they state a preference or correction, call remember to keep it.
+Your FINAL message is the iMessage reply: natural, concise, no markdown, no preamble.
+"""
+
+
+def _build_agent(mode: str) -> Agent:
+    return Agent(
         model=model,
-        system_prompt=system_prompt,
-        tools=[exa_search, exa_get_contents, social_search, firecrawl_scrape, score_startup, write_startup],
-        model_settings={
-            "extra_body": {
-                "chat_template_kwargs": {"thinking": False}
-            }
-        },
+        system_prompt=_system_prompt(mode),
+        tools=[
+            exa_search,
+            exa_get_contents,
+            social_search,
+            score_startup,
+            memory.save_startup,
+            memory.mark_seen,
+            memory.remember,
+        ],
+        # Models occasionally emit a malformed tool call; let them self-correct.
+        retries=4,
     )
 
-    result = await agent.run(f"Run a {trigger_type} research sweep. Return a JSON summary.")
 
-    duration = round(time.time() - start_time, 1)
-    run_summary = _parse_agent_output(result.output, trigger_type, timestamp, duration)
+async def run_agent(payload: dict) -> dict:
+    mode = payload.get("mode", "sweep")
+    message = payload.get("message", "")
+    memory.init_brain(payload.get("brain"))
 
-    write_run_log(run_summary, payload)
-    update_index()
+    if mode == "chat":
+        memory.add_conversation_turn("user", message)
+        prompt = message or "Hello"
+    else:
+        prompt = (
+            "Run a full autonomous research sweep now. Find new pre-seed AI startups "
+            "that fit the thesis, save them to memory, and report back."
+        )
 
-    return run_summary
+    agent = _build_agent(mode)
+    result = await agent.run(prompt)
+    reply = (result.output or "").strip()
 
+    if mode == "chat":
+        memory.add_conversation_turn("agent", reply)
+    else:
+        found = sum(
+            1
+            for s in memory.get_brain()["startups"].values()
+            if s.get("updated") == datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        )
+        memory.add_run_record("sweep", reply[:280], found)
 
-def _parse_agent_output(output: str, trigger: str, timestamp: str, duration: float) -> dict:
-    try:
-        cleaned = output.strip()
-        if cleaned.startswith("```"):
-            lines = cleaned.split("\n")
-            cleaned = "\n".join(lines[1:-1] if lines[-1] == "```" else lines[1:])
-        data = json.loads(cleaned)
-        data.setdefault("trigger", trigger)
-        data.setdefault("timestamp", timestamp)
-        data.setdefault("duration_seconds", duration)
-        return data
-    except (json.JSONDecodeError, ValueError):
-        print("[agent] Failed to parse JSON output, returning skeleton", file=sys.stderr)
-        return {
-            "trigger": trigger,
-            "timestamp": timestamp,
-            "duration_seconds": duration,
-            "queries_run": 0,
-            "pages_enriched": 0,
-            "startups_found": 0,
-            "startups_updated": 0,
-            "alerts_sent": 0,
-            "skipped_known": 0,
-            "new_startups": [],
-            "high_signal": [],
-            "high_signal_details": [],
-        }
+    return {"mode": mode, "reply": reply, "brain": memory.get_brain()}

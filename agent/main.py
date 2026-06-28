@@ -19,9 +19,11 @@ logfire.instrument_pydantic_ai()
 
 
 def main():
-    payload = json.loads(sys.stdin.read())
+    # Payload comes as the first CLI arg (Trigger.dev python.runScript) or stdin (local)
+    raw = sys.argv[1] if len(sys.argv) > 1 else sys.stdin.read()
+    payload = json.loads(raw)
     result = asyncio.run(run_agent(payload))
-    # Only one print to stdout — Trigger.dev parses this as JSON
+    # Only one print to stdout — the caller parses the last line as JSON
     print(json.dumps(result))
 
 

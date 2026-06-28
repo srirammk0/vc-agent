@@ -1,13 +1,8 @@
 import { tasks } from "@trigger.dev/sdk/v3";
-import { vcScout } from "../../../trigger/vc-scout-agent.js";
+import { researchSweep } from "../../../trigger/agent.js";
 
-export async function POST(req: Request) {
-  const body = await req.json().catch(() => ({}));
-
-  const handle = await tasks.trigger(vcScout.id, {
-    trigger: "manual",
-    note: body.note,
-  });
-
+// "Run now" button — kicks off an on-demand research sweep.
+export async function POST() {
+  const handle = await tasks.trigger(researchSweep.id, {});
   return Response.json({ runId: handle.id });
 }

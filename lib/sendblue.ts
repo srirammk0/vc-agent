@@ -1,23 +1,7 @@
 const SENDBLUE_BASE = "https://api.sendblue.co/api/send-message";
 
-export interface StartupAlert {
-  name: string;
-  score: number;
-  oneLiner: string;
-  website: string;
-  founderLinkedin: string;
-}
-
-export async function sendAlert(startup: StartupAlert): Promise<void> {
-  const message = [
-    `${startup.name} — ${startup.score}/100`,
-    ``,
-    startup.oneLiner,
-    ``,
-    startup.website,
-    startup.founderLinkedin,
-  ].join("\n");
-
+// Send a plain iMessage to the owner. Used for both research alerts and chat replies.
+export async function sendMessage(content: string): Promise<void> {
   const res = await fetch(SENDBLUE_BASE, {
     method: "POST",
     headers: {
@@ -27,8 +11,7 @@ export async function sendAlert(startup: StartupAlert): Promise<void> {
     },
     body: JSON.stringify({
       number: process.env.ALERT_PHONE_NUMBER,
-      content: message,
-      send_style: "invisible",
+      content,
     }),
   });
 
