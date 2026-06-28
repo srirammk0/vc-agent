@@ -15,9 +15,6 @@ from tools.firecrawl import firecrawl_scrape
 from tools.scorer import score_startup
 from brain import load_thesis, write_startup, write_run_log, update_index, load_known_startups
 
-logfire.configure()
-logfire.instrument_pydantic_ai()
-
 nim_client = AsyncOpenAI(
     base_url="https://integrate.api.nvidia.com/v1",
     api_key=os.environ["NVIDIA_API_KEY"],
@@ -35,18 +32,17 @@ async def run_agent(payload: dict) -> dict:
 
     thesis = load_thesis()
     known = load_known_startups()
-    trigger_type = payload.get("trigger", "scheduled")
+    trigger_type = payload.get("trigger", "manual")
     timestamp = payload.get("timestamp", datetime.now(timezone.utc).isoformat())
-    monitor_context = payload.get("monitor_context", None)
+    monitor_context = payload.get("monitor_context")
 
-    monitor_section = ""
+    monitor_block = ""
     if monitor_context:
-        monitor_section = f"""
-MONITOR TRIGGER CONTEXT:
-A Firecrawl monitor detected new content on: {monitor_context.get('url', 'unknown')}
-Monitor name: {monitor_context.get('monitor_name', 'unknown')}
-Focus your queries on this specific source/platform rather than running a full sweep.
-Run 3-4 targeted queries relevant to what this monitor watches.
+        monitor_block = f"""
+FIRECRAWL MONITOR CONTEXT (a watched page just changed — start here):
+- monitor: {monitor_context.get("monitor_name", "unknown")}
+- url: {monitor_context.get("url", "unknown")}
+Scrape/enrich this page first, then branch out to related discovery queries.
 """
 
     system_prompt = f"""
@@ -68,8 +64,6 @@ TOOL USAGE RULES:
 5. score_startup — score each enriched startup.
 6. write_startup — write to brain for any startup scoring >= 50.
 
-{monitor_section}
-
 THESIS:
 {thesis}
 
@@ -77,11 +71,11 @@ ALREADY KNOWN STARTUPS (skip these entirely):
 {known}
 
 TRIGGER TYPE: {trigger_type}
-- "scheduled": full sweep, all tools, 6-8 exa_search + 3-4 social_search queries
-- "social": social signals only, just social_search (3-4 queries), no exa_get_contents or firecrawl
-- "firecrawl_monitor": targeted sweep based on monitor context above, 3-4 focused queries
-- "manual": same as scheduled
-
+- "manual": full sweep — 6-8 exa_search + 3-4 social_search queries, enrich promising candidates
+- "cron": full sweep — same as manual, runs on a schedule
+- "firecrawl_monitor": a watched page changed — start from the monitor URL below, scrape/enrich it,
+  then run a few targeted exa_search/social_search queries around what you found
+{monitor_block}
 OUTPUT: Return ONLY valid JSON (no markdown wrapping). Schema:
 {{
   "trigger": string,

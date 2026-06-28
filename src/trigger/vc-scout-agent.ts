@@ -27,39 +27,69 @@ export interface AgentResult {
   high_signal_details: HighSignalDetail[];
 }
 
-// Scheduled: 8am, 12pm, 6pm PT daily
-export const vcScoutScheduled = schedules.task({
-  id: "vc-scout-scheduled",
-  cron: { pattern: "0 8,12,18 * * *", timezone: "America/Los_Angeles" },
+export interface MonitorContext {
+  monitor_id: string;
+  monitor_name: string;
+  url: string;
+}
+
+export interface VcScoutPayload {
+  trigger: "manual" | "cron" | "firecrawl_monitor";
+  timestamp?: string;
+  note?: string;
+  monitor_context?: MonitorContext;
+}
+
+// The single VC scout agent. Triggered three ways:
+//   - manually   (Next.js "run now" button → /api/trigger)
+//   - on a cron  (vcScoutCron below)
+//   - by webhook (Firecrawl monitors → /api/webhooks/firecrawl)
+export const vcScout = task({
+  id: "vc-scout",
   maxDuration: 300,
   retry: { maxAttempts: 2 },
+  run: async (payload: VcScoutPayload): Promise<AgentResult> => {
+    const summary = runAgent(payload);
+
+    for (const detail of summary.high_signal_details ?? []) {
+      try {
+        await sendAlert({
+          name: detail.name,
+          score: detail.score,
+          oneLiner: detail.one_liner,
+          website: detail.website,
+          founderLinkedin: detail.founder_linkedin,
+        });
+        console.log(`[sendblue] Alert sent: ${detail.name}`);
+      } catch (err) {
+        console.error(`[sendblue] Failed for ${detail.name}:`, err);
+      }
+    }
+
+    return summary;
+  },
+});
+
+// Cron source — just fires the scout. Keeps the agent itself a single general task.
+export const vcScoutCron = schedules.task({
+  id: "vc-scout-cron",
+  cron: { pattern: "0 */4 * * *", timezone: "America/Los_Angeles" },
   run: async (payload) => {
-    return runScout({ trigger: "scheduled", timestamp: payload.timestamp.toISOString() });
+    await vcScout.trigger({
+      trigger: "cron",
+      timestamp: payload.timestamp.toISOString(),
+    });
   },
 });
 
-// On-demand: called from Next.js API route or Firecrawl webhook
-export const vcScoutOnDemand = task({
-  id: "vc-scout-on-demand",
-  maxDuration: 300,
-  retry: { maxAttempts: 2 },
-  run: async (payload: {
-    trigger: "manual" | "firecrawl_monitor";
-    note?: string;
-    monitor_context?: { monitor_name: string; url: string; monitor_id: string };
-  }) => {
-    return runScout(payload);
-  },
-});
-
-async function runScout(payload: object): Promise<AgentResult> {
+function runAgent(payload: VcScoutPayload): AgentResult {
   const result = spawnSync(
     "python3",
     [path.join(process.cwd(), "agent/main.py")],
     {
       input: JSON.stringify(payload),
       encoding: "utf-8",
-      timeout: 180_000,
+      timeout: 240_000,
       env: { ...process.env, PYTHONUNBUFFERED: "1" },
     }
   );
@@ -68,22 +98,5 @@ async function runScout(payload: object): Promise<AgentResult> {
     throw new Error(`Agent subprocess failed:\n${result.stderr}`);
   }
 
-  const summary: AgentResult = JSON.parse(result.stdout);
-
-  for (const detail of summary.high_signal_details ?? []) {
-    try {
-      await sendAlert({
-        name: detail.name,
-        score: detail.score,
-        oneLiner: detail.one_liner,
-        website: detail.website,
-        founderLinkedin: detail.founder_linkedin,
-      });
-      console.log(`[sendblue] Alert sent: ${detail.name}`);
-    } catch (err) {
-      console.error(`[sendblue] Failed for ${detail.name}:`, err);
-    }
-  }
-
-  return summary;
+  return JSON.parse(result.stdout) as AgentResult;
 }

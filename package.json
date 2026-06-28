@@ -4,15 +4,30 @@
   "description": "VC research agent — Pydantic AI + DeepSeek V4 on NIM, Exa, Firecrawl, SendBlue",
   "type": "module",
   "scripts": {
-    "dev": "NODE_NO_WARNINGS=1 npx trigger.dev@latest dev",
-    "deploy": "NODE_NO_WARNINGS=1 npx trigger.dev@latest deploy",
+    "dev": "NODE_NO_WARNINGS=1 npx trigger.dev@4.4.6 dev",
+    "next:dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "deploy": "NODE_NO_WARNINGS=1 npx trigger.dev@4.4.6 deploy",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@trigger.dev/sdk": "^3.0.0"
+    "@tailwindcss/postcss": "^4.3.1",
+    "@trigger.dev/sdk": "^4.4.6",
+    "next": "^16.2.9",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
   },
   "devDependencies": {
+    "@composio/core": "^0.13.1",
     "@types/node": "^20.0.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "autoprefixer": "^10.5.2",
+    "dotenv": "^17.4.2",
+    "postcss": "^8.5.16",
+    "tailwindcss": "^4.3.1",
+    "tsx": "^4.22.4",
     "typescript": "^5.4.0"
   }
 }

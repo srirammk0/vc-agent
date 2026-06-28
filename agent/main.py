@@ -1,16 +1,21 @@
 import sys
 import json
 import asyncio
+import os
 from pathlib import Path
+
+# Trigger.dev injects OTEL attrs that break logfire's parser
+os.environ.pop("OTEL_RESOURCE_ATTRIBUTES", None)
 
 # Load .env from repo root for local runs (no-op in Trigger.dev where env is injected)
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent.parent / ".env")
 
 import logfire
-from agent import run_agent
+logfire.configure(send_to_logfire="if-token-present")
 
-logfire.configure()
+from agent import run_agent
+logfire.instrument_pydantic_ai()
 
 
 def main():
