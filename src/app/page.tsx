@@ -119,14 +119,14 @@ export default async function Home() {
         <div className="border border-zinc-800 rounded-lg px-8 py-16 text-center">
           <p className="text-zinc-500 text-sm">No startups in brain yet.</p>
           <p className="text-zinc-600 text-xs mt-1">
-            Trigger a run or wait for the scheduled sweep.
+            Wait for the scheduled sweep or trigger a manual run.
           </p>
         </div>
       )}
 
       {/* Footer */}
       <div className="mt-8 flex items-center gap-6 text-xs text-zinc-600">
-        <span>Scheduled: 8am · 12pm · 6pm PT</span>
+        <span>Scout: every 4 hours PT + Firecrawl webhooks</span>
         <span>·</span>
         <a
           href="https://cloud.trigger.dev"

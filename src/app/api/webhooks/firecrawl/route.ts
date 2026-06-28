@@ -1,5 +1,5 @@
 import { tasks } from "@trigger.dev/sdk/v3";
-import { vcScoutOnDemand } from "../../../../trigger/vc-scout-agent.js";
+import { vcScout } from "../../../../trigger/vc-scout-agent.js";
 
 // Firecrawl sends this for each completed monitor check
 interface FirecrawlWebhookPayload {
@@ -21,36 +21,33 @@ interface FirecrawlWebhookPayload {
   }>;
 }
 
-// Map monitor IDs to human-readable names (set these after running setup-monitors script)
-const MONITOR_NAMES: Record<string, string> = {
-  // Populated from FIRECRAWL_MONITOR_IDS env var at runtime
-};
-
+// Optional map of monitor id → human-readable name, supplied via env as JSON
 function getMonitorNames(): Record<string, string> {
   const raw = process.env.FIRECRAWL_MONITOR_IDS;
-  if (!raw) return MONITOR_NAMES;
+  if (!raw) return {};
   try {
-    return JSON.parse(raw);
+    return JSON.parse(raw) as Record<string, string>;
   } catch {
-    return MONITOR_NAMES;
+    return {};
   }
 }
 
 export async function POST(req: Request) {
-  // Validate webhook secret
   const secret = req.headers.get("x-firecrawl-secret");
-  if (process.env.FIRECRAWL_WEBHOOK_SECRET && secret !== process.env.FIRECRAWL_WEBHOOK_SECRET) {
+  if (
+    process.env.FIRECRAWL_WEBHOOK_SECRET &&
+    secret !== process.env.FIRECRAWL_WEBHOOK_SECRET
+  ) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const body: FirecrawlWebhookPayload = await req.json();
 
-  // Only act on completed checks that have actual changes
   if (body.type !== "monitor.check.completed") {
     return Response.json({ ok: true, action: "ignored", reason: "not a completed check" });
   }
 
-  const check = body.data[0];
+  const check = body.data?.[0];
   if (!check) return Response.json({ ok: true, action: "ignored", reason: "empty data" });
 
   const { changed = 0, new: newPages = 0 } = check.summary ?? {};
@@ -58,10 +55,9 @@ export async function POST(req: Request) {
     return Response.json({ ok: true, action: "ignored", reason: "no changes" });
   }
 
-  const monitorNames = getMonitorNames();
-  const monitorName = monitorNames[check.monitorId] ?? check.monitorId;
+  const monitorName = getMonitorNames()[check.monitorId] ?? check.monitorId;
 
-  const handle = await tasks.trigger(vcScoutOnDemand.id, {
+  const handle = await tasks.trigger(vcScout.id, {
     trigger: "firecrawl_monitor",
     monitor_context: {
       monitor_id: check.monitorId,

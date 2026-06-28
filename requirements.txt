@@ -1,6 +1,6 @@
-pydantic-ai[openai]
+pydantic-ai>=1.0.0
 openai
 exa-py
 firecrawl-py
-logfire[pydantic-ai]
+logfire
 python-dotenv
