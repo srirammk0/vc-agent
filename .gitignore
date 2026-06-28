@@ -33,3 +33,9 @@ trigger-*.log
 startup-cache.json
 .DS_Store
 *.pem
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/

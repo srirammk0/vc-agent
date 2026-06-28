@@ -1,0 +1,6 @@
+pydantic-ai[openai]
+openai
+exa-py
+firecrawl-py
+logfire[pydantic-ai]
+python-dotenv

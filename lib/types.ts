@@ -1,8 +1,13 @@
+/**
+ * lib/types.ts
+ *
+ * Shared type definitions used across all library modules.
+ */
+
 export interface Founder {
   name: string;
   title: string;
   linkedInUrl: string;
-  workHistory?: string;
 }
 
 export interface Candidate {
@@ -18,6 +23,18 @@ export interface Candidate {
   headquarters?: string;
 }
 
+export interface SignalResearch {
+  headcount: string;
+  stability: string;
+  traction: string;
+}
+
+export interface EnrichedCandidate extends Candidate {
+  websiteSummary: string;
+  founders: Founder[];
+  signalResearch: SignalResearch;
+}
+
 export interface ScoreDimensions {
   founder_pedigree: number;
   technical_moat: number;
@@ -26,8 +43,7 @@ export interface ScoreDimensions {
   market_timing: number;
 }
 
-export interface ScoredStartup {
-  company_name: string;
+export interface ScoredStartup extends EnrichedCandidate {
   overall_score: number;
   scores: ScoreDimensions;
   one_liner: string;
@@ -36,21 +52,4 @@ export interface ScoredStartup {
   yc_backed: boolean;
   pass: boolean;
   already_seen: boolean;
-  
-  // Appended after scoring
-  url?: string;
-  foundedYear?: number;
-  fundingStage?: string;
-  fundingTotal?: string;
-  workforce?: number | string;
-  headquarters?: string;
-  founders?: Founder[];
-}
-
-export interface ParallelWebhookPayload {
-  source: string;
-  content: string;
-  urls: string[];
-  timestamp: string;
-  raw: any;
 }
