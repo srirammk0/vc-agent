@@ -20,6 +20,9 @@ model = OpenAIChatModel(
     provider=OpenAIProvider(openai_client=nim_client),
 )
 
+# NIM minimax-m3 returns empty choices with a system prompt unless max_tokens is set.
+NIM_MODEL_SETTINGS = {"max_tokens": 4096}
+
 
 def _system_prompt(mode: str) -> str:
     thesis = memory.load_thesis()
@@ -83,6 +86,7 @@ def _build_agent(mode: str) -> Agent:
     return Agent(
         model=model,
         system_prompt=_system_prompt(mode),
+        model_settings=NIM_MODEL_SETTINGS,
         tools=[
             exa_search,
             exa_get_contents,
