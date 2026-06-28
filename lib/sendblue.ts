@@ -11,6 +11,8 @@ export async function sendMessage(content: string): Promise<void> {
     },
     body: JSON.stringify({
       number: process.env.ALERT_PHONE_NUMBER,
+      // SendBlue's free API plan requires the sending number explicitly.
+      from_number: process.env.SENDBLUE_FROM_NUMBER,
       content,
     }),
   });

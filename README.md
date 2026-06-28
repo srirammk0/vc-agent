@@ -72,6 +72,7 @@ Two runtimes. Copy `.env.example` → `.env` locally and set everything there fo
 | `BLOB_READ_WRITE_TOKEN` | yes | Read/write `brain.json` in Vercel Blob |
 | `SENDBLUE_API_KEY` | for iMessage | Outbound alerts + chat replies |
 | `SENDBLUE_API_SECRET` | for iMessage | Outbound alerts + chat replies |
+| `SENDBLUE_FROM_NUMBER` | for iMessage | Your SendBlue line — the number to send *from* (required on free plan) |
 | `ALERT_PHONE_NUMBER` | for iMessage | Your phone number (E.164, e.g. `+16615551234`) |
 | `LOGFIRE_TOKEN` | no | Pydantic Logfire tracing |
 
