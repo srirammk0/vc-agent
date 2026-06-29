@@ -85,14 +85,13 @@ def enrich_startup(payload: dict):
     return res
 
 
-# --- SendBlue inbound webhook: yes/no replies ---
+# --- Background task: SendBlue reply ---
 @app.function(
     image=image,
     secrets=[modal.Secret.from_name("vc-scout-secrets")],
-    timeout=60,
+    timeout=180,
 )
-@modal.fastapi_endpoint(method="POST")
-def sendblue_webhook(payload: dict):
+def chat_reply_background(message: str):
     import urllib.request
     import json
     import os
@@ -115,11 +114,44 @@ def sendblue_webhook(payload: dict):
         pass
 
     # 2. Run agent to get response
-    result = run_agent({"mode": "text", "message": payload.get("content", "")})
+    result = run_agent({"mode": "text", "message": message})
     reply = result.get("reply", "")
     
     # 3. Send outbound SMS reply
     if reply:
         send_sms(reply)
-        
-    return result
+
+# --- SendBlue inbound webhook: yes/no replies ---
+@app.function(
+    image=image,
+    secrets=[modal.Secret.from_name("vc-scout-secrets")],
+    timeout=60,
+)
+@modal.fastapi_endpoint(method="POST")
+async def sendblue_webhook(request: dict):
+    # Depending on the Modal FastAPI signature, a dictionary parameter will 
+    # automatically parse the JSON body.
+    body = request
+    
+    # Ignore our own outbound messages echoed back.
+    if body.get("is_outbound"):
+        return {"ok": True, "action": "ignored", "reason": "outbound"}
+
+    message = body.get("content", "").strip()
+    if not message:
+        return {"ok": True, "action": "ignored", "reason": "empty"}
+
+    # Only the owner may chat with the agent.
+    import os
+    owner_raw = os.environ.get("ALERT_PHONE_NUMBER", "")
+    owner = "".join(filter(str.isdigit, owner_raw))
+    sender_raw = body.get("from_number") or body.get("number") or ""
+    sender = "".join(filter(str.isdigit, sender_raw))
+    
+    if owner and sender and not sender.endswith(owner[-10:]):
+        return {"ok": True, "action": "ignored", "reason": "unauthorized"}
+
+    # Spawn the background task and return immediately
+    chat_reply_background.spawn(message)
+    return {"ok": True, "runId": "spawned"}
+
