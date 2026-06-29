@@ -152,6 +152,6 @@ async def sendblue_webhook(request: dict):
         return {"ok": True, "action": "ignored", "reason": "unauthorized"}
 
     # Spawn the background task and return immediately
-    chat_reply_background.spawn(message)
+    await chat_reply_background.spawn.aio(message)
     return {"ok": True, "runId": "spawned"}
 
