@@ -106,7 +106,10 @@ def chat_reply_background(message: str):
     try:
         urllib.request.urlopen(urllib.request.Request(
             "https://api.sendblue.co/api/send-typing-indicator",
-            data=json.dumps({"number": num}).encode("utf-8"),
+            data=json.dumps({
+                "number": num,
+                "from_number": os.environ.get("SENDBLUE_FROM_NUMBER", "")
+            }).encode("utf-8"),
             headers=headers,
             method="POST"
         ))
