@@ -86,12 +86,12 @@ text_agent = Agent(
 )
 
 @hooks.on.before_model_request
-def start_typing_indicator(ctx: RunContext[AgentDeps], messages: list) -> None:
+def start_typing_indicator(ctx: RunContext[AgentDeps], request_context, **kwargs):
     deps = ctx.deps
     if not deps or not deps.phone_number:
-        return
+        return request_context
     if deps.typing_thread and deps.typing_thread.is_alive():
-        return
+        return request_context
         
     deps.stop_typing = threading.Event()
     headers = {
@@ -121,17 +121,19 @@ def start_typing_indicator(ctx: RunContext[AgentDeps], messages: list) -> None:
 
     deps.typing_thread = threading.Thread(target=typing_loop)
     deps.typing_thread.start()
+    return request_context
 
 @hooks.on.after_model_request
-def stop_typing_indicator(ctx: RunContext[AgentDeps], message) -> None:
+def stop_typing_indicator(ctx: RunContext[AgentDeps], response, **kwargs):
     deps = ctx.deps
     if not deps:
-        return
+        return response
     if deps.stop_typing:
         deps.stop_typing.set()
     if deps.typing_thread:
         deps.typing_thread.join()
         deps.typing_thread = None
+    return response
 
 @text_agent.system_prompt
 def text_handler_prompt(ctx: RunContext) -> str:
