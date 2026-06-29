@@ -90,7 +90,7 @@ def enrich_startup(payload: dict):
     image=image,
     secrets=[modal.Secret.from_name("vc-scout-secrets")],
     timeout=300,
-    keep_warm=1,
+    min_containers=1,
 )
 def chat_reply_background(message: str, sender: str, message_handle: str = None):
     import urllib.request
