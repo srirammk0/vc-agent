@@ -93,62 +93,11 @@ def enrich_startup(payload: dict):
     min_containers=1,
 )
 def chat_reply_background(message: str, sender: str, message_handle: str = None):
-    import urllib.request
-    import json
-    import os
-    
-    headers = {
-        "sb-api-key-id": os.environ.get("SENDBLUE_API_KEY", ""),
-        "sb-api-secret-key": os.environ.get("SENDBLUE_API_SECRET", ""),
-        "Content-Type": "application/json",
-    }
-    
-    # 1. Send tapback reaction (agent dynamically chooses reaction)
-    if message_handle:
-        reaction = "like"
-        try:
-            from openai import OpenAI
-            client = OpenAI(
-                base_url="https://api.cerebras.ai/v1",
-                api_key=os.environ.get("CEREBRAS_API_KEY", ""),
-            )
-            response = client.chat.completions.create(
-                model="gpt-oss-120b",
-                messages=[
-                    {"role": "system", "content": "You are an iMessage reaction classifier. Respond with exactly one of these lowercase strings: love, like, dislike, laugh, emphasize, question. Choose based on the message. No formatting, no extra words."},
-                    {"role": "user", "content": message}
-                ],
-                max_tokens=10,
-                temperature=0.0
-            )
-            content = response.choices[0].message.content
-            if content:
-                chosen = content.strip().lower()
-                if chosen in ["love", "like", "dislike", "laugh", "emphasize", "question"]:
-                    reaction = chosen
-        except Exception as e:
-            print("Failed to choose reaction with LLM", e)
-            
-        try:
-            urllib.request.urlopen(urllib.request.Request(
-                "https://api.sendblue.co/api/send-reaction",
-                data=json.dumps({
-                    "number": sender,
-                    "from_number": os.environ.get("SENDBLUE_FROM_NUMBER", ""),
-                    "message_handle": message_handle,
-                    "reaction": reaction
-                }).encode("utf-8"),
-                headers=headers,
-                method="POST"
-            ))
-        except Exception:
-            pass
-
-    # 2. Run agent to get response (which handles typing internally via lifecycle hooks)
+    # Run agent to get response (which handles typing internally via lifecycle hooks)
     result = run_agent({"mode": "text", "message": message, "sender": sender})
     reply = result.get("reply", "")
     
-    # 3. Send outbound SMS reply
+    # Send outbound SMS reply
     if reply:
         send_sms(reply)
 
