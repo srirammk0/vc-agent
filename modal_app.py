@@ -142,23 +142,43 @@ def chat_reply_background(message: str, sender: str, message_handle: str = None)
         except Exception:
             pass
 
-    # 2. Send typing indicator
-    try:
-        urllib.request.urlopen(urllib.request.Request(
-            "https://api.sendblue.co/api/send-typing-indicator",
-            data=json.dumps({
-                "number": sender,
-                "from_number": os.environ.get("SENDBLUE_FROM_NUMBER", "")
-            }).encode("utf-8"),
-            headers=headers,
-            method="POST"
-        ))
-    except Exception:
-        pass
+    # 2. Start typing indicator loop in a background thread
+    import threading
+    import time
+    
+    stop_typing = threading.Event()
+    
+    def typing_loop():
+        while not stop_typing.is_set():
+            try:
+                urllib.request.urlopen(urllib.request.Request(
+                    "https://api.sendblue.co/api/send-typing-indicator",
+                    data=json.dumps({
+                        "number": sender,
+                        "from_number": os.environ.get("SENDBLUE_FROM_NUMBER", "")
+                    }).encode("utf-8"),
+                    headers=headers,
+                    method="POST"
+                ))
+            except Exception:
+                pass
+            # Wait for 3 seconds, checking every 100ms if we should stop
+            for _ in range(30):
+                if stop_typing.is_set():
+                    break
+                time.sleep(0.1)
+
+    t = threading.Thread(target=typing_loop)
+    t.start()
 
     # 3. Run agent to get response
-    result = run_agent({"mode": "text", "message": message})
-    reply = result.get("reply", "")
+    try:
+        result = run_agent({"mode": "text", "message": message})
+        reply = result.get("reply", "")
+    finally:
+        # Stop typing indicator loop
+        stop_typing.set()
+        t.join()
     
     # 4. Send outbound SMS reply
     if reply:
