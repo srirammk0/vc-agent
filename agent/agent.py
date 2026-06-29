@@ -2,7 +2,7 @@ import os
 import json
 import asyncio
 from datetime import datetime, timezone
-from pydantic_ai import Agent, RunContext
+from pydantic_ai import Agent, RunContext, ToolDefinition
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from openai import AsyncOpenAI
@@ -75,7 +75,11 @@ If they say "no" or "pass [startup]", use `pass_startup`.
 If the slug is not provided in text, you should infer it from the pending startups.
 """
 
-@text_agent.tool
+def make_non_strict(ctx: RunContext, tool_def: ToolDefinition) -> ToolDefinition:
+    tool_def.strict = False
+    return tool_def
+
+@text_agent.tool(prepare=make_non_strict)
 def approve_startup(ctx: RunContext, slug: str) -> str:
     """Approve a startup for enrichment."""
     startup = memory.get_startup(slug)
@@ -87,7 +91,7 @@ def approve_startup(ctx: RunContext, slug: str) -> str:
     # since we're in text_agent, we can just return a message saying it's approved.
     return f"Approved {startup.name}."
 
-@text_agent.tool
+@text_agent.tool(prepare=make_non_strict)
 def pass_startup(ctx: RunContext, slug: str, reason: str = "") -> str:
     """Pass on a startup."""
     startup = memory.get_startup(slug)
@@ -98,7 +102,7 @@ def pass_startup(ctx: RunContext, slug: str, reason: str = "") -> str:
     memory.write_passed_pattern(f"Passed {startup.name}: {reason}")
     return f"Passed {startup.name}."
 
-@text_agent.tool
+@text_agent.tool(prepare=make_non_strict)
 def get_pending_startups(ctx: RunContext) -> str:
     """Get a list of newly found startups awaiting review."""
     startups = [s for s in memory.get_all_startups() if s.status == "new"]
