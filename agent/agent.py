@@ -94,7 +94,8 @@ Critical rules:
 - Never touch Supabase. Your only memory system is Supermemory. Read and write everything through your memory tools.
 - You are self-improving. After every scout sweep you must write patterns (write_preference) and reflections (write_reflection).
 - Make qualitative, evidence-backed judgments about startups. There is no numeric scoring; write a clear assessment instead.
-- Use exa_deep_search for web research and supermemory_search to recall your own memory."""
+- Use exa_deep_search for web research and supermemory_search to recall your own memory.
+- Never re-research a startup you already know. Before deep-diving a candidate, check the known-startups list and skip any you've already saved, unless the boss explicitly asks you to revisit it. Spend your time finding NEW companies."""
 
 
 text_agent = Agent(
@@ -266,6 +267,11 @@ def register_tools(agent: Agent):
         return await sm.semantic_search(query, container_tag)
 
     @agent.tool(prepare=make_non_strict)
+    async def list_known_startups(ctx: RunContext) -> str:
+        """List every startup already saved in memory (name, slug, status). Use this to avoid re-researching companies you've already covered."""
+        return await sm.known_startups_summary()
+
+    @agent.tool(prepare=make_non_strict)
     async def save_startup(ctx: RunContext, slug: str, name: str, website: str, one_liner: str, assessment: str, signal_urls: list[str]) -> str:
         """Save a newly discovered startup to memory with a qualitative assessment. slug must be the kebab-case startup name."""
         await sm.save_startup(slug, name, website, one_liner, assessment, signal_urls)
@@ -352,11 +358,12 @@ async def run_scout() -> dict:
     try:
         thesis = await sm.load_thesis()
         preferences = await sm.load_preferences()
+        known = await sm.known_startups_summary()
         deps = _default_deps(sender="system")
 
         r1 = await agent_run_with_retry(
             scout_agent,
-            f"Execute a scout sweep. Use exa_deep_search with 5+ diverse queries to find pre-seed AI startups.\n\nThesis:\n{thesis}\n\nRemember these patterns:\n{preferences}",
+            f"Execute a scout sweep. Use exa_deep_search with 5+ diverse queries to find pre-seed AI startups.\n\nThesis:\n{thesis}\n\nRemember these patterns:\n{preferences}\n\nYou ALREADY KNOW these startups - do NOT research or save them again, find NEW ones:\n{known}",
             deps=deps,
         )
 

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Founder, Startup } from "../../lib/supabase";
 import { hasEnrichmentData } from "../../lib/enrichment";
+import { getBrowserClient } from "../../lib/supabaseBrowser";
 
 type Props = {
   startup: Pick<Startup, "slug" | "enrichment_status"> & EnrichmentFields;
@@ -36,7 +37,33 @@ export default function EnrichmentSection({ startup }: Props) {
     setData(startup);
   }, [startup]);
 
+  // Live updates via realtime when configured.
   useEffect(() => {
+    const client = getBrowserClient();
+    if (!client) return;
+    const channel = client
+      .channel(`startup-${startup.slug}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "startups",
+          filter: `slug=eq.${startup.slug}`,
+        },
+        (payload) => {
+          setData((prev) => ({ ...prev, ...(payload.new as Partial<Startup>) }));
+        }
+      )
+      .subscribe();
+    return () => {
+      client.removeChannel(channel);
+    };
+  }, [startup.slug]);
+
+  // Polling fallback while enrichment is running (no realtime configured).
+  useEffect(() => {
+    if (getBrowserClient()) return;
     if (data.enrichment_status !== "running") return;
 
     const poll = async () => {

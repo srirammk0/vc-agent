@@ -189,18 +189,16 @@ def sync_on_demand():
 
 
 # --- Enrichment: triggered by dashboard, writes directly to Supabase (no agent) ---
+# The web endpoint returns immediately and spawns the real work, so the dashboard
+# (and Vercel's short function timeout) never blocks on the full ~10-30s job.
 @app.function(
     image=image,
     secrets=[modal.Secret.from_name("vc-scout-secrets")],
-    timeout=300,
+    timeout=60,
 )
 @modal.fastapi_endpoint(method="POST")
 def enrich_startup(payload: dict):
-    import sys
     import os
-    import asyncio
-    sys.path.insert(0, "/root/agent")
-    from tools.exa import search_company, search_people
     from supabase import create_client
 
     slug = payload.get("slug")
@@ -210,8 +208,29 @@ def enrich_startup(payload: dict):
         os.environ["SUPABASE_URL"],
         os.environ["SUPABASE_SERVICE_ROLE_KEY"],
     )
-
     sb.table("startups").update({"enrichment_status": "running"}).eq("slug", slug).execute()
+
+    enrich_startup_job.spawn(slug, name)
+    return {"status": "started", "slug": slug}
+
+
+@app.function(
+    image=image,
+    secrets=[modal.Secret.from_name("vc-scout-secrets")],
+    timeout=300,
+)
+def enrich_startup_job(slug: str, name: str):
+    import sys
+    import os
+    import asyncio
+    sys.path.insert(0, "/root/agent")
+    from tools.exa import search_company, search_people
+    from supabase import create_client
+
+    sb = create_client(
+        os.environ["SUPABASE_URL"],
+        os.environ["SUPABASE_SERVICE_ROLE_KEY"],
+    )
 
     try:
         company = asyncio.run(search_company(f"{name} startup company"))

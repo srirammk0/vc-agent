@@ -58,6 +58,25 @@ GRANT ALL PRIVILEGES ON TABLE thesis TO postgres, service_role, anon, authentica
 GRANT ALL PRIVILEGES ON TABLE cache TO postgres, service_role, anon, authenticated;
 GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO postgres, service_role, anon, authenticated;
 
+-- Indexes for fast dashboard queries (filter by status, sort by recency)
+CREATE INDEX IF NOT EXISTS idx_startups_status ON startups (status);
+CREATE INDEX IF NOT EXISTS idx_startups_found_date ON startups (found_date DESC);
+CREATE INDEX IF NOT EXISTS idx_startups_status_found ON startups (status, found_date DESC);
+CREATE INDEX IF NOT EXISTS idx_startups_enrichment_status ON startups (enrichment_status);
+CREATE INDEX IF NOT EXISTS idx_cache_created_at ON cache (created_at);
+
+-- Realtime: let the dashboard subscribe to live row changes
+ALTER PUBLICATION supabase_realtime ADD TABLE startups;
+
+-- RLS: dashboard reads via the anon key (realtime respects RLS).
+-- Writes stay server-side via the service role key, which bypasses RLS.
+ALTER TABLE startups ENABLE ROW LEVEL SECURITY;
+ALTER TABLE thesis ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "anon read startups" ON startups;
+CREATE POLICY "anon read startups" ON startups FOR SELECT TO anon, authenticated USING (true);
+DROP POLICY IF EXISTS "anon read thesis" ON thesis;
+CREATE POLICY "anon read thesis" ON thesis FOR SELECT TO anon, authenticated USING (true);
+
 -- Migration note: if a previous `startups` table exists with scoring columns,
 -- drop it first (DROP TABLE startups CASCADE;) then recreate with the schema above.
 

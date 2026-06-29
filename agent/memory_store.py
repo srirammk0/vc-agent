@@ -101,6 +101,34 @@ async def save_startup(
     )
 
 
+async def list_startups() -> list[dict]:
+    """Return lightweight records of every startup already in memory."""
+    docs = await asyncio.to_thread(
+        get_client().documents.list, container_tags=["vc:startups"]
+    )
+    out = []
+    for doc in getattr(docs, "memories", []):
+        meta = doc.metadata or {}
+        out.append({
+            "slug": getattr(doc, "custom_id", None) or "",
+            "name": meta.get("name", ""),
+            "status": meta.get("status", "new"),
+        })
+    return out
+
+
+async def known_startups_summary() -> str:
+    """A compact list of already-seen startups, for deduping scout sweeps."""
+    startups = await list_startups()
+    if not startups:
+        return "None yet."
+    return "\n".join(
+        f"- {s['name']} (slug: {s['slug']}, status: {s['status']})"
+        for s in startups
+        if s["name"] or s["slug"]
+    )
+
+
 async def update_startup_status(slug: str, status: str) -> str:
     docs = await asyncio.to_thread(
         get_client().documents.list, container_tags=["vc:startups"]
