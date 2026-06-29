@@ -11,7 +11,7 @@ from pydantic_ai.providers.openai import OpenAIProvider
 from openai import AsyncOpenAI
 
 from tools.exa import exa
-import supermemory as sm
+import memory_store as sm
 
 cerebras_client = AsyncOpenAI(
     base_url="https://api.cerebras.ai/v1",
