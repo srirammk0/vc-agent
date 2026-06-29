@@ -15,6 +15,7 @@ image = (
         "python-dotenv",
         "fastapi",
         "supabase",
+        "supermemory",
     )
     .add_local_dir("./agent", remote_path="/root/agent")
 )
@@ -62,7 +63,7 @@ def send_sms(content: str):
             print("Response body:", e.read().decode("utf-8"))
 
 
-# --- Scheduled scout: every 4 hours ---
+# --- Scheduled scout: every 4 hours (4-turn reflection loop) ---
 @app.function(
     image=image,
     secrets=[modal.Secret.from_name("vc-scout-secrets")],
@@ -71,27 +72,88 @@ def send_sms(content: str):
     min_containers=1,
 )
 def scout_scheduled():
-    prompt = "System: Execute a scheduled scouting sweep. Use Exa to find new pre-seed AI startups based on the thesis, read their pages, score them, and save the promising ones. Reply with a summary of what you found."
-    res = run_agent({"mode": "text", "message": prompt, "sender": "system"})
+    res = run_agent({"mode": "scout"})
     reply = res.get("reply", "Sweep finished with no report.")
     send_sms(f"Scheduled sweep complete.\n\nAgent Report:\n{reply}")
+    sync_on_demand.spawn()
     return res
 
 
-
-
-# --- Enrichment: called on approval ---
+# --- Sync: mirror Supermemory -> Supabase ---
 @app.function(
     image=image,
     secrets=[modal.Secret.from_name("vc-scout-secrets")],
-    timeout=1200,
-    min_containers=1,
+    schedule=modal.Cron("*/30 * * * *"),
+    timeout=300,
+)
+def sync_scheduled():
+    import sys
+    sys.path.insert(0, "/root/agent")
+    from sync import sync
+    sync()
+
+
+@app.function(
+    image=image,
+    secrets=[modal.Secret.from_name("vc-scout-secrets")],
+    timeout=300,
+)
+def sync_on_demand():
+    import sys
+    sys.path.insert(0, "/root/agent")
+    from sync import sync
+    sync()
+
+
+# --- Enrichment: triggered by dashboard, writes directly to Supabase (no agent) ---
+@app.function(
+    image=image,
+    secrets=[modal.Secret.from_name("vc-scout-secrets")],
+    timeout=300,
 )
 @modal.fastapi_endpoint(method="POST")
 def enrich_startup(payload: dict):
-    res = run_agent({"mode": "enrich", "slug": payload.get("slug")})
-    send_sms(f"Enriched startup: {payload.get('slug')}")
-    return res
+    import sys
+    import os
+    import asyncio
+    sys.path.insert(0, "/root/agent")
+    from tools.exa import search_company, search_people
+    from supabase import create_client
+
+    slug = payload.get("slug")
+    name = payload.get("name")
+
+    sb = create_client(
+        os.environ["SUPABASE_URL"],
+        os.environ["SUPABASE_SERVICE_ROLE_KEY"],
+    )
+
+    sb.table("startups").update({"enrichment_status": "running"}).eq("slug", slug).execute()
+
+    try:
+        company = asyncio.run(search_company(f"{name} startup company"))
+        people = asyncio.run(search_people(f"founder CEO {name}"))
+
+        founders = [
+            {
+                "name": p.get("title", ""),
+                "background": (p.get("text", "") or "")[:300],
+                "linkedin": p.get("url", ""),
+            }
+            for p in people[:3]
+        ]
+        company_text = company[0].get("text", "") if company else ""
+
+        sb.table("startups").update({
+            "company_description": company_text[:1000],
+            "founders": founders,
+            "enrichment_status": "complete",
+        }).eq("slug", slug).execute()
+    except Exception as e:
+        sb.table("startups").update({"enrichment_status": "pending"}).eq("slug", slug).execute()
+        return {"status": "error", "slug": slug, "error": str(e)}
+
+    return {"status": "enriched", "slug": slug}
 
 
 # --- Background task: SendBlue reply ---
@@ -109,6 +171,9 @@ def chat_reply_background(message: str, sender: str, message_handle: str = None)
     # Send outbound SMS reply
     if reply:
         send_sms(reply)
+
+    # Mirror any memory changes the agent made into Supabase for the dashboard
+    sync_on_demand.spawn()
 
 # --- SendBlue inbound webhook: yes/no replies ---
 @app.function(
