@@ -32,12 +32,20 @@ def _extract_signal_urls(content: str) -> list[str]:
 
 
 def sync():
-    """Mirror the agent's Supermemory state into Supabase for the dashboard to read."""
+    """Mirror the agent's Supermemory state into Supabase for the dashboard to read.
+
+    The dashboard owns `status` and all enrichment columns. For startups that
+    already exist in Supabase we only refresh agent-owned content fields, so a
+    dashboard approve/pass is never clobbered by a later sync.
+    """
     sm = Supermemory()
     sb = create_client(
         os.environ["SUPABASE_URL"],
         os.environ["SUPABASE_SERVICE_ROLE_KEY"],
     )
+
+    existing = sb.table("startups").select("slug").execute()
+    existing_slugs = {row["slug"] for row in (existing.data or [])}
 
     docs = sm.documents.list(container_tags=["vc:startups"], include_content=True)
     for doc in getattr(docs, "memories", []):
@@ -48,17 +56,27 @@ def sync():
         ).strip("-")
         if not slug:
             continue
-        sb.table("startups").upsert({
-            "slug": slug,
+
+        # Agent-owned content fields, always safe to refresh.
+        content_fields = {
             "name": meta.get("name", "") or _extract_field(content, "Name"),
             "website": meta.get("website") or _extract_field(content, "Website"),
             "one_liner": meta.get("one_liner", "") or _extract_field(content, "One-liner"),
-            "status": meta.get("status", "new"),
-            "found_date": meta.get("found_date"),
             "assessment": _extract_assessment(content),
             "signal_urls": _extract_signal_urls(content),
             "updated_at": getattr(doc, "updated_at", None) or _now(),
-        }).execute()
+        }
+
+        if slug in existing_slugs:
+            # Preserve dashboard-owned fields (status, enrichment_*).
+            sb.table("startups").update(content_fields).eq("slug", slug).execute()
+        else:
+            sb.table("startups").insert({
+                "slug": slug,
+                "status": meta.get("status", "new"),
+                "found_date": meta.get("found_date"),
+                **content_fields,
+            }).execute()
 
     # Sync thesis too
     thesis_docs = sm.documents.list(container_tags=["vc:thesis"], include_content=True)
