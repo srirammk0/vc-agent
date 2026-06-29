@@ -69,6 +69,17 @@ CREATE TABLE founders (
     content TEXT NOT NULL
 );
 
+-- 7. Grant privileges to service_role, anon, and authenticated roles
+GRANT ALL PRIVILEGES ON TABLE thesis TO postgres, service_role, anon, authenticated;
+GRANT ALL PRIVILEGES ON TABLE startups TO postgres, service_role, anon, authenticated;
+GRANT ALL PRIVILEGES ON TABLE learning_patterns TO postgres, service_role, anon, authenticated;
+GRANT ALL PRIVILEGES ON TABLE memory_notes TO postgres, service_role, anon, authenticated;
+GRANT ALL PRIVILEGES ON TABLE runs TO postgres, service_role, anon, authenticated;
+GRANT ALL PRIVILEGES ON TABLE founders TO postgres, service_role, anon, authenticated;
+
+-- 8. Grant sequence privileges for auto-incrementing serial columns
+GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO postgres, service_role, anon, authenticated;
+
 """
 
 import sys
