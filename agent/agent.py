@@ -72,15 +72,20 @@ class AgentDeps:
     typing_thread: threading.Thread = None
     stop_typing: threading.Event = None
 
+from pydantic_ai.capabilities import Hooks
+
+hooks = Hooks()
+
 # --- TEXT HANDLER AGENT ---
 
 text_agent = Agent(
     model,
     deps_type=AgentDeps,
+    capabilities=[hooks],
     system_prompt="You are a smart assistant for a VC. Your boss texts you to manage startup dealflow.",
 )
 
-@text_agent.hooks.before_model_request
+@hooks.on.before_model_request
 def start_typing_indicator(ctx: RunContext[AgentDeps], messages: list) -> None:
     deps = ctx.deps
     if not deps or not deps.phone_number:
@@ -117,7 +122,7 @@ def start_typing_indicator(ctx: RunContext[AgentDeps], messages: list) -> None:
     deps.typing_thread = threading.Thread(target=typing_loop)
     deps.typing_thread.start()
 
-@text_agent.hooks.after_model_request
+@hooks.on.after_model_request
 def stop_typing_indicator(ctx: RunContext[AgentDeps], message) -> None:
     deps = ctx.deps
     if not deps:
