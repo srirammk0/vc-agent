@@ -70,19 +70,6 @@ def scout_scheduled():
     return res
 
 
-# --- Social monitor: every 4 hours ---
-@app.function(
-    image=image,
-    secrets=[modal.Secret.from_name("vc-scout-secrets")],
-    schedule=modal.Cron("0 */4 * * *"),
-    timeout=60,
-)
-def social_monitor():
-    res = run_agent({"mode": "scout"})
-    if res.get("found", 0) > 0:
-        send_sms(f"Social monitor sweep complete. Found {res.get('found')} new startups.")
-    return res
-
 
 # --- On-demand: called from dashboard "Run Now" ---
 @app.function(
