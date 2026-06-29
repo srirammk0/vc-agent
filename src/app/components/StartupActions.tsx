@@ -34,6 +34,11 @@ export default function StartupActions({
     enrichment_status: enrichmentStatus,
     company_description: companyDescription,
     founders,
+    stage: null,
+    raised: null,
+    location: null,
+    founded: null,
+    team_size: null,
   });
 
   async function setStatus(next: "approved" | "passed") {
@@ -62,6 +67,11 @@ export default function StartupActions({
   const enriched = hasEnrichmentData({
     company_description: companyDescription,
     founders,
+    stage: null,
+    raised: null,
+    location: null,
+    founded: null,
+    team_size: null,
   });
 
   return (

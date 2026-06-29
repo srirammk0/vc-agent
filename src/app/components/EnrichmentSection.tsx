@@ -6,19 +6,27 @@ import type { Founder, Startup } from "../../lib/supabase";
 import { hasEnrichmentData } from "../../lib/enrichment";
 
 type Props = {
-  startup: Pick<
-    Startup,
-    | "slug"
-    | "enrichment_status"
-    | "company_description"
-    | "founders"
-    | "stage"
-    | "raised"
-    | "location"
-    | "founded"
-    | "team_size"
-  >;
+  startup: Pick<Startup, "slug" | "enrichment_status"> & EnrichmentFields;
 };
+
+type EnrichmentFields = Pick<
+  Startup,
+  | "company_description"
+  | "founders"
+  | "stage"
+  | "raised"
+  | "location"
+  | "founded"
+  | "team_size"
+>;
+
+const META_FIELDS: { key: keyof EnrichmentFields; label: string }[] = [
+  { key: "stage", label: "Stage" },
+  { key: "raised", label: "Raised" },
+  { key: "location", label: "Location" },
+  { key: "founded", label: "Founded" },
+  { key: "team_size", label: "Team" },
+];
 
 export default function EnrichmentSection({ startup }: Props) {
   const router = useRouter();
@@ -51,6 +59,7 @@ export default function EnrichmentSection({ startup }: Props) {
 
   const founders = (data.founders ?? []) as Founder[];
   const enriched = hasEnrichmentData(data);
+  const metaItems = META_FIELDS.filter(({ key }) => data[key]);
 
   return (
     <div
@@ -73,23 +82,83 @@ export default function EnrichmentSection({ startup }: Props) {
           Not yet enriched. Click Enrich above to fetch company and founder data.
         </p>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {data.company_description && (
-            <p style={{ fontSize: 14, lineHeight: "20px" }}>
-              {data.company_description}
-            </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          {metaItems.length > 0 && (
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))",
+                gap: 12,
+              }}
+            >
+              {metaItems.map(({ key, label }) => (
+                <div
+                  key={key}
+                  style={{
+                    background: "#F7F7F7",
+                    borderRadius: 10,
+                    padding: "12px 14px",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: "#999999",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.04em",
+                      marginBottom: 4,
+                    }}
+                  >
+                    {label}
+                  </div>
+                  <div style={{ fontSize: 14, color: "#171717" }}>
+                    {data[key] as string}
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
-          <div style={{ display: "flex", gap: 24, flexWrap: "wrap", fontSize: 13 }}>
-            {data.stage && <Meta label="Stage" value={data.stage} />}
-            {data.raised && <Meta label="Raised" value={data.raised} />}
-            {data.location && <Meta label="Location" value={data.location} />}
-            {data.founded && <Meta label="Founded" value={data.founded} />}
-            {data.team_size && <Meta label="Team size" value={data.team_size} />}
-          </div>
+
+          {data.company_description && (
+            <div>
+              <h3
+                style={{
+                  fontSize: 13,
+                  color: "#999999",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.04em",
+                  margin: "0 0 8px",
+                }}
+              >
+                Overview
+              </h3>
+              <p
+                style={{
+                  fontSize: 14,
+                  lineHeight: "22px",
+                  color: "#171717",
+                  margin: 0,
+                }}
+              >
+                {data.company_description}
+              </p>
+            </div>
+          )}
+
           {founders.length > 0 && (
             <div>
-              <h3 style={{ fontSize: 21, margin: "8px 0" }}>Founders</h3>
-              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <h3
+                style={{
+                  fontSize: 13,
+                  color: "#999999",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.04em",
+                  margin: "0 0 12px",
+                }}
+              >
+                Founders
+              </h3>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {founders.map((f, i) => (
                   <div
                     key={i}
@@ -97,29 +166,47 @@ export default function EnrichmentSection({ startup }: Props) {
                       border: "1px solid #F0F0F0",
                       borderRadius: 12,
                       padding: 16,
+                      background: "#FFFFFF",
                     }}
                   >
-                    <div style={{ fontSize: 14 }}>{f.name || "Unknown"}</div>
-                    {f.background && (
-                      <div
-                        style={{ fontSize: 13, color: "#616061", marginTop: 4 }}
-                      >
-                        {f.background}
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "flex-start",
+                        gap: 12,
+                      }}
+                    >
+                      <div style={{ fontSize: 15, color: "#171717" }}>
+                        {f.name || "Unknown"}
                       </div>
-                    )}
-                    {f.linkedin && (
-                      <a
-                        href={f.linkedin}
-                        target="_blank"
-                        rel="noreferrer"
+                      {f.linkedin && (
+                        <a
+                          href={f.linkedin}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{
+                            fontSize: 12,
+                            color: "#007AFF",
+                            textDecoration: "none",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          linkedin →
+                        </a>
+                      )}
+                    </div>
+                    {f.background && (
+                      <p
                         style={{
                           fontSize: 13,
-                          color: "#007AFF",
-                          textDecoration: "none",
+                          lineHeight: "20px",
+                          color: "#616061",
+                          margin: "8px 0 0",
                         }}
                       >
-                        profile
-                      </a>
+                        {f.background}
+                      </p>
                     )}
                   </div>
                 ))}
@@ -128,15 +215,6 @@ export default function EnrichmentSection({ startup }: Props) {
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-function Meta({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <div style={{ color: "#999999", fontSize: 12 }}>{label}</div>
-      <div style={{ color: "#171717", fontSize: 14 }}>{value}</div>
     </div>
   );
 }

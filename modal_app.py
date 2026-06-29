@@ -185,26 +185,30 @@ def enrich_startup(payload: dict):
         company = asyncio.run(search_company(f"{name} startup company"))
         people = asyncio.run(search_people(f"founder CEO {name}"))
 
-        company_text = company[0].get("text", "") if company else ""
+        from enrich import structure_enrichment, has_enrichment_content
 
-        founders = [
-            {
-                "name": p.get("title", ""),
-                "background": (p.get("text", "") or "")[:300],
-                "linkedin": p.get("url", ""),
-            }
-            for p in people[:3]
-        ]
-        has_data = bool(company_text.strip()) or any(
-            f.get("name") or f.get("background") or f.get("linkedin") for f in founders
-        )
+        structured = asyncio.run(structure_enrichment(name, company, people))
 
-        if not has_data:
+        if not structured or not has_enrichment_content(structured):
             sb.table("startups").update({"enrichment_status": "pending"}).eq("slug", slug).execute()
             return {"status": "no_data", "slug": slug}
 
+        founders = [
+            {
+                "name": f.name,
+                "background": f.background[:500],
+                "linkedin": f.linkedin or "",
+            }
+            for f in structured.founders[:5]
+        ]
+
         sb.table("startups").update({
-            "company_description": company_text[:1000],
+            "company_description": structured.company_description[:1500],
+            "founded": structured.founded,
+            "location": structured.location,
+            "team_size": structured.team_size,
+            "stage": structured.stage,
+            "raised": structured.raised,
             "founders": founders,
             "enrichment_status": "complete",
         }).eq("slug", slug).execute()
