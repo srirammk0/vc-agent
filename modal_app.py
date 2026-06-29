@@ -71,18 +71,6 @@ def scout_scheduled():
 
 
 
-# --- On-demand: called from dashboard "Run Now" ---
-@app.function(
-    image=image,
-    secrets=[modal.Secret.from_name("vc-scout-secrets")],
-    timeout=180,
-)
-@modal.fastapi_endpoint(method="POST")
-def scout_on_demand(payload: dict = {}):
-    res = run_agent({"mode": "scout", **payload})
-    send_sms(f"Manual sweep complete. Found {res.get('found', 0)} new startups.")
-    return res
-
 
 # --- Enrichment: called on approval ---
 @app.function(

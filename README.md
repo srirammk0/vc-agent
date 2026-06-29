@@ -10,9 +10,9 @@ Automated pre-seed startup scout. A Python agent (Pydantic AI + DeepSeek V4 Pro 
 ┌──────────────────┐   cron 7am/6pm PT     ┌──────────────────┐
 │  Modal           │◄──────────────────────│ scout_scheduled  │
 │                  │                       └──────────────────┘
-│  Python agent    │◄── POST /scout_demand ┌──────────────────┐
+│  Python agent    │◄── POST /enrich_start─┌──────────────────┐
 │  (agent/main.py) │                       │ Next.js (Vercel) │
-│                  │◄── POST /enrich_start─│ dashboard        │
+│                  │                       │ dashboard        │
 │                  │                       └──────────────────┘
 │                  │◄── SendBlue webhook ── (Inbound SMS)
 └────────┬─────────┘
@@ -37,7 +37,6 @@ Trigger.dev has been completely removed in favor of **Modal** for sub-second col
 | Endpoint | Trigger | What it does |
 |---|---|---|
 | `scout_scheduled` | Cron (7am, 6pm PT) | Daily deep-dive Exa scout |
-| `scout_on_demand` | Dashboard POST | Manual scout |
 | `enrich_startup` | Dashboard POST | Deep Exa company/people research |
 | `sendblue_webhook` | SMS Webhook | Chat and approve/pass commands via SMS |
 
@@ -65,7 +64,6 @@ Set these via `modal secret create vc-scout-secrets [KEY=VALUE ...]`:
 | Variable | Purpose |
 |---|---|
 | `BLOB_READ_WRITE_TOKEN` | Dashboard reads startups from Blob |
-| `MODAL_SCOUT_URL` | URL to trigger manual scout |
 | `MODAL_ENRICH_URL` | URL to trigger enrichment |
 
 *(The `MODAL_WEBHOOK_URL` goes directly into your SendBlue dashboard settings, bypassing Vercel completely).*
