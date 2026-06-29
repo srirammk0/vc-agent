@@ -19,7 +19,7 @@ cerebras_client = AsyncOpenAI(
 )
 
 model = OpenAIChatModel(
-    "llama3.1-70b",
+    "gpt-120b-oss",
     provider=OpenAIProvider(openai_client=cerebras_client),
 )
 
