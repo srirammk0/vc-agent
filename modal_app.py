@@ -103,8 +103,30 @@ def chat_reply_background(message: str, sender: str, message_handle: str = None)
         "Content-Type": "application/json",
     }
     
-    # 1. Send tapback reaction (like)
+    # 1. Send tapback reaction (agent dynamically chooses reaction)
     if message_handle:
+        reaction = "like"
+        try:
+            from openai import OpenAI
+            client = OpenAI(
+                base_url="https://api.cerebras.ai/v1",
+                api_key=os.environ.get("CEREBRAS_API_KEY", ""),
+            )
+            response = client.chat.completions.create(
+                model="gpt-oss-120b",
+                messages=[
+                    {"role": "system", "content": "You are an iMessage reaction classifier. Respond with exactly one of these lowercase strings: love, like, dislike, laugh, emphasize, question. Choose based on the message. No formatting, no extra words."},
+                    {"role": "user", "content": message}
+                ],
+                max_tokens=10,
+                temperature=0.0
+            )
+            chosen = response.choices[0].message.content.strip().lower()
+            if chosen in ["love", "like", "dislike", "laugh", "emphasize", "question"]:
+                reaction = chosen
+        except Exception as e:
+            print("Failed to choose reaction with LLM", e)
+            
         try:
             urllib.request.urlopen(urllib.request.Request(
                 "https://api.sendblue.co/api/send-reaction",
@@ -112,7 +134,7 @@ def chat_reply_background(message: str, sender: str, message_handle: str = None)
                     "number": sender,
                     "from_number": os.environ.get("SENDBLUE_FROM_NUMBER", ""),
                     "message_handle": message_handle,
-                    "reaction": "like"
+                    "reaction": reaction
                 }).encode("utf-8"),
                 headers=headers,
                 method="POST"
@@ -147,6 +169,7 @@ def chat_reply_background(message: str, sender: str, message_handle: str = None)
     image=image,
     secrets=[modal.Secret.from_name("vc-scout-secrets")],
     timeout=60,
+    min_containers=1,
 )
 @modal.fastapi_endpoint(method="POST")
 async def sendblue_webhook(request: dict):
