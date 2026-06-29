@@ -121,9 +121,11 @@ def chat_reply_background(message: str, sender: str, message_handle: str = None)
                 max_tokens=10,
                 temperature=0.0
             )
-            chosen = response.choices[0].message.content.strip().lower()
-            if chosen in ["love", "like", "dislike", "laugh", "emphasize", "question"]:
-                reaction = chosen
+            content = response.choices[0].message.content
+            if content:
+                chosen = content.strip().lower()
+                if chosen in ["love", "like", "dislike", "laugh", "emphasize", "question"]:
+                    reaction = chosen
         except Exception as e:
             print("Failed to choose reaction with LLM", e)
             
@@ -142,45 +144,11 @@ def chat_reply_background(message: str, sender: str, message_handle: str = None)
         except Exception:
             pass
 
-    # 2. Start typing indicator loop in a background thread
-    import threading
-    import time
+    # 2. Run agent to get response (which handles typing internally via lifecycle hooks)
+    result = run_agent({"mode": "text", "message": message, "sender": sender})
+    reply = result.get("reply", "")
     
-    stop_typing = threading.Event()
-    
-    def typing_loop():
-        while not stop_typing.is_set():
-            try:
-                urllib.request.urlopen(urllib.request.Request(
-                    "https://api.sendblue.co/api/send-typing-indicator",
-                    data=json.dumps({
-                        "number": sender,
-                        "from_number": os.environ.get("SENDBLUE_FROM_NUMBER", "")
-                    }).encode("utf-8"),
-                    headers=headers,
-                    method="POST"
-                ))
-            except Exception:
-                pass
-            # Wait for 3 seconds, checking every 100ms if we should stop
-            for _ in range(30):
-                if stop_typing.is_set():
-                    break
-                time.sleep(0.1)
-
-    t = threading.Thread(target=typing_loop)
-    t.start()
-
-    # 3. Run agent to get response
-    try:
-        result = run_agent({"mode": "text", "message": message})
-        reply = result.get("reply", "")
-    finally:
-        # Stop typing indicator loop
-        stop_typing.set()
-        t.join()
-    
-    # 4. Send outbound SMS reply
+    # 3. Send outbound SMS reply
     if reply:
         send_sms(reply)
 

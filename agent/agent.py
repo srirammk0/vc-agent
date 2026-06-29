@@ -2,6 +2,10 @@ import os
 import json
 import asyncio
 from datetime import datetime, timezone
+from dataclasses import dataclass
+import threading
+import time
+import urllib.request
 from pydantic_ai import Agent, RunContext, ToolDefinition
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
@@ -59,12 +63,70 @@ Return only a JSON array of query strings.
 """
 
 
+@dataclass
+class AgentDeps:
+    phone_number: str
+    from_number: str
+    sb_key: str
+    sb_secret: str
+    typing_thread: threading.Thread = None
+    stop_typing: threading.Event = None
+
 # --- TEXT HANDLER AGENT ---
 
 text_agent = Agent(
     model,
+    deps_type=AgentDeps,
     system_prompt="You are a smart assistant for a VC. Your boss texts you to manage startup dealflow.",
 )
+
+@text_agent.hooks.before_model_request
+def start_typing_indicator(ctx: RunContext[AgentDeps], messages: list) -> None:
+    deps = ctx.deps
+    if not deps or not deps.phone_number:
+        return
+    if deps.typing_thread and deps.typing_thread.is_alive():
+        return
+        
+    deps.stop_typing = threading.Event()
+    headers = {
+        "sb-api-key-id": deps.sb_key,
+        "sb-api-secret-key": deps.sb_secret,
+        "Content-Type": "application/json",
+    }
+    
+    def typing_loop():
+        while not deps.stop_typing.is_set():
+            try:
+                urllib.request.urlopen(urllib.request.Request(
+                    "https://api.sendblue.co/api/send-typing-indicator",
+                    data=json.dumps({
+                        "number": deps.phone_number,
+                        "from_number": deps.from_number
+                    }).encode("utf-8"),
+                    headers=headers,
+                    method="POST"
+                ))
+            except Exception:
+                pass
+            for _ in range(30):
+                if deps.stop_typing.is_set():
+                    break
+                time.sleep(0.1)
+
+    deps.typing_thread = threading.Thread(target=typing_loop)
+    deps.typing_thread.start()
+
+@text_agent.hooks.after_model_request
+def stop_typing_indicator(ctx: RunContext[AgentDeps], message) -> None:
+    deps = ctx.deps
+    if not deps:
+        return
+    if deps.stop_typing:
+        deps.stop_typing.set()
+    if deps.typing_thread:
+        deps.typing_thread.join()
+        deps.typing_thread = None
 
 @text_agent.system_prompt
 def text_handler_prompt(ctx: RunContext) -> str:
@@ -120,7 +182,7 @@ async def run_scout() -> dict:
     result = await scout_agent.run("Generate the 8 Exa queries now. Only output the JSON array.")
     
     try:
-        raw = result.data
+        raw = result.output
         if "```json" in raw:
             raw = raw.split("```json")[1].split("```")[0]
         queries = json.loads(raw)
@@ -219,14 +281,21 @@ async def run_enrich(slug: str) -> dict:
     return {"status": "enriched"}
 
 
-async def run_text_handler(message: str, slug: str = None) -> dict:
+async def run_text_handler(message: str, slug: str = None, sender: str = None) -> dict:
     # If slug is provided, we can pass it as context.
     prompt = f"The boss sent this message: '{message}'. Handle it."
     if slug:
         prompt += f" Context startup pending: {slug}."
         
-    res = await text_agent.run(prompt)
-    return {"reply": res.data}
+    deps = AgentDeps(
+        phone_number=sender or os.environ.get("ALERT_PHONE_NUMBER", ""),
+        from_number=os.environ.get("SENDBLUE_FROM_NUMBER", ""),
+        sb_key=os.environ.get("SENDBLUE_API_KEY", ""),
+        sb_secret=os.environ.get("SENDBLUE_API_SECRET", "")
+    )
+        
+    res = await text_agent.run(prompt, deps=deps)
+    return {"reply": res.output}
 
 
 async def run_agent(payload: dict) -> dict:
@@ -237,6 +306,6 @@ async def run_agent(payload: dict) -> dict:
     elif mode == "enrich":
         return await run_enrich(payload.get("slug"))
     elif mode == "text":
-        return await run_text_handler(payload.get("message"), payload.get("slug"))
+        return await run_text_handler(payload.get("message"), payload.get("slug"), payload.get("sender"))
         
     return {"error": "unknown mode"}
