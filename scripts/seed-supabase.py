@@ -33,28 +33,21 @@ CREATE TABLE startups (
     found_date TEXT
 );
 
--- 2. Create memory_notes table
-CREATE TABLE memory_notes (
-    id SERIAL PRIMARY KEY,
-    ts TEXT NOT NULL,
-    note TEXT NOT NULL
-);
-
--- 3. Create learning_patterns table
+-- 2. Create learning_patterns table
 CREATE TABLE learning_patterns (
     id SERIAL PRIMARY KEY,
     type TEXT NOT NULL, -- 'approved' or 'passed'
     pattern TEXT NOT NULL
 );
 
--- 4. Create thesis table
+-- 3. Create thesis table
 CREATE TABLE thesis (
     id INTEGER PRIMARY KEY DEFAULT 1,
     content TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
 
--- 5. Create runs table
+-- 4. Create runs table
 CREATE TABLE runs (
     id SERIAL PRIMARY KEY,
     ts TEXT NOT NULL,
@@ -63,21 +56,20 @@ CREATE TABLE runs (
     found INTEGER NOT NULL
 );
 
--- 6. Create founders table
+-- 5. Create founders table
 CREATE TABLE founders (
     slug TEXT PRIMARY KEY,
     content TEXT NOT NULL
 );
 
--- 7. Grant privileges to service_role, anon, and authenticated roles
+-- 6. Grant privileges to service_role, anon, and authenticated roles
 GRANT ALL PRIVILEGES ON TABLE thesis TO postgres, service_role, anon, authenticated;
 GRANT ALL PRIVILEGES ON TABLE startups TO postgres, service_role, anon, authenticated;
 GRANT ALL PRIVILEGES ON TABLE learning_patterns TO postgres, service_role, anon, authenticated;
-GRANT ALL PRIVILEGES ON TABLE memory_notes TO postgres, service_role, anon, authenticated;
 GRANT ALL PRIVILEGES ON TABLE runs TO postgres, service_role, anon, authenticated;
 GRANT ALL PRIVILEGES ON TABLE founders TO postgres, service_role, anon, authenticated;
 
--- 8. Grant sequence privileges for auto-incrementing serial columns
+-- 7. Grant sequence privileges for auto-incrementing serial columns
 GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO postgres, service_role, anon, authenticated;
 
 """

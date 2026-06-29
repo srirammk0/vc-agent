@@ -11,10 +11,9 @@ from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from openai import AsyncOpenAI
 
-from tools.exa import search_x, search_linkedin, search_hn, search_ph, get_contents, search_company, search_people
-from tools.firecrawl import scrape_page
-from tools.scorer import calculate_score, apply_hard_filters
-from models import Startup, Founder, ScoreBreakdown, EnrichmentData
+from tools.exa import exa, search_company, search_people
+from tools.scorer import calculate_score
+from models import Startup, ScoreBreakdown, EnrichmentData
 import memory
 
 cerebras_client = AsyncOpenAI(
@@ -27,48 +26,13 @@ model = OpenAIChatModel(
     provider=OpenAIProvider(openai_client=cerebras_client),
 )
 
-
-# --- SCOUT AGENT ---
-
-scout_agent = Agent(
-    model,
-    system_prompt="You are a VC scout. Generate Exa queries based on the given thesis and patterns to find pre-seed AI startups. Return JSON array of strings.",
-    # Actually, we can use a simpler agent or just direct call for scout queries.
-)
-
-@scout_agent.system_prompt
-def scout_prompt(ctx: RunContext) -> str:
-    thesis = memory.load_thesis()
-    approved = memory.load_approved_patterns()
-    passed = memory.load_passed_patterns()
-    
-    return f"""You are generating Exa search queries to find pre-seed AI startups.
-
-Your core thesis is:
-{thesis}
-
-Read these approved startup patterns to understand what we want:
-{approved}
-
-Read these passed startup patterns to understand what to avoid:
-{passed}
-
-Generate 8 Exa search queries that would find more startups like the approved ones
-and avoid the patterns in the passed ones.
-
-Prioritize: early traction signals, obscurity, strong founders, no press.
-Avoid: funding announcements, media coverage, well-known names.
-
-Return only a JSON array of query strings.
-"""
-
-
 @dataclass
 class AgentDeps:
     phone_number: str
     from_number: str
     sb_key: str
     sb_secret: str
+    message_handle: str = None
     typing_thread: threading.Thread = None
     stop_typing: threading.Event = None
 
@@ -76,13 +40,11 @@ from pydantic_ai.capabilities import Hooks
 
 hooks = Hooks()
 
-# --- TEXT HANDLER AGENT ---
-
 text_agent = Agent(
     model,
     deps_type=AgentDeps,
     capabilities=[hooks],
-    system_prompt="You are a smart assistant for a VC. Your boss texts you to manage startup dealflow. Keep your responses super informal, casual, lowercase, concise, and sound like a human sending a quick iMessage. Use texting talk/slang naturally, do not use emojis at all, and never use greetings or say 'hey'. Use whitespace (empty lines) to separate thoughts.",
+    system_prompt="You are a smart assistant for a VC. Your boss texts you to manage startup dealflow and do deep research. Keep your responses super informal, casual, lowercase, concise, and sound like a human sending a quick iMessage. Use texting talk/slang naturally, do not use emojis at all, and never use greetings or say 'hey'. Use exactly 1 empty line of whitespace to separate thoughts.",
 )
 
 @hooks.on.before_model_request
@@ -141,15 +103,25 @@ def text_handler_prompt(ctx: RunContext) -> str:
     approved = memory.load_approved_patterns()
     passed = memory.load_passed_patterns()
     
-    # Fetch pending startups list to give the agent context of what's currently in review
     pending_list = [s for s in memory.get_all_startups() if s.status == "new"]
     pending_str = "\n".join([f"- {s.name} (slug: {s.slug}, score: {s.score.total}) - {s.one_liner}" for s in pending_list]) if pending_list else "none"
 
-    return f"""You process inbound iMessage texts from your boss.
-You have tools to approve or pass a startup, or check pending ones.
-If the boss says "yes" or "approve [startup]", use `approve_startup`.
-If they say "no" or "pass [startup]", use `pass_startup`.
-If the slug is not provided in text, you should infer it from the pending startups.
+    return f"""You process inbound texts or system triggers for the VC workflow.
+You are fully autonomous and have tools to manage the entire venture capital workflow, search the web, scrape pages, and check the Supabase database.
+
+If asked to "find new startups" or run a "scout sweep", you MUST:
+1. Formulate Exa search queries based on our thesis and learning patterns.
+2. Use `exa_deep_search` to find new pre-seed AI startups and read their website contents simultaneously.
+3. Score them immediately against the thesis based on the deep search results.
+4. Use `save_new_startup` to store good candidates in Supabase.
+(Do this autonomously and extremely fast, you are under a 10-minute time limit).
+
+Other Tool Use:
+- To approve or pass, use `approve_startup` / `pass_startup`.
+- To check DB state, use `check_supabase_startups`, `check_supabase_runs`, or `check_startup_details`.
+- To research further, use `enrich_startup_research`.
+- You can react to texts using `send_tapback_reaction` (e.g., 'love', 'like', 'laugh'). You are welcome to still reply with a text even if you tapback.
+If the slug is not provided, infer it from the pending startups.
 
 Your core thesis is:
 {thesis}
@@ -171,7 +143,7 @@ Style rules:
 - Do NOT use emojis at all.
 - Do NOT say "hey" or "hi" or greet the user. Assume this is a continuation of an ongoing chat (no greetings).
 - Do NOT use em dashes (—). Use hyphens (-) or standard punctuation.
-- Use whitespace (empty lines) to separate things for easy readability.
+- Use exactly 1 line of whitespace (one empty line) to separate things for easy readability.
 """
 
 def make_non_strict(ctx: RunContext, tool_def: ToolDefinition) -> ToolDefinition:
@@ -186,8 +158,6 @@ def approve_startup(ctx: RunContext, slug: str) -> str:
         return f"Startup {slug} not found."
     startup.status = "approved"
     memory.save_startup(startup)
-    # The actual enrichment Trigger task will be fired by the Next.js API or here, but 
-    # since we're in text_agent, we can just return a message saying it's approved.
     return f"Approved {startup.name}."
 
 @text_agent.tool(prepare=make_non_strict)
@@ -227,10 +197,53 @@ def add_learning_pattern(ctx: RunContext, pattern_type: str, pattern: str) -> st
     return f"Successfully added {pattern_type} pattern."
 
 @text_agent.tool(prepare=make_non_strict)
-async def trigger_scout_sweep(ctx: RunContext) -> str:
-    """Trigger a full scouting sweep to search for and score new AI startups based on our investment thesis."""
-    res = await run_scout()
-    return f"Scouting sweep completed. Found and saved {res.get('found', 0)} new startups."
+async def exa_deep_search(ctx: RunContext, query: str) -> str:
+    """Search the web for specific queries and immediately return the deep text content of the top results for ultra-fast research."""
+    try:
+        res = await asyncio.to_thread(
+            exa.search_and_contents,
+            query,
+            num_results=3,
+            text={"max_characters": 2000}
+        )
+        results = []
+        for r in getattr(res, "results", []):
+            content = r.text if hasattr(r, 'text') and r.text else "No content"
+            results.append(f"Title: {r.title}\nURL: {r.url}\nContent: {content}\n---")
+        return "\n".join(results) if results else "No results found."
+    except Exception as e:
+        return f"Exa search failed: {e}"
+
+@text_agent.tool(prepare=make_non_strict)
+def save_new_startup(ctx: RunContext, name: str, slug: str, one_liner: str, url: str, what_they_do: str, founder_pedigree: int, ai_native: int, early_traction: int, obscurity_bonus: int, recency: int, warm_intro_potential: int) -> str:
+    """Save a newly discovered startup to the database after scoring it.
+    Provide score components out of their max points (founder_pedigree/25, ai_native/20, early_traction/20, obscurity_bonus/15, recency/10, warm_intro_potential/10).
+    """
+    sb = ScoreBreakdown(
+        founder_pedigree=founder_pedigree,
+        ai_native=ai_native,
+        early_traction=early_traction,
+        obscurity_bonus=obscurity_bonus,
+        recency=recency,
+        warm_intro_potential=warm_intro_potential,
+        total=0 # Will be calculated
+    )
+    
+    sb = calculate_score(sb.model_dump(), num_sources=1)
+    
+    s = Startup(
+        name=name,
+        slug=slug,
+        one_liner=one_liner,
+        what_they_do=what_they_do,
+        founders=[],
+        score=sb,
+        status="new",
+        signal_urls=[url]
+    )
+    memory.save_startup(s)
+    memory.log_run("agentic_scout", f"Agent discovered and saved {name}.", 1)
+    return f"Successfully saved {name} to Supabase with total score {sb.total}."
 
 @text_agent.tool(prepare=make_non_strict)
 async def enrich_startup_research(ctx: RunContext, slug: str) -> str:
@@ -241,96 +254,64 @@ async def enrich_startup_research(ctx: RunContext, slug: str) -> str:
     return f"Enriched startup {slug} and scraped founder details."
 
 @text_agent.tool(prepare=make_non_strict)
-async def exa_web_search(ctx: RunContext, query: str) -> str:
-    """Search the web or socials using Exa for specific queries, returning titles, URLs, and summaries."""
-    from tools.exa import exa
-    try:
-        res = await asyncio.to_thread(
-            exa.search,
-            query,
-            num_results=5,
-            highlights=True
-        )
-        results = []
-        for r in getattr(res, "results", []):
-            hl = r.highlights[0] if getattr(r, "highlights", None) else ""
-            results.append(f"- [{r.title}]({r.url})\n  Highlight: {hl}")
-        return "\n".join(results) if results else "No results found."
-    except Exception as e:
-        return f"Exa search failed: {e}"
+def check_supabase_runs(ctx: RunContext) -> str:
+    """Check the recent background runs (scouts, enrichments) from the Supabase database."""
+    runs = memory.get_recent_runs()
+    if not runs:
+        return "No recent runs found."
+    return json.dumps(runs)
 
+@text_agent.tool(prepare=make_non_strict)
+def check_supabase_startups(ctx: RunContext) -> str:
+    """Get a summary of all startups currently stored in the Supabase database."""
+    startups = memory.get_all_startups()
+    if not startups:
+        return "No startups found in database."
+    summary = [{"slug": s.slug, "name": s.name, "status": s.status, "score": s.score.total if s.score else 0} for s in startups]
+    return json.dumps(summary)
+
+@text_agent.tool(prepare=make_non_strict)
+def check_startup_details(ctx: RunContext, slug: str) -> str:
+    """Get the full details of a specific startup from the Supabase database."""
+    startup = memory.get_startup(slug)
+    if not startup:
+        return f"Startup {slug} not found."
+    return startup.model_dump_json()
+
+@text_agent.tool(prepare=make_non_strict)
+def send_tapback_reaction(ctx: RunContext[AgentDeps], reaction: str) -> str:
+    """Send an iMessage tapback reaction to the user's text.
+    Valid reactions are: 'love', 'like', 'dislike', 'laugh', 'emphasize', 'question'.
+    """
+    deps = ctx.deps
+    if not deps or not deps.message_handle:
+        return "Cannot send reaction: message_handle is missing."
+    
+    headers = {
+        "sb-api-key-id": deps.sb_key,
+        "sb-api-secret-key": deps.sb_secret,
+        "Content-Type": "application/json",
+    }
+    
+    try:
+        req = urllib.request.Request(
+            "https://api.sendblue.co/api/send-reaction",
+            data=json.dumps({
+                "number": deps.phone_number,
+                "from_number": deps.from_number,
+                "message_handle": deps.message_handle,
+                "reaction": reaction
+            }).encode("utf-8"),
+            headers=headers,
+            method="POST"
+        )
+        urllib.request.urlopen(req)
+        return f"Successfully sent '{reaction}' reaction."
+    except Exception as e:
+        return f"Failed to send reaction: {e}"
 
 
 # --- MAIN LOGIC ENTRANCES ---
-
-async def run_scout() -> dict:
-    # 1. Generate queries
-    # To use pydantic-ai properly with JSON output, we can define a response model, but since deepseek-v4-flash might need strict json parsing:
-    import json
-    result = await scout_agent.run("Generate the 8 Exa queries now. Only output the JSON array.")
-    
-    try:
-        raw = result.output
-        if "```json" in raw:
-            raw = raw.split("```json")[1].split("```")[0]
-        queries = json.loads(raw)
-    except Exception:
-        # Fallback queries if generation fails
-        queries = [
-            '"beta" OR "waitlist" "AI" -"series" -"raised" -"TechCrunch" site:x.com 2026',
-            '"Show HN" AI agent tool 2026 site:news.ycombinator.com',
-        ]
-
-    # 2. Search (Parallelized for speed)
-    x_res, ln_res, hn_res, ph_res = await asyncio.gather(
-        search_x(queries[:2]),
-        search_linkedin(queries[2:4]),
-        search_hn(queries[4:6]),
-        search_ph(queries[6:])
-    )
-    
-    all_results = x_res + ln_res + hn_res + ph_res
-    
-    # 3. Process, fetch contents and score...
-    # (Simplified for the sake of not writing 500 lines of scraping logic here)
-    # We would theoretically score them using the model.
-    # For now, we mock the scoring pipeline to be extremely fast.
-    
-    new_found = 0
-    for r in all_results[:5]:
-        slug = r["title"].lower().replace(" ", "-")[:20]
-        if memory.get_startup(slug):
-            continue
-            
-        sb = ScoreBreakdown(
-            founder_pedigree=15,
-            ai_native=15,
-            early_traction=15,
-            obscurity_bonus=15,
-            recency=10,
-            warm_intro_potential=0,
-            total=70
-        )
-        
-        sb = calculate_score(sb.model_dump(), num_sources=1)
-        
-        if sb.total >= 50:
-            s = Startup(
-                name=r.get("title", "Unknown"),
-                slug=slug,
-                one_liner="AI startup discovered",
-                what_they_do="Building AI agents",
-                founders=[],
-                score=sb,
-                status="new",
-                signal_urls=[r["url"]]
-            )
-            memory.save_startup(s)
-            new_found += 1
-            
-    memory.log_run("scout", f"scouted AI startups from socials & web. found {new_found} new companies.", new_found)
-    return {"status": "success", "found": new_found}
-
 
 async def run_enrich(slug: str) -> dict:
     startup = memory.get_startup(slug)
@@ -339,9 +320,8 @@ async def run_enrich(slug: str) -> dict:
         
     startup.enrichment_status = "running"
     memory.save_startup(startup)
-    
+
     # Exa enrich
-    from tools.exa import search_company, search_people
     company_data = await search_company(f"{startup.name} startup")
     people_data = await search_people(f"founder of {startup.name}")
     
@@ -371,7 +351,7 @@ async def run_enrich(slug: str) -> dict:
     return {"status": "enriched"}
 
 
-async def run_text_handler(message: str, slug: str = None, sender: str = None) -> dict:
+async def run_text_handler(message: str, slug: str = None, sender: str = None, message_handle: str = None) -> dict:
     # If slug is provided, we can pass it as context.
     prompt = f"The boss sent this message: '{message}'. Handle it."
     if slug:
@@ -381,7 +361,8 @@ async def run_text_handler(message: str, slug: str = None, sender: str = None) -
         phone_number=sender or os.environ.get("ALERT_PHONE_NUMBER", ""),
         from_number=os.environ.get("SENDBLUE_FROM_NUMBER", ""),
         sb_key=os.environ.get("SENDBLUE_API_KEY", ""),
-        sb_secret=os.environ.get("SENDBLUE_API_SECRET", "")
+        sb_secret=os.environ.get("SENDBLUE_API_SECRET", ""),
+        message_handle=message_handle
     )
         
     res = await text_agent.run(prompt, deps=deps)
@@ -389,13 +370,11 @@ async def run_text_handler(message: str, slug: str = None, sender: str = None) -
 
 
 async def run_agent(payload: dict) -> dict:
-    mode = payload.get("mode", "scout")
+    mode = payload.get("mode", "text")
     
-    if mode == "scout":
-        return await run_scout()
-    elif mode == "enrich":
+    if mode == "enrich":
         return await run_enrich(payload.get("slug"))
     elif mode == "text":
-        return await run_text_handler(payload.get("message"), payload.get("slug"), payload.get("sender"))
+        return await run_text_handler(payload.get("message"), payload.get("slug"), payload.get("sender"), payload.get("message_handle"))
         
     return {"error": "unknown mode"}

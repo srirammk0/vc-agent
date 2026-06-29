@@ -1,5 +1,5 @@
-from pydantic import BaseModel
-from typing import Optional, List
+from pydantic import BaseModel, Field
+from typing import Optional
 from datetime import datetime
 
 
@@ -54,4 +54,4 @@ class Startup(BaseModel):
     status: str = "new"     # new | approved | passed
     enrichment_status: str = "pending" # pending | running | complete
     enrichment: Optional[EnrichmentData] = None
-    found_date: str = datetime.now().strftime("%Y-%m-%d")
+    found_date: str = Field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d"))

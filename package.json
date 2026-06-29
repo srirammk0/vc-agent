@@ -1,7 +1,7 @@
 {
   "name": "vc-research-agent",
   "version": "3.0.0",
-  "description": "VC research agent — Pydantic AI + DeepSeek V4 on NIM, Exa, Firecrawl, SendBlue",
+  "description": "VC research agent — Pydantic AI + Cerebras, Exa, Supabase, SendBlue, Modal",
   "type": "module",
   "scripts": {
     "dev": "next dev",
@@ -12,12 +12,12 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
     "@tailwindcss/postcss": "^4.3.1",
+    "lucide-react": "^1.22.0",
     "next": "^16.2.9",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },
   "devDependencies": {
-    "@composio/core": "^0.13.1",
     "@types/node": "^20.0.0",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",

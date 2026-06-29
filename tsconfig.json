@@ -31,18 +31,12 @@
   },
   "include": [
     "src/**/*",
-    "lib/**/*",
     "next.config.ts",
-    "scripts/**/*",
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
-    "dist",
-    "lib/exa.ts",
-    "lib/gemini.ts",
-    "lib/dedup.ts",
-    "lib/queries.ts"
+    "dist"
   ]
 }

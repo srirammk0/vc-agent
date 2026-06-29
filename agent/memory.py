@@ -133,3 +133,12 @@ def log_run(trigger: str, summary: str, found: int):
         }).execute()
     except Exception as e:
         print("Failed to log run to Supabase:", e)
+
+def get_recent_runs(limit: int = 5) -> list[dict]:
+    try:
+        client = get_client()
+        res = client.table("runs").select("*").order("ts", desc=True).limit(limit).execute()
+        return res.data
+    except Exception as e:
+        print("Failed to get runs from Supabase:", e)
+        return []

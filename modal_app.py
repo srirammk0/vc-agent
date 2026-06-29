@@ -11,7 +11,6 @@ image = (
         "pydantic-ai[openai]",
         "openai",
         "exa-py",
-        "firecrawl-py",
         "logfire[pydantic-ai]",
         "python-dotenv",
         "fastapi",
@@ -26,7 +25,7 @@ def run_agent(payload: dict) -> dict:
         input=json.dumps(payload),
         capture_output=True,
         text=True,
-        timeout=180,
+        timeout=1200,
     )
     if result.returncode != 0:
         raise Exception(f"Agent failed: {result.stderr}")
@@ -68,11 +67,14 @@ def send_sms(content: str):
     image=image,
     secrets=[modal.Secret.from_name("vc-scout-secrets")],
     schedule=modal.Cron("0 */4 * * *"),
-    timeout=180,
+    timeout=1200,
+    min_containers=1,
 )
 def scout_scheduled():
-    res = run_agent({"mode": "scout"})
-    send_sms(f"Scheduled sweep complete. Found {res.get('found', 0)} new startups.")
+    prompt = "System: Execute a scheduled scouting sweep. Use Exa to find new pre-seed AI startups based on the thesis, read their pages, score them, and save the promising ones. Reply with a summary of what you found."
+    res = run_agent({"mode": "text", "message": prompt, "sender": "system"})
+    reply = res.get("reply", "Sweep finished with no report.")
+    send_sms(f"Scheduled sweep complete.\n\nAgent Report:\n{reply}")
     return res
 
 
@@ -82,7 +84,8 @@ def scout_scheduled():
 @app.function(
     image=image,
     secrets=[modal.Secret.from_name("vc-scout-secrets")],
-    timeout=180,
+    timeout=1200,
+    min_containers=1,
 )
 @modal.fastapi_endpoint(method="POST")
 def enrich_startup(payload: dict):
@@ -95,12 +98,12 @@ def enrich_startup(payload: dict):
 @app.function(
     image=image,
     secrets=[modal.Secret.from_name("vc-scout-secrets")],
-    timeout=300,
+    timeout=1200,
     min_containers=1,
 )
 def chat_reply_background(message: str, sender: str, message_handle: str = None):
     # Run agent to get response (which handles typing internally via lifecycle hooks)
-    result = run_agent({"mode": "text", "message": message, "sender": sender})
+    result = run_agent({"mode": "text", "message": message, "sender": sender, "message_handle": message_handle})
     reply = result.get("reply", "")
     
     # Send outbound SMS reply
@@ -111,7 +114,7 @@ def chat_reply_background(message: str, sender: str, message_handle: str = None)
 @app.function(
     image=image,
     secrets=[modal.Secret.from_name("vc-scout-secrets")],
-    timeout=60,
+    timeout=1200,
     min_containers=1,
 )
 @modal.fastapi_endpoint(method="POST")

@@ -1,9 +1,8 @@
 pydantic-ai==2.0.0
 openai==2.44.0
 exa-py==2.15.0
-logfire==4.37.0
+supabase
+logfire[pydantic-ai]==4.37.0
 python-dotenv==1.2.2
-firecrawl-py
-logfire[pydantic-ai]
 modal
 fastapi
