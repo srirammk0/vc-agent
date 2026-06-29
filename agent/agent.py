@@ -8,7 +8,8 @@ import urllib.request
 from pydantic_ai import Agent, RunContext, ToolDefinition
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, RateLimitError
+from pydantic_ai.exceptions import ModelHTTPError
 
 from tools.exa import exa
 import memory_store as sm
@@ -16,12 +17,44 @@ import memory_store as sm
 cerebras_client = AsyncOpenAI(
     base_url="https://api.cerebras.ai/v1",
     api_key=os.environ.get("CEREBRAS_API_KEY", ""),
+    max_retries=0,
 )
 
 model = OpenAIChatModel(
     "gpt-oss-120b",
     provider=OpenAIProvider(openai_client=cerebras_client),
 )
+
+RATE_LIMIT_REPLY = (
+    "cerebras is getting hammered rn - give it a min and text again"
+)
+
+
+def _is_rate_limit_error(exc: BaseException) -> bool:
+    if isinstance(exc, RateLimitError):
+        return True
+    if isinstance(exc, ModelHTTPError) and exc.status_code == 429:
+        return True
+    cause = exc.__cause__
+    if cause is not None and cause is not exc:
+        return _is_rate_limit_error(cause)
+    return False
+
+
+async def agent_run_with_retry(agent: Agent, prompt: str, **kwargs):
+    max_attempts = 6
+    for attempt in range(max_attempts):
+        try:
+            return await agent.run(prompt, **kwargs)
+        except Exception as e:
+            if not _is_rate_limit_error(e) or attempt == max_attempts - 1:
+                raise
+            delay = 3 * (2 ** attempt)
+            print(
+                f"rate limited, retrying in {delay}s "
+                f"(attempt {attempt + 1}/{max_attempts})"
+            )
+            await asyncio.sleep(delay)
 
 
 @dataclass
@@ -300,38 +333,43 @@ def _default_deps(sender: str = None, message_handle: str = None) -> AgentDeps:
 
 
 async def run_scout() -> dict:
-    thesis = await sm.load_thesis()
-    preferences = await sm.load_preferences()
-    deps = _default_deps(sender="system")
+    try:
+        thesis = await sm.load_thesis()
+        preferences = await sm.load_preferences()
+        deps = _default_deps(sender="system")
 
-    # Turn 1: Broad search
-    r1 = await scout_agent.run(
-        f"Execute a scout sweep. Use exa_deep_search with 5+ diverse queries to find pre-seed AI startups.\n\nThesis:\n{thesis}\n\nRemember these patterns:\n{preferences}",
-        deps=deps,
-    )
+        r1 = await agent_run_with_retry(
+            scout_agent,
+            f"Execute a scout sweep. Use exa_deep_search with 5+ diverse queries to find pre-seed AI startups.\n\nThesis:\n{thesis}\n\nRemember these patterns:\n{preferences}",
+            deps=deps,
+        )
 
-    # Turn 2: Reflection
-    r2 = await scout_agent.run(
-        "Reflect on what you found. Which 3-5 are genuinely interesting and why? Which should we skip and why? Be specific about signals.",
-        message_history=r1.all_messages(),
-        deps=deps,
-    )
+        r2 = await agent_run_with_retry(
+            scout_agent,
+            "Reflect on what you found. Which 3-5 are genuinely interesting and why? Which should we skip and why? Be specific about signals.",
+            message_history=r1.all_messages(),
+            deps=deps,
+        )
 
-    # Turn 3: Deep research + save
-    r3 = await scout_agent.run(
-        "For the top candidates you identified: do 1-2 more targeted exa_deep_search calls to confirm your thesis. Write a qualitative assessment for each and call save_startup for any that hold up.",
-        message_history=r2.all_messages(),
-        deps=deps,
-    )
+        r3 = await agent_run_with_retry(
+            scout_agent,
+            "For the top candidates you identified: do 1-2 more targeted exa_deep_search calls to confirm your thesis. Write a qualitative assessment for each and call save_startup for any that hold up.",
+            message_history=r2.all_messages(),
+            deps=deps,
+        )
 
-    # Turn 4: Self-improvement
-    r4 = await scout_agent.run(
-        "What patterns did you notice this sweep? Write 1-2 specific patterns to write_preference (what to seek or avoid) and a reflection to write_reflection. Be precise.",
-        message_history=r3.all_messages(),
-        deps=deps,
-    )
+        r4 = await agent_run_with_retry(
+            scout_agent,
+            "What patterns did you notice this sweep? Write 1-2 specific patterns to write_preference (what to seek or avoid) and a reflection to write_reflection. Be precise.",
+            message_history=r3.all_messages(),
+            deps=deps,
+        )
 
-    return {"reply": r4.output}
+        return {"reply": r4.output}
+    except Exception as e:
+        if _is_rate_limit_error(e):
+            return {"reply": RATE_LIMIT_REPLY}
+        raise
 
 
 async def run_text_handler(message: str, slug: str = None, sender: str = None, message_handle: str = None) -> dict:
@@ -340,8 +378,13 @@ async def run_text_handler(message: str, slug: str = None, sender: str = None, m
         prompt += f" Context startup slug: {slug}."
 
     deps = _default_deps(sender=sender, message_handle=message_handle)
-    res = await text_agent.run(prompt, deps=deps)
-    return {"reply": res.output}
+    try:
+        res = await agent_run_with_retry(text_agent, prompt, deps=deps)
+        return {"reply": res.output}
+    except Exception as e:
+        if _is_rate_limit_error(e):
+            return {"reply": RATE_LIMIT_REPLY}
+        raise
 
 
 async def run_agent(payload: dict) -> dict:

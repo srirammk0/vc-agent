@@ -239,6 +239,9 @@ def chat_reply_background(message: str, sender: str, message_handle: str = None)
         if reply:
             send_sms(reply)
         sync_on_demand.spawn()
+    except Exception as e:
+        print("chat_reply_background failed:", e)
+        send_sms("something broke on my end - try again in a min")
     finally:
         if recipient:
             send_typing(recipient, "stop")
