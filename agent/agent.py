@@ -13,6 +13,11 @@ from pydantic_ai.exceptions import ModelHTTPError
 
 from tools.exa import exa
 import memory_store as sm
+import cache
+
+# Scout queries vary a lot, so keep a short reuse window; page content itself
+# is served from Exa's crawl cache via max_age_hours.
+_EXA_DEEP_TTL_SECONDS = 6 * 3600
 
 cerebras_client = AsyncOpenAI(
     base_url="https://api.cerebras.ai/v1",
@@ -229,20 +234,31 @@ def register_tools(agent: Agent):
     @agent.tool(prepare=make_non_strict)
     async def exa_deep_search(ctx: RunContext, query: str) -> str:
         """Search the web for a query and immediately return the deep text content of the top results for ultra-fast research."""
+        cache_key = cache.make_key("exa:deep", query)
+        cached = await cache.cache_get(cache_key, _EXA_DEEP_TTL_SECONDS)
+        if cached is not None:
+            return cached
         try:
             res = await asyncio.to_thread(
                 exa.search,
                 query,
                 num_results=3,
-                contents={"text": {"max_characters": 2000}},
+                contents={
+                    "text": {"max_characters": 2000},
+                    "max_age_hours": 168,
+                },
             )
             results = []
             for r in getattr(res, "results", []):
                 content = r.text if hasattr(r, "text") and r.text else "No content"
                 results.append(f"Title: {r.title}\nURL: {r.url}\nContent: {content}\n---")
-            return "\n".join(results) if results else "No results found."
+            output = "\n".join(results) if results else "No results found."
         except Exception as e:
             return f"Exa search failed: {e}"
+
+        if results:
+            await cache.cache_set(cache_key, output)
+        return output
 
     @agent.tool(prepare=make_non_strict)
     async def supermemory_search(ctx: RunContext, query: str, container_tag: str = "vc:startups") -> str:

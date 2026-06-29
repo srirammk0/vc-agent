@@ -51,6 +51,23 @@ _enrich_agent = Agent(
 )
 
 
+_ENRICH_LLM_TTL_SECONDS = 7 * 24 * 3600
+
+
+def _import_cache():
+    try:
+        import cache
+        return cache
+    except Exception:
+        try:
+            import sys
+            sys.path.insert(0, "/root/agent")
+            import cache
+            return cache
+        except Exception:
+            return None
+
+
 def _is_rate_limit_error(exc: BaseException) -> bool:
     if isinstance(exc, RateLimitError):
         return True
@@ -101,11 +118,25 @@ async def structure_enrichment(
         f"FOUNDER / PEOPLE SEARCH RESULTS:\n{people_text[:4000]}"
     )
 
+    cache = _import_cache()
+    cache_key = None
+    if cache is not None:
+        cache_key = cache.make_key("enrich:llm", prompt)
+        cached = await cache.cache_get(cache_key, _ENRICH_LLM_TTL_SECONDS)
+        if cached is not None:
+            try:
+                return EnrichmentResult.model_validate(cached)
+            except Exception:
+                pass
+
     max_attempts = 4
     for attempt in range(max_attempts):
         try:
             result = await _enrich_agent.run(prompt)
-            return result.output
+            output = result.output
+            if cache is not None and cache_key:
+                await cache.cache_set(cache_key, output.model_dump())
+            return output
         except Exception as e:
             if not _is_rate_limit_error(e) or attempt == max_attempts - 1:
                 raise

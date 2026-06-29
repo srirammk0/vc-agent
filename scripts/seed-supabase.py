@@ -45,9 +45,17 @@ CREATE TABLE IF NOT EXISTS thesis (
     updated_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- Cache table (Exa results + enrichment LLM outputs)
+CREATE TABLE IF NOT EXISTS cache (
+    key TEXT PRIMARY KEY,
+    value JSONB NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
 -- Grant privileges
 GRANT ALL PRIVILEGES ON TABLE startups TO postgres, service_role, anon, authenticated;
 GRANT ALL PRIVILEGES ON TABLE thesis TO postgres, service_role, anon, authenticated;
+GRANT ALL PRIVILEGES ON TABLE cache TO postgres, service_role, anon, authenticated;
 GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO postgres, service_role, anon, authenticated;
 
 -- Migration note: if a previous `startups` table exists with scoring columns,
