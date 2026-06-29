@@ -15,6 +15,7 @@ import logfire
 logfire.configure(send_to_logfire="if-token-present")
 
 from agent import run_agent
+from blob_sync import download_brain, upload_brain
 logfire.instrument_pydantic_ai()
 
 
@@ -23,6 +24,9 @@ def main():
     raw = sys.argv[1] if len(sys.argv) > 1 else sys.stdin.read()
     payload = json.loads(raw)
     
+    # 1. Sync down the brain before executing
+    download_brain()
+    
     # Redirect stdout to stderr to prevent breaking Trigger.dev JSON parsing
     original_stdout = sys.stdout
     sys.stdout = sys.stderr
@@ -30,6 +34,8 @@ def main():
     try:
         result = asyncio.run(run_agent(payload))
     finally:
+        # 2. Sync up the brain after executing
+        upload_brain()
         # Restore stdout for the final JSON print
         sys.stdout = original_stdout
         

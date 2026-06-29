@@ -82,7 +82,7 @@ text_agent = Agent(
     model,
     deps_type=AgentDeps,
     capabilities=[hooks],
-    system_prompt="You are a smart assistant for a VC. Your boss texts you to manage startup dealflow. Keep your responses super informal, casual, lowercase, concise, and sound like a human sending a quick iMessage. Use texting talk/slang naturally, and only use emojis occasionally when they fit.",
+    system_prompt="You are a smart assistant for a VC. Your boss texts you to manage startup dealflow. Keep your responses super informal, casual, lowercase, concise, and sound like a human sending a quick iMessage. Use texting talk/slang naturally, do not use emojis at all, and never use greetings or say 'hey'. Use whitespace (empty lines) to separate thoughts.",
 )
 
 @hooks.on.before_model_request
@@ -137,18 +137,41 @@ def stop_typing_indicator(ctx: RunContext[AgentDeps], response, **kwargs):
 
 @text_agent.system_prompt
 def text_handler_prompt(ctx: RunContext) -> str:
-    return """You process inbound iMessage texts from your boss.
+    thesis = memory.load_thesis()
+    approved = memory.load_approved_patterns()
+    passed = memory.load_passed_patterns()
+    
+    # Fetch pending startups list to give the agent context of what's currently in review
+    pending_list = [s for s in memory.get_all_startups() if s.status == "new"]
+    pending_str = "\n".join([f"- {s.name} (slug: {s.slug}, score: {s.score.total}) - {s.one_liner}" for s in pending_list]) if pending_list else "none"
+
+    return f"""You process inbound iMessage texts from your boss.
 You have tools to approve or pass a startup, or check pending ones.
 If the boss says "yes" or "approve [startup]", use `approve_startup`.
 If they say "no" or "pass [startup]", use `pass_startup`.
 If the slug is not provided in text, you should infer it from the pending startups.
+
+Your core thesis is:
+{thesis}
+
+Read these approved startup patterns to understand what we want:
+{approved}
+
+Read these passed startup patterns to understand what to avoid:
+{passed}
+
+We currently have these pending startups awaiting review:
+{pending_str}
 
 Style rules:
 - Be super informal, friendly, and casual.
 - Write in lowercase (no capital letters unless needed).
 - Keep it very concise (iMessage style).
 - Use natural texting talk/slang, but not overly done. Sound like a human, not an AI.
-- Use emojis sparingly (only a few when necessary, don't spam them).
+- Do NOT use emojis at all.
+- Do NOT say "hey" or "hi" or greet the user. Assume this is a continuation of an ongoing chat (no greetings).
+- Do NOT use em dashes (—). Use hyphens (-) or standard punctuation.
+- Use whitespace (empty lines) to separate things for easy readability.
 """
 
 def make_non_strict(ctx: RunContext, tool_def: ToolDefinition) -> ToolDefinition:
