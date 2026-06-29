@@ -226,6 +226,40 @@ def add_learning_pattern(ctx: RunContext, pattern_type: str, pattern: str) -> st
         return "Invalid pattern_type. Must be either 'approved' or 'passed'."
     return f"Successfully added {pattern_type} pattern."
 
+@text_agent.tool(prepare=make_non_strict)
+async def trigger_scout_sweep(ctx: RunContext) -> str:
+    """Trigger a full scouting sweep to search for and score new AI startups based on our investment thesis."""
+    res = await run_scout()
+    return f"Scouting sweep completed. Found and saved {res.get('found', 0)} new startups."
+
+@text_agent.tool(prepare=make_non_strict)
+async def enrich_startup_research(ctx: RunContext, slug: str) -> str:
+    """Enrich and research a specific startup's details, founders, and domain writing."""
+    res = await run_enrich(slug)
+    if "error" in res:
+        return f"Failed to enrich: {res['error']}"
+    return f"Enriched startup {slug} and scraped founder details."
+
+@text_agent.tool(prepare=make_non_strict)
+async def exa_web_search(ctx: RunContext, query: str) -> str:
+    """Search the web or socials using Exa for specific queries, returning titles, URLs, and summaries."""
+    from tools.exa import exa
+    try:
+        res = await asyncio.to_thread(
+            exa.search,
+            query,
+            num_results=5,
+            highlights=True
+        )
+        results = []
+        for r in getattr(res, "results", []):
+            hl = r.highlights[0] if getattr(r, "highlights", None) else ""
+            results.append(f"- [{r.title}]({r.url})\n  Highlight: {hl}")
+        return "\n".join(results) if results else "No results found."
+    except Exception as e:
+        return f"Exa search failed: {e}"
+
+
 
 # --- MAIN LOGIC ENTRANCES ---
 
