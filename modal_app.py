@@ -91,23 +91,39 @@ def enrich_startup(payload: dict):
     secrets=[modal.Secret.from_name("vc-scout-secrets")],
     timeout=180,
 )
-def chat_reply_background(message: str):
+def chat_reply_background(message: str, sender: str, message_handle: str = None):
     import urllib.request
     import json
     import os
     
-    # 1. Send typing indicator immediately
-    num = os.environ.get("ALERT_PHONE_NUMBER", "")
     headers = {
         "sb-api-key-id": os.environ.get("SENDBLUE_API_KEY", ""),
         "sb-api-secret-key": os.environ.get("SENDBLUE_API_SECRET", ""),
         "Content-Type": "application/json",
     }
+    
+    # 1. Send tapback reaction (like)
+    if message_handle:
+        try:
+            urllib.request.urlopen(urllib.request.Request(
+                "https://api.sendblue.co/api/send-reaction",
+                data=json.dumps({
+                    "number": sender,
+                    "message_handle": message_handle,
+                    "reaction": "like"
+                }).encode("utf-8"),
+                headers=headers,
+                method="POST"
+            ))
+        except Exception:
+            pass
+
+    # 2. Send typing indicator
     try:
         urllib.request.urlopen(urllib.request.Request(
             "https://api.sendblue.co/api/send-typing-indicator",
             data=json.dumps({
-                "number": num,
+                "number": sender,
                 "from_number": os.environ.get("SENDBLUE_FROM_NUMBER", "")
             }).encode("utf-8"),
             headers=headers,
@@ -116,11 +132,11 @@ def chat_reply_background(message: str):
     except Exception:
         pass
 
-    # 2. Run agent to get response
+    # 3. Run agent to get response
     result = run_agent({"mode": "text", "message": message})
     reply = result.get("reply", "")
     
-    # 3. Send outbound SMS reply
+    # 4. Send outbound SMS reply
     if reply:
         send_sms(reply)
 
@@ -132,11 +148,8 @@ def chat_reply_background(message: str):
 )
 @modal.fastapi_endpoint(method="POST")
 async def sendblue_webhook(request: dict):
-    # Depending on the Modal FastAPI signature, a dictionary parameter will 
-    # automatically parse the JSON body.
     body = request
     
-    # Ignore our own outbound messages echoed back.
     if body.get("is_outbound"):
         return {"ok": True, "action": "ignored", "reason": "outbound"}
 
@@ -144,7 +157,6 @@ async def sendblue_webhook(request: dict):
     if not message:
         return {"ok": True, "action": "ignored", "reason": "empty"}
 
-    # Only the owner may chat with the agent.
     import os
     owner_raw = os.environ.get("ALERT_PHONE_NUMBER", "")
     owner = "".join(filter(str.isdigit, owner_raw))
@@ -154,7 +166,9 @@ async def sendblue_webhook(request: dict):
     if owner and sender and not sender.endswith(owner[-10:]):
         return {"ok": True, "action": "ignored", "reason": "unauthorized"}
 
+    message_handle = body.get("message_handle")
+
     # Spawn the background task and return immediately
-    await chat_reply_background.spawn.aio(message)
+    await chat_reply_background.spawn.aio(message, sender_raw, message_handle)
     return {"ok": True, "runId": "spawned"}
 
