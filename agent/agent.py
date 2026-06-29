@@ -18,7 +18,7 @@ nim_client = AsyncOpenAI(
     api_key=os.environ.get("NVIDIA_API_KEY", ""),
 )
 
-# NIM model string: deepseek-ai/deepseek-v4-pro
+# NIM model string: deepseek-ai/deepseek-v4-flash
 # If NIM hangs, we can try to pass default_extra_body here, but for now we'll just instantiate the client.
 # (Note: AsyncOpenAI does support default_extra_body in recent versions)
 nim_client = AsyncOpenAI(
@@ -28,7 +28,7 @@ nim_client = AsyncOpenAI(
 )
 
 model = OpenAIChatModel(
-    "deepseek-ai/deepseek-v4-pro",
+    "deepseek-ai/deepseek-v4-flash",
     provider=OpenAIProvider(openai_client=nim_client),
 )
 
@@ -120,7 +120,7 @@ def get_pending_startups(ctx: RunContext) -> str:
 
 async def run_scout() -> dict:
     # 1. Generate queries
-    # To use pydantic-ai properly with JSON output, we can define a response model, but since deepseek-v4-pro might need strict json parsing:
+    # To use pydantic-ai properly with JSON output, we can define a response model, but since deepseek-v4-flash might need strict json parsing:
     import json
     result = await scout_agent.run("Generate the 8 Exa queries now. Only output the JSON array.")
     
