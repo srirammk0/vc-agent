@@ -89,7 +89,8 @@ def enrich_startup(payload: dict):
 @app.function(
     image=image,
     secrets=[modal.Secret.from_name("vc-scout-secrets")],
-    timeout=180,
+    timeout=300,
+    keep_warm=1,
 )
 def chat_reply_background(message: str, sender: str, message_handle: str = None):
     import urllib.request
@@ -109,6 +110,7 @@ def chat_reply_background(message: str, sender: str, message_handle: str = None)
                 "https://api.sendblue.co/api/send-reaction",
                 data=json.dumps({
                     "number": sender,
+                    "from_number": os.environ.get("SENDBLUE_FROM_NUMBER", ""),
                     "message_handle": message_handle,
                     "reaction": "like"
                 }).encode("utf-8"),

@@ -50,7 +50,7 @@ Set these via `modal secret create vc-scout-secrets [KEY=VALUE ...]`:
 
 | Variable | Purpose |
 |---|---|
-| `NVIDIA_API_KEY` | LLM via NVIDIA NIM (DeepSeek V4 Pro) |
+| `CEREBRAS_API_KEY` | LLM via Cerebras (Llama 3.1 70B) |
 | `EXA_API_KEY` | Web, company, people, and social search |
 | `FIRECRAWL_API_KEY` | Web scraping (if used by tools) |
 | `BLOB_READ_WRITE_TOKEN` | Read/write markdown state to Vercel Blob |
@@ -87,7 +87,7 @@ Set these via `modal secret create vc-scout-secrets [KEY=VALUE ...]`:
 3. **Deploy Modal:**
    ```bash
    modal setup
-   modal secret create vc-scout-secrets NVIDIA_API_KEY=... EXA_API_KEY=... BLOB_READ_WRITE_TOKEN=...
+   modal secret create vc-scout-secrets CEREBRAS_API_KEY=... EXA_API_KEY=... BLOB_READ_WRITE_TOKEN=...
    modal deploy modal_app.py
    ```
    *Take the URLs printed by Modal and add them to your Vercel `.env.local`.*

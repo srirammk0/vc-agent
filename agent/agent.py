@@ -13,23 +13,14 @@ from tools.scorer import calculate_score, apply_hard_filters
 from models import Startup, Founder, ScoreBreakdown, EnrichmentData
 import memory
 
-nim_client = AsyncOpenAI(
-    base_url="https://integrate.api.nvidia.com/v1",
-    api_key=os.environ.get("NVIDIA_API_KEY", ""),
-)
-
-# NIM model string: deepseek-ai/deepseek-v4-flash
-# If NIM hangs, we can try to pass default_extra_body here, but for now we'll just instantiate the client.
-# (Note: AsyncOpenAI does support default_extra_body in recent versions)
-nim_client = AsyncOpenAI(
-    base_url="https://integrate.api.nvidia.com/v1",
-    api_key=os.environ.get("NVIDIA_API_KEY", ""),
-    # default_extra_body={"chat_template_kwargs": {"thinking": False}} # Un-comment if using real client
+cerebras_client = AsyncOpenAI(
+    base_url="https://api.cerebras.ai/v1",
+    api_key=os.environ.get("CEREBRAS_API_KEY", ""),
 )
 
 model = OpenAIChatModel(
-    "deepseek-ai/deepseek-v4-flash",
-    provider=OpenAIProvider(openai_client=nim_client),
+    "llama3.1-70b",
+    provider=OpenAIProvider(openai_client=cerebras_client),
 )
 
 
@@ -136,11 +127,13 @@ async def run_scout() -> dict:
             '"Show HN" AI agent tool 2026 site:news.ycombinator.com',
         ]
 
-    # 2. Search
-    x_res = await search_x(queries[:2])
-    ln_res = await search_linkedin(queries[2:4])
-    hn_res = await search_hn(queries[4:6])
-    ph_res = await search_ph(queries[6:])
+    # 2. Search (Parallelized for speed)
+    x_res, ln_res, hn_res, ph_res = await asyncio.gather(
+        search_x(queries[:2]),
+        search_linkedin(queries[2:4]),
+        search_hn(queries[4:6]),
+        search_ph(queries[6:])
+    )
     
     all_results = x_res + ln_res + hn_res + ph_res
     
