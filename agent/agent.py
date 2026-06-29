@@ -209,6 +209,23 @@ def get_pending_startups(ctx: RunContext) -> str:
         return "No pending startups."
     return json.dumps([{"slug": s.slug, "name": s.name} for s in startups])
 
+@text_agent.tool(prepare=make_non_strict)
+def update_thesis(ctx: RunContext, new_thesis: str) -> str:
+    """Update the investment thesis in our database when the boss requests a change in criteria."""
+    memory.update_thesis(new_thesis)
+    return "Successfully updated the investment thesis."
+
+@text_agent.tool(prepare=make_non_strict)
+def add_learning_pattern(ctx: RunContext, pattern_type: str, pattern: str) -> str:
+    """Add a new pattern (type must be 'approved' or 'passed') to help guide future scouting."""
+    if pattern_type == "approved":
+        memory.write_approved_pattern(pattern)
+    elif pattern_type == "passed":
+        memory.write_passed_pattern(pattern)
+    else:
+        return "Invalid pattern_type. Must be either 'approved' or 'passed'."
+    return f"Successfully added {pattern_type} pattern."
+
 
 # --- MAIN LOGIC ENTRANCES ---
 

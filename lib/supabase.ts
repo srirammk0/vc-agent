@@ -23,14 +23,6 @@ export interface RunRecord {
   summary: string;
 }
 
-export async function uploadToBlob(filePath: string, buffer: Buffer): Promise<void> {
-  // Deprecated Vercel Blob upload function, kept as no-op to prevent typescript import breaks
-}
-
-export async function downloadFromBlob(blobPath: string): Promise<Buffer | null> {
-  return null;
-}
-
 export async function loadBrain() {
   const startups: Record<string, Startup> = {};
   const runs: RunRecord[] = [];

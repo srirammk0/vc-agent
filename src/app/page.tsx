@@ -1,4 +1,4 @@
-import { loadBrain, type Startup, type RunRecord } from "../../lib/blob";
+import { loadBrain, type Startup, type RunRecord } from "../../lib/supabase";
 
 export const revalidate = 300;
 
