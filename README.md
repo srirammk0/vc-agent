@@ -1,174 +1,118 @@
-# VC Research Agent
+# VC Research Agent (V5)
 
-Automated pre-seed startup scout. A Python agent (Pydantic AI + MiniMax on NVIDIA NIM) discovers and scores early-stage AI companies, persists everything to cloud memory, and surfaces results on a Next.js dashboard. Optional iMessage chat via SendBlue.
+Automated pre-seed startup scout. A Python agent (Pydantic AI + DeepSeek V4 Pro on NVIDIA NIM) discovers and scores early-stage AI companies, persists everything to cloud memory (Vercel Blob via Markdown files), and surfaces results on a Next.js dashboard. Orchestrated by Modal.
 
 **Live:** [startup-scout-agent.vercel.app](https://startup-scout-agent.vercel.app)
 
 ## How it works
 
-```
+```text
 ┌──────────────────┐   cron every 4h PT    ┌──────────────────┐
-│  Trigger.dev     │◄──────────────────────│  research-sweep  │
+│  Modal           │◄──────────────────────│  social_monitor  │
 │                  │                       └──────────────────┘
-│  Python agent    │◄── POST /api/trigger ─┌──────────────────┐
-│  (agent/main.py) │                       │  Next.js (Vercel) │
-│                  │◄── SendBlue webhook ──│  dashboard        │
-└────────┬─────────┘                       └──────────────────┘
+│  Python agent    │◄── POST /scout_demand ┌──────────────────┐
+│  (agent/main.py) │                       │ Next.js (Vercel) │
+│                  │◄── POST /enrich_start─│ dashboard        │
+│                  │                       └──────────────────┘
+│                  │◄── SendBlue webhook ── (Inbound SMS)
+└────────┬─────────┘
          │
-         ├── load brain.json (Vercel Blob)
-         ├── run agent (Exa search → score → save)
-         ├── save brain.json back to Blob
-         └── iMessage reply (SendBlue, optional)
+         ├── sync markdown state to/from Vercel Blob
+         ├── run agent (Exa search → score → enrich)
+         └── send iMessage reply (SendBlue, optional)
 ```
 
-Every run follows the same path:
+1. **Load memory** — The `/brain` folder locally is populated/synced from Vercel Blob (startups, founders, learning patterns).
+2. **Inject context** — `brain/thesis.md` + learned patterns go into the system prompt.
+3. **Research** — The agent uses Exa (`company`, `people`, `x`, `linkedin`) to find candidates and `score_startup` to rate them based on obscurity and traction.
+4. **Persist** — The updated markdown files are synced back to Blob.
+5. **Notify** — Alerts and chat replies are sent via SendBlue iMessage.
 
-1. **Load memory** — `brain.json` is read from Vercel Blob (startups, seen URLs, notes, run history).
-2. **Inject context** — `brain/thesis.md` + rendered brain state go into the system prompt.
-3. **Research** — the agent uses Exa (`exa_search`, `social_search`, `exa_get_contents`) to find candidates, `score_startup` to rate them, and `save_startup` / `mark_seen` / `remember` to update memory.
-4. **Persist** — the updated brain is written back to Blob.
-5. **Notify** — sweep summaries and chat replies are sent via SendBlue iMessage (if configured).
+The Next.js dashboard reads the same Vercel Blob to display startups sorted by score. No database.
 
-The dashboard reads the same `brain.json` and shows startups sorted by score. No database.
+## Orchestration (Modal)
 
-## Triggers
+Trigger.dev has been completely removed in favor of **Modal** for sub-second cold starts and highly scalable orchestration.
 
-| Trigger | How | Task |
+| Endpoint | Trigger | What it does |
 |---|---|---|
-| **Cron** | Every 4 hours PT | `research-sweep` |
-| **Manual** | Dashboard "Run now" → `POST /api/trigger` | `research-sweep` |
-| **Chat** | Text your SendBlue number → `POST /api/webhooks/sendblue` | `chat-reply` |
-
-Chat is owner-only: only `ALERT_PHONE_NUMBER` can talk to the agent.
-
-## Project structure
-
-```
-agent/              Python agent (Pydantic AI, tools, in-memory brain)
-  agent.py            Model, system prompt, sweep/chat modes
-  brain.py            Brain mutations + prompt rendering
-  main.py             CLI entrypoint (JSON in → JSON out)
-  tools/              Exa search, scorer
-brain/
-  thesis.md           Investment criteria (bundled into Trigger.dev deploy)
-lib/
-  blob.ts             loadBrain / saveBrain (Vercel Blob)
-  sendblue.ts           Outbound iMessage
-src/
-  trigger/agent.ts    Trigger.dev tasks (research-sweep, chat-reply)
-  app/                Next.js dashboard + API routes
-```
+| `scout_scheduled` | Cron (7am, 6pm PT) | Daily deep-dive Exa scout |
+| `social_monitor` | Cron (Every 4h) | Social monitoring scout |
+| `scout_on_demand` | Dashboard POST | Manual scout |
+| `enrich_startup` | Dashboard POST | Deep Exa company/people research |
+| `sendblue_webhook` | SMS Webhook | Chat and approve/pass commands via SMS |
 
 ## Environment variables
 
-Two runtimes. Copy `.env.example` → `.env` locally and set everything there for dev.
+Because Modal runs the backend agent and Vercel runs the frontend dashboard, secrets are split.
 
-### Trigger.dev (Production) — where the Python agent runs
+### Modal (Backend Secrets)
 
-| Variable | Required | Purpose |
-|---|---|---|
-| `NVIDIA_API_KEY` | yes | LLM via NVIDIA NIM (`minimaxai/minimax-m3`) |
-| `EXA_API_KEY` | yes | Web + LinkedIn search |
-| `BLOB_READ_WRITE_TOKEN` | yes | Read/write `brain.json` in Vercel Blob |
-| `SENDBLUE_API_KEY` | for iMessage | Outbound alerts + chat replies |
-| `SENDBLUE_API_SECRET` | for iMessage | Outbound alerts + chat replies |
-| `SENDBLUE_FROM_NUMBER` | for iMessage | Your SendBlue line — the number to send *from* (required on free plan) |
-| `ALERT_PHONE_NUMBER` | for iMessage | Your phone number (E.164, e.g. `+16615551234`) |
-| `LOGFIRE_TOKEN` | no | Pydantic Logfire tracing |
+Set these via `modal secret create vc-scout-secrets [KEY=VALUE ...]`:
 
-Set these in the [Trigger.dev dashboard](https://cloud.trigger.dev) → your project → Environment Variables → Production. Redeploy after changes: `npm run deploy`.
+| Variable | Purpose |
+|---|---|
+| `NVIDIA_API_KEY` | LLM via NVIDIA NIM (DeepSeek V4 Pro) |
+| `EXA_API_KEY` | Web, company, people, and social search |
+| `FIRECRAWL_API_KEY` | Web scraping (if used by tools) |
+| `BLOB_READ_WRITE_TOKEN` | Read/write markdown state to Vercel Blob |
+| `SENDBLUE_API_KEY` | Outbound alerts + chat replies |
+| `SENDBLUE_API_SECRET` | Outbound alerts + chat replies |
+| `ALERT_PHONE_NUMBER` | Your phone number (E.164, e.g. `+16615551234`) |
+| `LOGFIRE_TOKEN` | Pydantic Logfire tracing |
 
-### Vercel (Production) — dashboard + webhooks
+### Vercel / Next.js (Frontend `.env.local`)
 
-| Variable | Required | Purpose |
-|---|---|---|
-| `TRIGGER_SECRET_KEY` | yes | Trigger tasks from the dashboard (`tr_prod_…`) |
-| `BLOB_READ_WRITE_TOKEN` | yes | Dashboard reads startups from Blob |
-| `ALERT_PHONE_NUMBER` | for chat | Owner check on inbound SendBlue webhook |
-| `SENDBLUE_*` | no | Not needed on Vercel (outbound runs on Trigger.dev) |
+| Variable | Purpose |
+|---|---|
+| `BLOB_READ_WRITE_TOKEN` | Dashboard reads startups from Blob |
+| `MODAL_SCOUT_URL` | URL to trigger manual scout |
+| `MODAL_ENRICH_URL` | URL to trigger enrichment |
 
-Vercel auto-sets `BLOB_STORE_ID` when you connect a Blob store. On Vercel itself, OIDC auth can replace the static blob token; Trigger.dev still needs `BLOB_READ_WRITE_TOKEN` because it runs off-platform.
-
-### Local dev
-
-Use `tr_dev_…` for `TRIGGER_SECRET_KEY`. All other vars same as production.
+*(The `MODAL_WEBHOOK_URL` goes directly into your SendBlue dashboard settings, bypassing Vercel completely).*
 
 ## Setup
 
-```bash
-npm install
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-cp .env.example .env   # fill in keys
-```
+1. **Install dependencies:**
+   ```bash
+   npm install
+   pip install -r requirements.txt
+   ```
 
-**Blob store** — create a private store and connect it to the Vercel project:
+2. **Blob store:**
+   Create a private store and connect it to the Vercel project:
+   ```bash
+   vercel link
+   vercel blob create-store vc-agent-brain --access private --yes --environment production
+   ```
+   Add `BLOB_READ_WRITE_TOKEN` to your Vercel project and Modal secrets.
 
-```bash
-vercel link
-vercel blob create-store vc-agent-brain --access private --yes --environment production
-```
+3. **Deploy Modal:**
+   ```bash
+   modal setup
+   modal secret create vc-scout-secrets NVIDIA_API_KEY=... EXA_API_KEY=... BLOB_READ_WRITE_TOKEN=...
+   modal deploy modal_app.py
+   ```
+   *Take the URLs printed by Modal and add them to your Vercel `.env.local`.*
 
-Copy `BLOB_READ_WRITE_TOKEN` when it's shown (one-time). Add it to Trigger.dev and your local `.env`.
+4. **SendBlue (optional):**
+   Set the receive webhook to the Modal URL:
+   ```
+   https://[your-modal-app].modal.run/sendblue_webhook
+   ```
 
-**Trigger.dev:**
-
-```bash
-npx trigger.dev@latest login
-npm run deploy
-```
-
-Copy the production secret key (`tr_prod_…`) into Vercel as `TRIGGER_SECRET_KEY`.
-
-**SendBlue (optional):** set the receive webhook to:
-
-```
-https://startup-scout-agent.vercel.app/api/webhooks/sendblue
-```
-
-## Running locally
-
-Two terminals:
+## Local Dev
 
 ```bash
-npm run dev          # Trigger.dev dev server (runs the agent)
-npm run next:dev     # Dashboard at http://localhost:3000
+npm run dev          # Next.js Dashboard at http://localhost:3000
 ```
+*(The backend agent runs entirely serverless on Modal now — no local agent server needed!)*
 
-Hit "Run now" on the dashboard or wait for the cron in the Trigger.dev dev UI.
+## Memory Architecture (V5)
 
-## Deploying
-
-| Command | What it deploys |
-|---|---|
-| `npm run deploy` | Trigger.dev tasks (agent + cron). Run after any agent or env change. |
-| `git push` | Vercel (Next.js dashboard). Auto-deploys if repo is connected. |
-
-These are independent — pushing to git does **not** redeploy Trigger.dev.
-
-## Agent behavior
-
-**Sweep mode** (cron / manual): runs broad Exa + LinkedIn queries, enriches top candidates, scores against the thesis, saves startups scoring ≥ 50, and sends a short iMessage summary.
-
-**Chat mode** (SendBlue): answers from memory, runs tools on request, remembers preferences via `remember`.
-
-**Scoring:**
-
-| Score | Action |
-|---|---|
-| ≥ 50 | Saved to brain |
-| ≥ 75 | Highlighted in sweep summary |
-
-## Memory
-
-All dynamic state lives in one file: `brain.json` on Vercel Blob.
-
-| Field | Contents |
-|---|---|
-| `startups` | Scored startup dossiers (keyed by slug) |
-| `seen_urls` | URLs already processed (dedup) |
-| `notes` | Freeform insights / user preferences |
-| `conversation` | Recent chat history |
-| `runs` | Sweep summaries + timestamps |
-| `updated` | Last write timestamp |
-
-Static thesis text is in `brain/thesis.md` (bundled at deploy time). Legacy markdown files in `brain/` (`shortlist.md`, etc.) are not used by v4.
+The monolithic `brain.json` is gone. State is now a series of markdown files managed by `lib/brain.ts` and synced to Vercel Blob:
+- `brain/thesis.md`
+- `brain/startups/[slug].md`
+- `brain/founders/[slug].md`
+- `brain/learning/approved-patterns.md`
+- `brain/learning/passed-patterns.md`

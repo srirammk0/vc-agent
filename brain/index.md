@@ -1,6 +1,9 @@
-# Startup Index
+# Master Startup Index
 
-Last updated: — | Total: 0 startups
+List of all startups processed by the agent.
 
-| Name | Score | Status | Stage | Raised | Found |
-|---|---|---|---|---|---|
+## New
+
+## Approved
+
+## Passed

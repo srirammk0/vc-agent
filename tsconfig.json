@@ -32,7 +32,6 @@
   "include": [
     "src/**/*",
     "lib/**/*",
-    "trigger.config.ts",
     "next.config.ts",
     "scripts/**/*",
     ".next/types/**/*.ts",

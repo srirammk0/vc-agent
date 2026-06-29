@@ -1,78 +1,31 @@
-import { get, put } from "@vercel/blob";
+import { put, head } from "@vercel/blob";
+import fs from "fs";
+import path from "path";
 
-// The agent's entire long-term memory lives in a single PRIVATE JSON document in
-// Vercel Blob. One read at the start of a run, one write at the end. No database.
-
-export interface Startup {
-  slug: string;
-  name: string;
-  website: string;
-  one_liner: string;
-  founders: string;
-  stage: string;
-  raised: string;
-  location: string;
-  score: number;
-  status: string; // new | reviewing | interested | passed | pitched
-  signal: string; // where/why it was found
-  found: string; // ISO date first seen
-  updated: string; // ISO date last touched
-}
-
-export interface ConversationTurn {
-  role: "user" | "agent";
-  content: string;
-  ts: string;
-}
-
-export interface RunRecord {
-  ts: string;
-  trigger: string;
-  summary: string;
-  found: number;
-}
-
-export interface Brain {
-  startups: Record<string, Startup>;
-  seen_urls: string[];
-  notes: string[];
-  conversation: ConversationTurn[];
-  runs: RunRecord[];
-  updated: string | null;
-}
-
-const BRAIN_KEY = "brain.json";
-
-export function emptyBrain(): Brain {
-  return {
-    startups: {},
-    seen_urls: [],
-    notes: [],
-    conversation: [],
-    runs: [],
-    updated: null,
-  };
-}
-
-export async function loadBrain(): Promise<Brain> {
-  try {
-    const res = await get(BRAIN_KEY, { access: "private" });
-    if (!res || res.statusCode !== 200) return emptyBrain();
-
-    const data = (await new Response(res.stream).json()) as Partial<Brain>;
-    return { ...emptyBrain(), ...data };
-  } catch (err) {
-    console.error("[blob] loadBrain failed, returning empty brain:", err);
-    return emptyBrain();
-  }
-}
-
-export async function saveBrain(brain: Brain): Promise<void> {
-  brain.updated = new Date().toISOString();
-  await put(BRAIN_KEY, JSON.stringify(brain, null, 2), {
-    access: "private",
-    contentType: "application/json",
+export async function uploadToBlob(filePath: string, buffer: Buffer): Promise<void> {
+  const blobPath = filePath; // Keep the same path structure e.g. "brain/startups/arc-ai.md"
+  await put(blobPath, buffer, {
+    access: "public",
     addRandomSuffix: false,
-    allowOverwrite: true,
+    token: process.env.BLOB_READ_WRITE_TOKEN,
   });
+}
+
+export async function downloadFromBlob(blobPath: string): Promise<Buffer | null> {
+  // Since we use public access and predictable URLs without random suffix,
+  // we can just fetch it directly if we know the domain, but Vercel Blob
+  // head() gives us the downloadUrl.
+  try {
+    const details = await head(blobPath, { token: process.env.BLOB_READ_WRITE_TOKEN });
+    if (!details) return null;
+    
+    const res = await fetch(details.downloadUrl);
+    if (!res.ok) return null;
+    
+    const arrayBuffer = await res.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  } catch (err) {
+    console.error(`[blob] failed to download ${blobPath}:`, err);
+    return null;
+  }
 }

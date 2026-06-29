@@ -3,3 +3,6 @@ openai==2.44.0
 exa-py==2.15.0
 logfire==4.37.0
 python-dotenv==1.2.2
+firecrawl-py
+logfire[pydantic-ai]
+modal

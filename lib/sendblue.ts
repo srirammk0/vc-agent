@@ -9,38 +9,48 @@ function sendblueHeaders(): Record<string, string> {
   };
 }
 
+export async function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 // Show the iMessage "…" typing bubble while the agent composes a reply.
-// Best-effort: SendBlue only delivers it if a recent conversation exists.
-export async function sendTypingIndicator(maxDurationMs = 120000): Promise<void> {
+export async function sendTypingIndicator(): Promise<void> {
   const res = await fetch(SENDBLUE_TYPING, {
     method: "POST",
     headers: sendblueHeaders(),
     body: JSON.stringify({
       number: process.env.ALERT_PHONE_NUMBER,
-      from_number: process.env.SENDBLUE_FROM_NUMBER,
-      state: "start",
-      max_duration_ms: maxDurationMs,
     }),
   });
   if (!res.ok) {
-    throw new Error(`SendBlue typing error ${res.status}: ${await res.text()}`);
+    console.error(`SendBlue typing error ${res.status}: ${await res.text()}`);
   }
 }
 
-// Send a plain iMessage to the owner. Used for both research alerts and chat replies.
+// Send a plain iMessage to the owner.
 export async function sendMessage(content: string): Promise<void> {
   const res = await fetch(SENDBLUE_BASE, {
     method: "POST",
     headers: sendblueHeaders(),
     body: JSON.stringify({
       number: process.env.ALERT_PHONE_NUMBER,
-      // SendBlue's free API plan requires the sending number explicitly.
-      from_number: process.env.SENDBLUE_FROM_NUMBER,
       content,
     }),
   });
 
   if (!res.ok) {
     throw new Error(`SendBlue error ${res.status}: ${await res.text()}`);
+  }
+}
+
+export async function sendWithTyping(message: string, delayMs = 1500) {
+  await sendTypingIndicator();
+  await sleep(delayMs);
+  await sendMessage(message);
+}
+
+export async function sendMultiMessageStream(messages: string[], delayMs = 1500) {
+  for (const msg of messages) {
+    await sendWithTyping(msg, delayMs);
   }
 }

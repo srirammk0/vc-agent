@@ -22,7 +22,17 @@ def main():
     # Payload comes as the first CLI arg (Trigger.dev python.runScript) or stdin (local)
     raw = sys.argv[1] if len(sys.argv) > 1 else sys.stdin.read()
     payload = json.loads(raw)
-    result = asyncio.run(run_agent(payload))
+    
+    # Redirect stdout to stderr to prevent breaking Trigger.dev JSON parsing
+    original_stdout = sys.stdout
+    sys.stdout = sys.stderr
+    
+    try:
+        result = asyncio.run(run_agent(payload))
+    finally:
+        # Restore stdout for the final JSON print
+        sys.stdout = original_stdout
+        
     # Only one print to stdout — the caller parses the last line as JSON
     print(json.dumps(result))
 
