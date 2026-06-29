@@ -85,7 +85,7 @@ def stop_typing_indicator(ctx: RunContext[AgentDeps], *, result):
     return result
 
 
-@hooks.on.on_run_error
+@hooks.on.run_error
 def stop_typing_on_error(ctx: RunContext[AgentDeps], *, error):
     _stop_typing(ctx.deps)
     raise error
