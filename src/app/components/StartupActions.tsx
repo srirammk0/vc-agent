@@ -3,12 +3,16 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useEnrichmentPoll } from "../hooks/useEnrichmentPoll";
+import { hasEnrichmentData, showEnrichButton } from "../../lib/enrichment";
+import type { Founder } from "../../lib/supabase";
 
 type Props = {
   slug: string;
   name: string;
   status: "new" | "approved" | "passed";
   enrichmentStatus: "pending" | "running" | "complete";
+  companyDescription: string | null;
+  founders: Founder[] | null;
 };
 
 export default function StartupActions({
@@ -16,12 +20,21 @@ export default function StartupActions({
   name,
   status,
   enrichmentStatus,
+  companyDescription,
+  founders,
 }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [busy, setBusy] = useState<string | null>(null);
 
   useEnrichmentPoll(slug, enrichmentStatus);
+
+  const enrichVisible = showEnrichButton({
+    status,
+    enrichment_status: enrichmentStatus,
+    company_description: companyDescription,
+    founders,
+  });
 
   async function setStatus(next: "approved" | "passed") {
     setBusy(next);
@@ -46,7 +59,10 @@ export default function StartupActions({
   }
 
   const disabled = isPending || busy !== null;
-  const showEnrich = status === "approved" && enrichmentStatus === "pending";
+  const enriched = hasEnrichmentData({
+    company_description: companyDescription,
+    founders,
+  });
 
   return (
     <div
@@ -90,7 +106,7 @@ export default function StartupActions({
           {busy === "passed" ? "..." : "Pass"}
         </button>
       )}
-      {showEnrich && (
+      {enrichVisible && (
         <button
           onClick={enrich}
           disabled={disabled}
@@ -112,6 +128,9 @@ export default function StartupActions({
       )}
       {status === "approved" && enrichmentStatus === "running" && (
         <span style={{ fontSize: 12, color: "#616061" }}>enriching...</span>
+      )}
+      {status === "approved" && enriched && (
+        <span style={{ fontSize: 12, color: "#007A5A" }}>enriched</span>
       )}
     </div>
   );

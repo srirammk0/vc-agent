@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Founder, Startup } from "../../lib/supabase";
+import { hasEnrichmentData } from "../../lib/enrichment";
 
 type Props = {
   startup: Pick<
@@ -49,6 +50,7 @@ export default function EnrichmentSection({ startup }: Props) {
   }, [data.slug, data.enrichment_status, router]);
 
   const founders = (data.founders ?? []) as Founder[];
+  const enriched = hasEnrichmentData(data);
 
   return (
     <div
@@ -64,11 +66,11 @@ export default function EnrichmentSection({ startup }: Props) {
         Enrichment
       </h2>
 
-      {data.enrichment_status !== "complete" ? (
+      {data.enrichment_status === "running" ? (
+        <p style={{ fontSize: 13, color: "#616061" }}>enriching...</p>
+      ) : !enriched ? (
         <p style={{ fontSize: 13, color: "#616061" }}>
-          {data.enrichment_status === "running"
-            ? "enriching..."
-            : "Not yet enriched."}
+          Not yet enriched. Click Enrich above to fetch company and founder data.
         </p>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -123,11 +125,6 @@ export default function EnrichmentSection({ startup }: Props) {
                 ))}
               </div>
             </div>
-          )}
-          {!data.company_description && founders.length === 0 && (
-            <p style={{ fontSize: 13, color: "#616061" }}>
-              Enrichment complete, but no company or founder data was found.
-            </p>
           )}
         </div>
       )}

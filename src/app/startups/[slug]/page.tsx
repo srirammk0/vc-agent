@@ -76,6 +76,8 @@ export default async function StartupDetail({
             name={s.name}
             status={s.status}
             enrichmentStatus={s.enrichment_status}
+            companyDescription={s.company_description}
+            founders={s.founders}
           />
         </div>
 

@@ -185,6 +185,8 @@ def enrich_startup(payload: dict):
         company = asyncio.run(search_company(f"{name} startup company"))
         people = asyncio.run(search_people(f"founder CEO {name}"))
 
+        company_text = company[0].get("text", "") if company else ""
+
         founders = [
             {
                 "name": p.get("title", ""),
@@ -193,7 +195,13 @@ def enrich_startup(payload: dict):
             }
             for p in people[:3]
         ]
-        company_text = company[0].get("text", "") if company else ""
+        has_data = bool(company_text.strip()) or any(
+            f.get("name") or f.get("background") or f.get("linkedin") for f in founders
+        )
+
+        if not has_data:
+            sb.table("startups").update({"enrichment_status": "pending"}).eq("slug", slug).execute()
+            return {"status": "no_data", "slug": slug}
 
         sb.table("startups").update({
             "company_description": company_text[:1000],
