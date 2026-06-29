@@ -15,10 +15,9 @@ image = (
         "logfire[pydantic-ai]",
         "python-dotenv",
         "fastapi",
-        "vercelpy",
+        "supabase",
     )
     .add_local_dir("./agent", remote_path="/root/agent")
-    .add_local_dir("./brain", remote_path="/root/brain")
 )
 
 def run_agent(payload: dict) -> dict:

@@ -1,4 +1,4 @@
-import { put, head, list } from "@vercel/blob";
+import { supabase } from "./supabaseClient";
 
 export interface Startup {
   name: string;
@@ -24,66 +24,80 @@ export interface RunRecord {
 }
 
 export async function uploadToBlob(filePath: string, buffer: Buffer): Promise<void> {
-  const blobPath = filePath;
-  await put(blobPath, buffer, {
-    access: "public",
-    addRandomSuffix: false,
-    token: process.env.BLOB_READ_WRITE_TOKEN,
-  });
+  // Deprecated Vercel Blob upload function, kept as no-op to prevent typescript import breaks
 }
 
 export async function downloadFromBlob(blobPath: string): Promise<Buffer | null> {
-  try {
-    const details = await head(blobPath, { token: process.env.BLOB_READ_WRITE_TOKEN });
-    if (!details) return null;
-    
-    const res = await fetch(details.downloadUrl);
-    if (!res.ok) return null;
-    
-    const arrayBuffer = await res.arrayBuffer();
-    return Buffer.from(arrayBuffer);
-  } catch (err) {
-    console.error(`[blob] failed to download ${blobPath}:`, err);
-    return null;
-  }
+  return null;
 }
 
 export async function loadBrain() {
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
   const startups: Record<string, Startup> = {};
   const runs: RunRecord[] = [];
   const notes: string[] = [];
   let updated = new Date().toISOString();
 
   try {
-    const { blobs } = await list({ token });
+    // 1. Fetch startups
+    const { data: startupData, error: sErr } = await supabase
+      .from("startups")
+      .select("*");
+      
+    if (sErr) throw sErr;
     
-    // Fetch startups
-    const startupBlobs = blobs.filter(b => b.pathname.startsWith("brain/startups/") && b.pathname.endsWith(".md"));
-    
-    await Promise.all(startupBlobs.map(async (blob) => {
-      try {
-        const res = await fetch(blob.downloadUrl);
-        if (!res.ok) return;
-        const text = await res.text();
-        const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
-        if (jsonMatch) {
-          const raw = JSON.parse(jsonMatch[1]);
-          // Map V5 score object to V4 score number for dashboard compatibility
-          const score = typeof raw.score === "object" && raw.score !== null ? raw.score.total : (raw.score ?? 0);
-          
-          startups[raw.slug] = {
-            ...raw,
-            score,
-          };
-        }
-      } catch (e) {
-        console.error("Failed to parse startup blob", blob.pathname, e);
+    if (startupData) {
+      for (const row of startupData) {
+        // Map V5 score object to total
+        const score = typeof row.score === "object" && row.score !== null ? row.score.total : (row.score ?? 0);
+        
+        startups[row.slug] = {
+          ...row,
+          score,
+        };
       }
-    }));
+    }
+
+    // 2. Fetch runs
+    const { data: runData, error: rErr } = await supabase
+      .from("runs")
+      .select("*")
+      .order("id", { ascending: true });
+      
+    if (rErr) throw rErr;
     
+    if (runData) {
+      for (const row of runData) {
+        runs.push({
+          ts: row.ts,
+          trigger: row.trigger,
+          found: row.found,
+          summary: row.summary,
+        });
+      }
+    }
+
+    // 3. Fetch notes
+    const { data: noteData, error: nErr } = await supabase
+      .from("memory_notes")
+      .select("note")
+      .order("id", { ascending: true });
+      
+    if (nErr) throw nErr;
+    
+    if (noteData) {
+      for (const row of noteData) {
+        notes.push(row.note);
+      }
+    }
+
+    // Get latest update timestamp if startups exist
+    const latestStartup = Object.values(startups).sort((a, b) => new Date(b.found || "").getTime() - new Date(a.found || "").getTime())[0];
+    if (latestStartup && latestStartup.found) {
+      updated = new Date(latestStartup.found).toISOString();
+    }
+
   } catch (err) {
-    console.error("Failed to load brain from blob", err);
+    console.error("Failed to load brain from Supabase:", err);
   }
 
   return {

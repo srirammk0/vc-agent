@@ -277,6 +277,7 @@ async def run_scout() -> dict:
             memory.save_startup(s)
             new_found += 1
             
+    memory.log_run("scout", f"scouted AI startups from socials & web. found {new_found} new companies.", new_found)
     return {"status": "success", "found": new_found}
 
 
@@ -315,6 +316,7 @@ async def run_enrich(slug: str) -> dict:
         thesis = thesis.replace("## Positive Examples", f"## Positive Examples\n- {startup.name}: Good early traction.")
         memory.update_thesis(thesis)
         
+    memory.log_run("enrich", f"enriched startup {startup.name} (slug: {slug}) and scraped founder background.", 0)
     return {"status": "enriched"}
 
 
