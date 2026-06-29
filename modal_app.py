@@ -63,6 +63,57 @@ def send_sms(content: str):
             print("Response body:", e.read().decode("utf-8"))
 
 
+def _e164(phone: str | None) -> str | None:
+    if not phone:
+        return None
+    phone = phone.strip()
+    if phone.startswith("+"):
+        return phone
+    digits = "".join(c for c in phone if c.isdigit())
+    if len(digits) == 10:
+        return f"+1{digits}"
+    if len(digits) == 11 and digits.startswith("1"):
+        return f"+{digits}"
+    return f"+{digits}" if digits else None
+
+
+def send_typing(number: str, state: str = "start"):
+    import urllib.request
+    import json
+    import os
+
+    recipient = _e164(number)
+    from_number = _e164(os.environ.get("SENDBLUE_FROM_NUMBER", ""))
+    if not recipient or not from_number:
+        return
+
+    headers = {
+        "sb-api-key-id": os.environ.get("SENDBLUE_API_KEY", ""),
+        "sb-api-secret-key": os.environ.get("SENDBLUE_API_SECRET", ""),
+        "Content-Type": "application/json",
+    }
+    body = {
+        "number": recipient,
+        "from_number": from_number,
+        "state": state,
+    }
+    if state == "start":
+        body["max_duration_ms"] = 300000
+
+    try:
+        req = urllib.request.Request(
+            "https://api.sendblue.co/api/send-typing-indicator",
+            data=json.dumps(body).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        urllib.request.urlopen(req)
+    except Exception as e:
+        print("Failed to send typing indicator", e)
+        if hasattr(e, "read"):
+            print("Response body:", e.read().decode("utf-8"))
+
+
 # --- Scheduled scout: every 4 hours (4-turn reflection loop) ---
 @app.function(
     image=image,
@@ -164,16 +215,25 @@ def enrich_startup(payload: dict):
     min_containers=1,
 )
 def chat_reply_background(message: str, sender: str, message_handle: str = None):
-    # Run agent to get response (which handles typing internally via lifecycle hooks)
-    result = run_agent({"mode": "text", "message": message, "sender": sender, "message_handle": message_handle})
-    reply = result.get("reply", "")
-    
-    # Send outbound SMS reply
-    if reply:
-        send_sms(reply)
+    import os
+    recipient = _e164(sender) or _e164(os.environ.get("ALERT_PHONE_NUMBER", ""))
+    if recipient:
+        send_typing(recipient, "start")
 
-    # Mirror any memory changes the agent made into Supabase for the dashboard
-    sync_on_demand.spawn()
+    try:
+        result = run_agent({
+            "mode": "text",
+            "message": message,
+            "sender": sender,
+            "message_handle": message_handle,
+        })
+        reply = result.get("reply", "")
+        if reply:
+            send_sms(reply)
+        sync_on_demand.spawn()
+    finally:
+        if recipient:
+            send_typing(recipient, "stop")
 
 # --- SendBlue inbound webhook: yes/no replies ---
 @app.function(

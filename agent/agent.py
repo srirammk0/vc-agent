@@ -74,13 +74,52 @@ scout_agent = Agent(
 )
 
 
-@hooks.on.before_model_request
-def start_typing_indicator(ctx: RunContext[AgentDeps], request_context, **kwargs):
-    deps = ctx.deps
-    if not deps or not deps.phone_number:
-        return request_context
+@hooks.on.before_run
+def start_typing_indicator(ctx: RunContext[AgentDeps]):
+    _start_typing(ctx.deps)
+
+
+@hooks.on.after_run
+def stop_typing_indicator(ctx: RunContext[AgentDeps], *, result):
+    _stop_typing(ctx.deps)
+    return result
+
+
+@hooks.on.on_run_error
+def stop_typing_on_error(ctx: RunContext[AgentDeps], *, error):
+    _stop_typing(ctx.deps)
+    raise error
+
+
+def _e164(phone: str | None) -> str | None:
+    if not phone or phone == "system":
+        return None
+    phone = phone.strip()
+    if phone.startswith("+"):
+        return phone
+    digits = "".join(c for c in phone if c.isdigit())
+    if len(digits) == 10:
+        return f"+1{digits}"
+    if len(digits) == 11 and digits.startswith("1"):
+        return f"+{digits}"
+    return f"+{digits}" if digits else None
+
+
+def _stop_typing(deps: AgentDeps | None) -> None:
+    if not deps:
+        return
+    if deps.stop_typing:
+        deps.stop_typing.set()
+    if deps.typing_thread:
+        deps.typing_thread.join()
+        deps.typing_thread = None
+
+
+def _start_typing(deps: AgentDeps | None) -> None:
+    if not deps or not deps.phone_number or not deps.sb_key or not deps.sb_secret:
+        return
     if deps.typing_thread and deps.typing_thread.is_alive():
-        return request_context
+        return
 
     deps.stop_typing = threading.Event()
     headers = {
@@ -88,6 +127,8 @@ def start_typing_indicator(ctx: RunContext[AgentDeps], request_context, **kwargs
         "sb-api-secret-key": deps.sb_secret,
         "Content-Type": "application/json",
     }
+    recipient = deps.phone_number
+    sender = deps.from_number
 
     def typing_loop():
         while not deps.stop_typing.is_set():
@@ -95,35 +136,23 @@ def start_typing_indicator(ctx: RunContext[AgentDeps], request_context, **kwargs
                 urllib.request.urlopen(urllib.request.Request(
                     "https://api.sendblue.co/api/send-typing-indicator",
                     data=json.dumps({
-                        "number": deps.phone_number,
-                        "from_number": deps.from_number
+                        "number": recipient,
+                        "from_number": sender,
+                        "state": "start",
+                        "max_duration_ms": 60000,
                     }).encode("utf-8"),
                     headers=headers,
-                    method="POST"
+                    method="POST",
                 ))
-            except Exception:
-                pass
+            except Exception as e:
+                print("typing indicator failed:", e)
             for _ in range(30):
                 if deps.stop_typing.is_set():
                     break
                 time.sleep(0.1)
 
-    deps.typing_thread = threading.Thread(target=typing_loop)
+    deps.typing_thread = threading.Thread(target=typing_loop, daemon=True)
     deps.typing_thread.start()
-    return request_context
-
-
-@hooks.on.after_model_request
-def stop_typing_indicator(ctx: RunContext[AgentDeps], response, **kwargs):
-    deps = ctx.deps
-    if not deps:
-        return response
-    if deps.stop_typing:
-        deps.stop_typing.set()
-    if deps.typing_thread:
-        deps.typing_thread.join()
-        deps.typing_thread = None
-    return response
 
 
 @text_agent.system_prompt
@@ -260,9 +289,10 @@ register_tools(scout_agent)
 # --- MAIN LOGIC ENTRANCES ---
 
 def _default_deps(sender: str = None, message_handle: str = None) -> AgentDeps:
+    recipient = _e164(sender) or _e164(os.environ.get("ALERT_PHONE_NUMBER", "")) or ""
     return AgentDeps(
-        phone_number=sender or os.environ.get("ALERT_PHONE_NUMBER", ""),
-        from_number=os.environ.get("SENDBLUE_FROM_NUMBER", ""),
+        phone_number=recipient,
+        from_number=_e164(os.environ.get("SENDBLUE_FROM_NUMBER", "")) or "",
         sb_key=os.environ.get("SENDBLUE_API_KEY", ""),
         sb_secret=os.environ.get("SENDBLUE_API_SECRET", ""),
         message_handle=message_handle,
