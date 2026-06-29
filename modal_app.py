@@ -33,6 +33,30 @@ def run_agent(payload: dict) -> dict:
     return json.loads(result.stdout)
 
 
+def send_sms(content: str):
+    import urllib.request
+    import json
+    import os
+    num = os.environ.get("ALERT_PHONE_NUMBER", "")
+    if not num:
+        return
+    headers = {
+        "sb-api-key-id": os.environ.get("SENDBLUE_API_KEY", ""),
+        "sb-api-secret-key": os.environ.get("SENDBLUE_API_SECRET", ""),
+        "Content-Type": "application/json",
+    }
+    try:
+        req = urllib.request.Request(
+            "https://api.sendblue.co/api/send-message",
+            data=json.dumps({"number": num, "content": content}).encode("utf-8"),
+            headers=headers,
+            method="POST"
+        )
+        urllib.request.urlopen(req)
+    except Exception as e:
+        print("Failed to send SendBlue SMS", e)
+
+
 # --- Scheduled scout: 7am + 6pm PT daily ---
 @app.function(
     image=image,
@@ -41,7 +65,9 @@ def run_agent(payload: dict) -> dict:
     timeout=180,
 )
 def scout_scheduled():
-    return run_agent({"mode": "scout"})
+    res = run_agent({"mode": "scout"})
+    send_sms(f"Scheduled sweep complete. Found {res.get('found', 0)} new startups.")
+    return res
 
 
 # --- Social monitor: every 4 hours ---
@@ -52,7 +78,10 @@ def scout_scheduled():
     timeout=60,
 )
 def social_monitor():
-    return run_agent({"mode": "scout"})
+    res = run_agent({"mode": "scout"})
+    if res.get("found", 0) > 0:
+        send_sms(f"Social monitor sweep complete. Found {res.get('found')} new startups.")
+    return res
 
 
 # --- On-demand: called from dashboard "Run Now" ---
@@ -63,7 +92,9 @@ def social_monitor():
 )
 @modal.fastapi_endpoint(method="POST")
 def scout_on_demand(payload: dict = {}):
-    return run_agent({"mode": "scout", **payload})
+    res = run_agent({"mode": "scout", **payload})
+    send_sms(f"Manual sweep complete. Found {res.get('found', 0)} new startups.")
+    return res
 
 
 # --- Enrichment: called on approval ---
@@ -74,7 +105,9 @@ def scout_on_demand(payload: dict = {}):
 )
 @modal.fastapi_endpoint(method="POST")
 def enrich_startup(payload: dict):
-    return run_agent({"mode": "enrich", "slug": payload.get("slug")})
+    res = run_agent({"mode": "enrich", "slug": payload.get("slug")})
+    send_sms(f"Enriched startup: {payload.get('slug')}")
+    return res
 
 
 # --- SendBlue inbound webhook: yes/no replies ---
@@ -85,5 +118,33 @@ def enrich_startup(payload: dict):
 )
 @modal.fastapi_endpoint(method="POST")
 def sendblue_webhook(payload: dict):
-    # SendBlue sends the message in the "content" field
-    return run_agent({"mode": "text", "message": payload.get("content", "")})
+    import urllib.request
+    import json
+    import os
+    
+    # 1. Send typing indicator immediately
+    num = os.environ.get("ALERT_PHONE_NUMBER", "")
+    headers = {
+        "sb-api-key-id": os.environ.get("SENDBLUE_API_KEY", ""),
+        "sb-api-secret-key": os.environ.get("SENDBLUE_API_SECRET", ""),
+        "Content-Type": "application/json",
+    }
+    try:
+        urllib.request.urlopen(urllib.request.Request(
+            "https://api.sendblue.co/api/send-typing-indicator",
+            data=json.dumps({"number": num}).encode("utf-8"),
+            headers=headers,
+            method="POST"
+        ))
+    except Exception:
+        pass
+
+    # 2. Run agent to get response
+    result = run_agent({"mode": "text", "message": payload.get("content", "")})
+    reply = result.get("reply", "")
+    
+    # 3. Send outbound SMS reply
+    if reply:
+        send_sms(reply)
+        
+    return result
