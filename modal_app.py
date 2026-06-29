@@ -48,13 +48,19 @@ def send_sms(content: str):
     try:
         req = urllib.request.Request(
             "https://api.sendblue.co/api/send-message",
-            data=json.dumps({"number": num, "content": content}).encode("utf-8"),
+            data=json.dumps({
+                "number": num,
+                "content": content,
+                "from_number": os.environ.get("SENDBLUE_FROM_NUMBER", "")
+            }).encode("utf-8"),
             headers=headers,
             method="POST"
         )
         urllib.request.urlopen(req)
     except Exception as e:
         print("Failed to send SendBlue SMS", e)
+        if hasattr(e, "read"):
+            print("Response body:", e.read().decode("utf-8"))
 
 
 # --- Scheduled scout: every 4 hours ---
