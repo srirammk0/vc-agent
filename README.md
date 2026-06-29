@@ -7,7 +7,7 @@ Automated pre-seed startup scout. A Python agent (Pydantic AI + DeepSeek V4 Pro 
 ## How it works
 
 ```text
-┌──────────────────┐   cron 7am/6pm PT     ┌──────────────────┐
+┌──────────────────┐   cron every 4h PT    ┌──────────────────┐
 │  Modal           │◄──────────────────────│ scout_scheduled  │
 │                  │                       └──────────────────┘
 │  Python agent    │◄── POST /enrich_start─┌──────────────────┐
@@ -36,7 +36,7 @@ Trigger.dev has been completely removed in favor of **Modal** for sub-second col
 
 | Endpoint | Trigger | What it does |
 |---|---|---|
-| `scout_scheduled` | Cron (7am, 6pm PT) | Daily deep-dive Exa scout |
+| `scout_scheduled` | Cron (Every 4h) | Every 4 hours deep-dive Exa scout |
 | `enrich_startup` | Dashboard POST | Deep Exa company/people research |
 | `sendblue_webhook` | SMS Webhook | Chat and approve/pass commands via SMS |
 

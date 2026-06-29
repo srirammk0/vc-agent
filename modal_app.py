@@ -57,11 +57,11 @@ def send_sms(content: str):
         print("Failed to send SendBlue SMS", e)
 
 
-# --- Scheduled scout: 7am + 6pm PT daily ---
+# --- Scheduled scout: every 4 hours ---
 @app.function(
     image=image,
     secrets=[modal.Secret.from_name("vc-scout-secrets")],
-    schedule=modal.Cron("0 7,18 * * *"),
+    schedule=modal.Cron("0 */4 * * *"),
     timeout=180,
 )
 def scout_scheduled():
