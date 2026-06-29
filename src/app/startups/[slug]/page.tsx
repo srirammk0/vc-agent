@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { supabase, type Startup, type Founder } from "../../../lib/supabase";
+import { supabase, type Startup } from "../../../lib/supabase";
 import StatusBadge from "../../components/StatusBadge";
 import StartupActions from "../../components/StartupActions";
+import EnrichmentSection from "../../components/EnrichmentSection";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +22,6 @@ export default async function StartupDetail({
 
   if (!data) notFound();
   const s = data as Startup;
-  const founders = (s.founders ?? []) as Founder[];
 
   return (
     <main
@@ -87,64 +87,19 @@ export default async function StartupDetail({
         </Section>
 
         {/* Enrichment */}
-        <Section title="Enrichment">
-          {s.enrichment_status !== "complete" ? (
-            <p style={{ fontSize: 13, color: "#616061" }}>
-              {s.enrichment_status === "running"
-                ? "enriching..."
-                : "Not yet enriched."}
-            </p>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              {s.company_description && (
-                <p style={{ fontSize: 14, lineHeight: "20px" }}>
-                  {s.company_description}
-                </p>
-              )}
-              <div style={{ display: "flex", gap: 24, flexWrap: "wrap", fontSize: 13 }}>
-                {s.stage && <Meta label="Stage" value={s.stage} />}
-                {s.raised && <Meta label="Raised" value={s.raised} />}
-                {s.location && <Meta label="Location" value={s.location} />}
-                {s.founded && <Meta label="Founded" value={s.founded} />}
-                {s.team_size && <Meta label="Team size" value={s.team_size} />}
-              </div>
-              {founders.length > 0 && (
-                <div>
-                  <h3 style={{ fontSize: 21, margin: "8px 0" }}>Founders</h3>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                    {founders.map((f, i) => (
-                      <div
-                        key={i}
-                        style={{
-                          border: "1px solid #F0F0F0",
-                          borderRadius: 12,
-                          padding: 16,
-                        }}
-                      >
-                        <div style={{ fontSize: 14 }}>{f.name || "Unknown"}</div>
-                        {f.background && (
-                          <div style={{ fontSize: 13, color: "#616061", marginTop: 4 }}>
-                            {f.background}
-                          </div>
-                        )}
-                        {f.linkedin && (
-                          <a
-                            href={f.linkedin}
-                            target="_blank"
-                            rel="noreferrer"
-                            style={{ fontSize: 13, color: "#007AFF", textDecoration: "none" }}
-                          >
-                            profile
-                          </a>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </Section>
+        <EnrichmentSection
+          startup={{
+            slug: s.slug,
+            enrichment_status: s.enrichment_status,
+            company_description: s.company_description,
+            founders: s.founders,
+            stage: s.stage,
+            raised: s.raised,
+            location: s.location,
+            founded: s.founded,
+            team_size: s.team_size,
+          }}
+        />
 
         {/* Signals */}
         {s.signal_urls && s.signal_urls.length > 0 && (
@@ -183,15 +138,6 @@ function Section({ title, children }: { title: string; children: React.ReactNode
     >
       <h2 style={{ fontSize: 21, lineHeight: "35px", margin: "0 0 12px" }}>{title}</h2>
       {children}
-    </div>
-  );
-}
-
-function Meta({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <div style={{ color: "#999999", fontSize: 12 }}>{label}</div>
-      <div style={{ color: "#171717", fontSize: 14 }}>{value}</div>
     </div>
   );
 }

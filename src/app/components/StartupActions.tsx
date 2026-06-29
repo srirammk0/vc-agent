@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { useEnrichmentPoll } from "../hooks/useEnrichmentPoll";
 
 type Props = {
   slug: string;
@@ -19,6 +20,8 @@ export default function StartupActions({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [busy, setBusy] = useState<string | null>(null);
+
+  useEnrichmentPoll(slug, enrichmentStatus);
 
   async function setStatus(next: "approved" | "passed") {
     setBusy(next);
