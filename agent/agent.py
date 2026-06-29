@@ -198,10 +198,10 @@ def register_tools(agent: Agent):
         """Search the web for a query and immediately return the deep text content of the top results for ultra-fast research."""
         try:
             res = await asyncio.to_thread(
-                exa.search_and_contents,
+                exa.search,
                 query,
                 num_results=3,
-                text={"max_characters": 2000},
+                contents={"text": {"max_characters": 2000}},
             )
             results = []
             for r in getattr(res, "results", []):

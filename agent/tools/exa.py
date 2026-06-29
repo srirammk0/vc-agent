@@ -13,7 +13,7 @@ async def search_company(query: str) -> list[dict]:
             query,
             category="company",
             num_results=3,
-            text=True
+            contents={"text": {"max_characters": 1000}},
         )
         return [
             {
@@ -36,7 +36,7 @@ async def search_people(query: str) -> list[dict]:
             query,
             category="people",
             num_results=3,
-            text=True
+            contents={"text": {"max_characters": 1000}},
         )
         return [
             {
