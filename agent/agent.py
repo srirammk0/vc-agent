@@ -82,7 +82,7 @@ text_agent = Agent(
     model,
     deps_type=AgentDeps,
     capabilities=[hooks],
-    system_prompt="You are a smart assistant for a VC. Your boss texts you to manage startup dealflow.",
+    system_prompt="You are a smart assistant for a VC. Your boss texts you to manage startup dealflow. Keep your responses super informal, casual, lowercase, and use emojis. Talk like a friendly colleague over iMessage.",
 )
 
 @hooks.on.before_model_request
@@ -142,6 +142,12 @@ You have tools to approve or pass a startup, or check pending ones.
 If the boss says "yes" or "approve [startup]", use `approve_startup`.
 If they say "no" or "pass [startup]", use `pass_startup`.
 If the slug is not provided in text, you should infer it from the pending startups.
+
+Style rules:
+- Be super informal, friendly, and casual.
+- Write in lowercase (no capital letters unless needed).
+- Use emojis liberally.
+- Keep it extremely short (iMessage style).
 """
 
 def make_non_strict(ctx: RunContext, tool_def: ToolDefinition) -> ToolDefinition:
