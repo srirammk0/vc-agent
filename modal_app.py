@@ -1,6 +1,8 @@
 import modal
 import json
 import subprocess
+import threading
+import time
 from pathlib import Path
 
 app = modal.App("vc-scout")
@@ -112,6 +114,36 @@ def send_typing(number: str, state: str = "start"):
         print("Failed to send typing indicator", e)
         if hasattr(e, "read"):
             print("Response body:", e.read().decode("utf-8"))
+
+
+def _start_typing_loop(recipient: str) -> tuple[threading.Event, threading.Thread]:
+    """Refresh SendBlue typing every ~3s until stop_event is set."""
+    stop_event = threading.Event()
+
+    def loop():
+        while not stop_event.is_set():
+            send_typing(recipient, "start")
+            for _ in range(30):
+                if stop_event.is_set():
+                    break
+                time.sleep(0.1)
+
+    thread = threading.Thread(target=loop, daemon=True)
+    thread.start()
+    return stop_event, thread
+
+
+def _stop_typing_loop(
+    recipient: str | None,
+    stop_event: threading.Event | None,
+    thread: threading.Thread | None,
+) -> None:
+    if stop_event:
+        stop_event.set()
+    if thread:
+        thread.join(timeout=5)
+    if recipient:
+        send_typing(recipient, "stop")
 
 
 # --- Scheduled scout: every 4 hours (4-turn reflection loop) ---
@@ -229,8 +261,10 @@ def enrich_startup(payload: dict):
 def chat_reply_background(message: str, sender: str, message_handle: str = None):
     import os
     recipient = _e164(sender) or _e164(os.environ.get("ALERT_PHONE_NUMBER", ""))
+    stop_event = None
+    typing_thread = None
     if recipient:
-        send_typing(recipient, "start")
+        stop_event, typing_thread = _start_typing_loop(recipient)
 
     try:
         result = run_agent({
@@ -247,8 +281,7 @@ def chat_reply_background(message: str, sender: str, message_handle: str = None)
         print("chat_reply_background failed:", e)
         send_sms("something broke on my end - try again in a min")
     finally:
-        if recipient:
-            send_typing(recipient, "stop")
+        _stop_typing_loop(recipient, stop_event, typing_thread)
 
 # --- SendBlue inbound webhook: yes/no replies ---
 @app.function(
