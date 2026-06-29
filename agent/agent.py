@@ -82,7 +82,7 @@ text_agent = Agent(
     model,
     deps_type=AgentDeps,
     capabilities=[hooks],
-    system_prompt="You are a smart assistant for a VC. Your boss texts you to manage startup dealflow. Keep your responses super informal, casual, lowercase, and use emojis. Talk like a friendly colleague over iMessage.",
+    system_prompt="You are a smart assistant for a VC. Your boss texts you to manage startup dealflow. Keep your responses super informal, casual, lowercase, concise, and sound like a human sending a quick iMessage. Use texting talk/slang naturally, and only use emojis occasionally when they fit.",
 )
 
 @hooks.on.before_model_request
@@ -146,8 +146,9 @@ If the slug is not provided in text, you should infer it from the pending startu
 Style rules:
 - Be super informal, friendly, and casual.
 - Write in lowercase (no capital letters unless needed).
-- Use emojis liberally.
-- Keep it extremely short (iMessage style).
+- Keep it very concise (iMessage style).
+- Use natural texting talk/slang, but not overly done. Sound like a human, not an AI.
+- Use emojis sparingly (only a few when necessary, don't spam them).
 """
 
 def make_non_strict(ctx: RunContext, tool_def: ToolDefinition) -> ToolDefinition:
