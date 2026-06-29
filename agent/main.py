@@ -20,16 +20,16 @@ logfire.instrument_pydantic_ai()
 
 
 def main():
+    # Redirect stdout to stderr immediately to prevent breaking JSON parsing
+    original_stdout = sys.stdout
+    sys.stdout = sys.stderr
+
     # Payload comes as the first CLI arg (Trigger.dev python.runScript) or stdin (local)
     raw = sys.argv[1] if len(sys.argv) > 1 else sys.stdin.read()
     payload = json.loads(raw)
     
     # 1. Sync down the brain before executing
     download_brain()
-    
-    # Redirect stdout to stderr to prevent breaking Trigger.dev JSON parsing
-    original_stdout = sys.stdout
-    sys.stdout = sys.stderr
     
     try:
         result = asyncio.run(run_agent(payload))
