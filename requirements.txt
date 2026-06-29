@@ -6,3 +6,4 @@ python-dotenv==1.2.2
 firecrawl-py
 logfire[pydantic-ai]
 modal
+fastapi

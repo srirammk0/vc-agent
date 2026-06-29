@@ -14,6 +14,7 @@ image = (
         "firecrawl-py",
         "logfire[pydantic-ai]",
         "python-dotenv",
+        "fastapi",
     )
     .add_local_dir("./agent", remote_path="/root/agent")
     .add_local_dir("./brain", remote_path="/root/brain")
