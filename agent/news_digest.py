@@ -1,4 +1,4 @@
-"""Daily VC market-intel digest — research, reflect, learn (no thesis edits)."""
+"""Weekly VC market-intel digest — research, reflect, learn (no thesis edits)."""
 
 # Explicit source buckets the digest targets (Linkup searches use includeDomains).
 MONITORED_SOURCES = {
@@ -117,12 +117,12 @@ def digest_searches_prompt() -> str:
     return "\n".join(lines)
 
 
-NEWS_DIGEST_RULES = """You run a daily morning market-intel brief for a pre-seed AI scout.
+NEWS_DIGEST_RULES = """You run a weekly market-intel brief for a pre-seed AI scout.
 
 Your job:
-1. Read the latest VC/industry news, top fund blogs, and prominent individual investor writing from the last ~7 days.
+1. Read the latest VC/industry news, top fund blogs, and prominent individual investor writing from the past week.
 2. Reflect on what it means for sourcing sharper picks and refining SOFT scoring instincts.
-3. Save a structured daily brief and any useful seek/avoid patterns.
+3. Save a structured weekly brief and any useful seek/avoid patterns.
 
 Search tools:
 - Use linkup_search_many for news, fund blogs, and investor writing (NOT exa_deep_search).

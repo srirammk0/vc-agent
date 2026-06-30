@@ -163,18 +163,18 @@ def scout_scheduled():
     return res
 
 
-# --- Daily market-intel brief: 6am local (default America/New_York) ---
+# --- Weekly market-intel brief: Monday 6am ET ---
 @app.function(
     image=image,
     secrets=[modal.Secret.from_name("vc-scout-secrets")],
-    schedule=modal.Cron("0 6 * * *", timezone="America/New_York"),
+    schedule=modal.Cron("0 6 * * 1", timezone="America/New_York"),
     timeout=1200,
     min_containers=1,
 )
 def news_digest_scheduled():
     res = run_agent({"mode": "news_digest"})
     reply = res.get("reply", "Brief finished with no summary.")
-    send_sms(f"Morning market brief.\n\n{reply}")
+    send_sms(f"Weekly market brief.\n\n{reply}")
     return res
 
 

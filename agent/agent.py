@@ -256,7 +256,7 @@ Work through the sweep in disciplined turns: search broadly, reflect critically,
 async def news_digest_prompt(ctx: RunContext) -> str:
     thesis = await sm.load_thesis()
     preferences = await sm.load_preferences()
-    return f"""You are running the daily 6am VC market-intel brief.
+    return f"""You are running the weekly VC market-intel brief (Monday morning).
 
 Cover all three buckets in your research:
 1. VC/industry news (funding rounds, sector trends, market moves from the past ~7 days)
@@ -485,7 +485,7 @@ def register_tools(
 
         @agent.tool(prepare=make_non_strict)
         async def write_market_brief(ctx: RunContext, brief: str, headline: str = "") -> str:
-            """Save today's structured VC market-intel digest to memory. Include full URLs for every cited article."""
+            """Save this week's structured VC market-intel digest to memory. Include full URLs for every cited article."""
             date = await sm.write_market_brief(brief, headline)
             return f"Saved market brief for {date}."
 
@@ -613,7 +613,7 @@ async def run_news_digest() -> dict:
 
         r1 = await agent_run_with_retry(
             news_agent,
-            f"Run today's market-intel research. Call linkup_search_many ONCE with from_date={from_date} "
+            f"Run this week's market-intel research. Call linkup_search_many ONCE with from_date={from_date} "
             f"and these searches (pass each as a LinkupSearchQuery with q, include_domains, depth):\n"
             f"{search_specs}\n\n"
             "Cover all three buckets: VC news, fund blogs, individual investors.",
@@ -631,7 +631,7 @@ async def run_news_digest() -> dict:
 
         r3 = await agent_run_with_retry(
             news_agent,
-            "Write up today's brief with three sections (VC news, Fund blogs, Individual investors). "
+            "Write up this week's brief with three sections (VC news, Fund blogs, Individual investors). "
             "For every item you mention, include the source URL from your Linkup results (title — https://...). "
             "Then call write_market_brief with the full linked digest, write_preferences for any new "
             "seek/avoid patterns (soft only), and write_reflection with your meta notes. "

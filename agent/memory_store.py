@@ -260,16 +260,16 @@ async def write_reflection(reflection: str):
 
 
 async def write_market_brief(brief: str, headline: str = "") -> str:
-    """Save today's market-intel digest to memory."""
+    """Save this week's market-intel digest to memory."""
     date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    title = headline.strip() or f"Daily VC brief — {date}"
+    title = headline.strip() or f"Weekly VC brief — {date}"
     content = f"# {title}\n\n{brief.strip()}"
     await asyncio.to_thread(
         lambda: get_client().add(
             content=content,
             container_tag="vc:market-intel",
             custom_id=f"brief-{date}",
-            metadata={"date": date, "type": "daily_brief"},
+            metadata={"date": date, "type": "weekly_brief"},
             dreaming="dynamic",
         )
     )
