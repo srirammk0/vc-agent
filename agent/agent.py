@@ -176,7 +176,7 @@ Rules:
 - Reply with one short lowercase confirmation of what you saved."""
 
 feedback_agent = Agent(
-    model,
+    llm.fast_model,
     system_prompt=FEEDBACK_RULES,
     model_settings=llm.CACHE_SETTINGS,
 )

@@ -9,7 +9,8 @@ from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.google import GoogleProvider
 
 GEMINI_MODEL = "gemini-3.1-flash-lite"
-CLAUDE_MODEL = "claude-sonnet-4-6"
+SONNET_MODEL = "claude-sonnet-4-6"
+HAIKU_MODEL = "claude-haiku-4-5"
 
 CACHE_SETTINGS = AnthropicModelSettings(
     anthropic_cache_tool_definitions="1h",
@@ -34,23 +35,34 @@ def _gemini_model() -> GoogleModel:
     )
 
 
-def _claude_model() -> AnthropicModel:
+def _anthropic_model(model_name: str) -> AnthropicModel:
     return AnthropicModel(
-        CLAUDE_MODEL,
+        model_name,
         provider=AnthropicProvider(api_key=os.environ.get("ANTHROPIC_API_KEY")),
     )
 
 
-def build_model() -> FallbackModel:
-    """Claude Sonnet 4.6 primary; Gemini Flash Lite when Claude returns 429."""
+def _build_fallback(anthropic_model: str) -> FallbackModel:
+    """Anthropic primary with Gemini Flash Lite on 429."""
     return FallbackModel(
-        _claude_model(),
+        _anthropic_model(anthropic_model),
         _gemini_model(),
         fallback_on=_is_rate_limit_error,
     )
 
 
+def build_model() -> FallbackModel:
+    """Sonnet — SMS, scout, and news digest agents."""
+    return _build_fallback(SONNET_MODEL)
+
+
+def build_fast_model() -> FallbackModel:
+    """Haiku — enrichment, dashboard feedback, and other light tasks."""
+    return _build_fallback(HAIKU_MODEL)
+
+
 model = build_model()
+fast_model = build_fast_model()
 
 
 async def run_with_retry(agent, prompt: str, *, max_attempts: int = 6, **kwargs):

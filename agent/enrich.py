@@ -25,7 +25,7 @@ class EnrichmentResult(BaseModel):
 
 
 _enrich_agent = Agent(
-    llm.model,
+    llm.fast_model,
     output_type=EnrichmentResult,
     system_prompt=(
         "You structure raw web search results into clean VC diligence notes. "
