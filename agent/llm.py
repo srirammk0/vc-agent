@@ -1,13 +1,8 @@
 """LLM routing and cost controls.
 
-Two-tier agent architecture:
-- Haiku 4.5 (research_model): web search, press checks, discovery, reflection drafts
-- Sonnet 4.6 (finalize_model): save to memory, write reflections, final user reply
+All agents use claude-sonnet-5.
 
-Gemini 3.1 Flash Lite: rate-limit fallback only (not default).
-
-Extended thinking: NOT enabled. We never set `anthropic_thinking` on any request, so
-Sonnet/Haiku run in standard mode with no hidden thinking-token budget.
+Extended thinking: NOT enabled. We never set `anthropic_thinking` on any request.
 
 Batch API: not used — scout, SMS, and digest jobs need synchronous replies.
 """
@@ -17,14 +12,11 @@ import asyncio
 
 from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
-from pydantic_ai.models.fallback import FallbackModel
-from pydantic_ai.models.google import GoogleModel
+# from pydantic_ai.models.fallback import FallbackModel
 from pydantic_ai.providers.anthropic import AnthropicProvider
-from pydantic_ai.providers.google import GoogleProvider
 
-GEMINI_MODEL = "gemini-3.1-flash-lite"
-SONNET_MODEL = "claude-sonnet-4-6"
-HAIKU_MODEL = "claude-haiku-4-5"
+SONNET_MODEL = "claude-sonnet-5"
+# HAIKU_MODEL = "claude-haiku-4-5"
 
 
 def _cache_base() -> dict:
@@ -39,10 +31,10 @@ def _settings(max_tokens: int) -> AnthropicModelSettings:
     return AnthropicModelSettings(max_tokens=max_tokens, **_cache_base())
 
 
-# Haiku — research / tool-heavy turns
+# Research settings (used by research agents, mapped to Sonnet 5)
 RESEARCH_SETTINGS = _settings(1400)
 
-# Sonnet — finalize saves + final replies (cushioned vs prior caps)
+# Sonnet 5 — all agents
 FINALIZE_SMS_SETTINGS = _settings(800)
 FINALIZE_SCOUT_SETTINGS = _settings(2200)
 FINALIZE_NEWS_SETTINGS = _settings(1800)
@@ -78,13 +70,6 @@ def is_broken_history_error(exc: BaseException) -> bool:
     return "tool_use_id" in msg or "tool_result" in msg
 
 
-def _gemini_model() -> GoogleModel:
-    return GoogleModel(
-        GEMINI_MODEL,
-        provider=GoogleProvider(api_key=os.environ.get("GOOGLE_API_KEY")),
-    )
-
-
 def _anthropic_model(model_name: str) -> AnthropicModel:
     return AnthropicModel(
         model_name,
@@ -92,31 +77,22 @@ def _anthropic_model(model_name: str) -> AnthropicModel:
     )
 
 
-def _build_fallback(anthropic_model: str) -> FallbackModel:
-    """Anthropic primary with Gemini Flash Lite on 429."""
-    return FallbackModel(
-        _anthropic_model(anthropic_model),
-        _gemini_model(),
-        fallback_on=_is_rate_limit_error,
-    )
+def build_finalize_model() -> AnthropicModel:
+    """Sonnet 5 — all agents."""
+    return _anthropic_model(SONNET_MODEL)
 
 
-def build_finalize_model() -> FallbackModel:
-    """Sonnet — saves, reflections, final replies."""
-    return _build_fallback(SONNET_MODEL)
-
-
-def build_research_model() -> FallbackModel:
-    """Haiku — search, diligence, research turns."""
-    return _build_fallback(HAIKU_MODEL)
+# def build_research_model() -> AnthropicModel:
+#     """Haiku — search, diligence, research turns."""
+#     return _anthropic_model(HAIKU_MODEL)
 
 
 finalize_model = build_finalize_model()
-research_model = build_research_model()
+research_model = finalize_model
 
 # Back-compat
 model = finalize_model
-fast_model = research_model
+fast_model = finalize_model
 
 
 async def run_with_retry(agent, prompt: str, *, max_attempts: int = 6, **kwargs):
