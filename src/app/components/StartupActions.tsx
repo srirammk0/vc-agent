@@ -4,7 +4,6 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useEnrichmentPoll } from "../hooks/useEnrichmentPoll";
 import { showEnrichButton } from "../../lib/enrichment";
-import FeedbackForm from "./FeedbackForm";
 import type { Founder } from "../../lib/supabase";
 
 type Status = "new" | "approved" | "passed";
@@ -20,8 +19,8 @@ type Props = {
 
 const MENU_ITEMS: { value: Status; label: string; accent: string }[] = [
   { value: "approved", label: "Mark approved", accent: "var(--success)" },
-  { value: "passed",   label: "Mark passed",   accent: "var(--danger)"  },
-  { value: "new",      label: "Mark new",       accent: "var(--label)"   },
+  { value: "passed", label: "Mark passed", accent: "var(--danger)" },
+  { value: "new", label: "Mark new", accent: "var(--label)" },
 ];
 
 export default function StartupActions({
@@ -36,17 +35,36 @@ export default function StartupActions({
   const [isPending, startTransition] = useTransition();
   const [busy, setBusy] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [feedbackOpen, setFeedbackOpen] = useState(false);
-  const [pendingStatus, setPendingStatus] = useState<Status | null>(null);
+  const [feedbackFor, setFeedbackFor] = useState<Status | null>(null);
+  const [feedback, setFeedback] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEnrichmentPoll(slug, enrichmentStatus);
+
+  function closeMenu() {
+    setMenuOpen(false);
+    setFeedbackFor(null);
+    setFeedback("");
+  }
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const card = menuRef.current?.closest("[data-startup-card]");
+    if (card instanceof HTMLElement) {
+      card.style.zIndex = "100";
+      card.style.position = "relative";
+      return () => {
+        card.style.zIndex = "";
+        card.style.position = "";
+      };
+    }
+  }, [menuOpen]);
 
   useEffect(() => {
     if (!menuOpen) return;
     const onClick = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false);
+        closeMenu();
       }
     };
     document.addEventListener("mousedown", onClick);
@@ -66,7 +84,7 @@ export default function StartupActions({
   });
 
   async function setStatusQuick(next: Status) {
-    setMenuOpen(false);
+    closeMenu();
     setBusy(next);
     await fetch(`/api/startup/${slug}`, {
       method: "PATCH",
@@ -77,10 +95,10 @@ export default function StartupActions({
     startTransition(() => router.refresh());
   }
 
-  function openFeedbackFor(next: Status) {
-    setMenuOpen(false);
-    setPendingStatus(next);
-    setFeedbackOpen(true);
+  function openFeedback(next: Status) {
+    setFeedbackFor(next);
+    setFeedback("");
+    setMenuOpen(true);
   }
 
   function handleStatusClick(next: Status) {
@@ -88,7 +106,30 @@ export default function StartupActions({
       setStatusQuick(next);
       return;
     }
-    openFeedbackFor(next);
+    openFeedback(next);
+  }
+
+  async function skipFeedback() {
+    if (!feedbackFor) return;
+    await setStatusQuick(feedbackFor);
+  }
+
+  async function sendFeedback() {
+    if (!feedbackFor || !feedback.trim()) return;
+    setBusy("feedback");
+    await fetch("/api/feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        slug,
+        name,
+        status: feedbackFor,
+        message: feedback.trim(),
+      }),
+    });
+    setBusy(null);
+    closeMenu();
+    startTransition(() => router.refresh());
   }
 
   async function enrich() {
@@ -103,232 +144,211 @@ export default function StartupActions({
   }
 
   const disabled = isPending || busy !== null;
+  const menuRaised = menuOpen;
 
   return (
-    <>
-      <div style={{ display: "flex", gap: 7, alignItems: "center" }}>
+    <div style={{ display: "flex", gap: 7, alignItems: "center" }}>
+      {enrichVisible && (
         <button
-          type="button"
-          onClick={() => setFeedbackOpen(true)}
+          onClick={enrich}
           disabled={disabled}
           style={{
             height: 32,
-            padding: "0 11px",
+            padding: "0 13px",
             borderRadius: 5,
-            border: "1px solid var(--border)",
-            background: "rgba(255,255,255,0.7)",
-            color: "var(--label)",
-            fontSize: 12,
+            border: "none",
+            background: "var(--accent)",
+            color: "#fff",
+            fontSize: 12.5,
             fontWeight: 500,
             cursor: disabled ? "not-allowed" : "pointer",
             opacity: disabled ? 0.55 : 1,
+            boxShadow: "0 2px 8px rgba(0,122,255,0.25)",
+            transition: "opacity 0.15s ease, box-shadow 0.15s ease",
             whiteSpace: "nowrap",
           }}
         >
-          Feedback
+          {busy === "enrich" ? "Enriching…" : "Enrich"}
         </button>
+      )}
 
-        {enrichVisible && (
-          <button
-            onClick={enrich}
-            disabled={disabled}
-            style={{
-              height: 32,
-              padding: "0 13px",
-              borderRadius: 5,
-              border: "none",
-              background: "var(--accent)",
-              color: "#fff",
-              fontSize: 12.5,
-              fontWeight: 500,
-              cursor: disabled ? "not-allowed" : "pointer",
-              opacity: disabled ? 0.55 : 1,
-              boxShadow: "0 2px 8px rgba(0,122,255,0.25)",
-              transition: "opacity 0.15s ease, box-shadow 0.15s ease",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {busy === "enrich" ? "Enriching…" : "Enrich"}
-          </button>
-        )}
-
-        <div ref={menuRef} style={{ position: "relative" }}>
-          <button
-            onClick={() => setMenuOpen((o) => !o)}
-            disabled={disabled}
-            aria-label="Change status"
-            style={{
-              width: 32,
-              height: 32,
-              borderRadius: 5,
-              border: "1px solid var(--border)",
-              background: menuOpen ? "rgba(0,122,255,0.06)" : "rgba(255,255,255,0.7)",
-              color: menuOpen ? "var(--accent)" : "var(--label)",
-              cursor: disabled ? "not-allowed" : "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              opacity: disabled ? 0.5 : 1,
-              transition: "background 0.15s ease, color 0.15s ease",
-              flexShrink: 0,
-            }}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-              <circle cx="12" cy="5"  r="1.8" />
-              <circle cx="12" cy="12" r="1.8" />
-              <circle cx="12" cy="19" r="1.8" />
-            </svg>
-          </button>
-
-          {menuOpen && (
-            <div
-              className="menu-pop"
-              style={{
-                position: "absolute",
-                right: 0,
-                top: 38,
-                width: 176,
-                background: "var(--card-bg)",
-                border: "1px solid var(--border)",
-                borderRadius: 8,
-                boxShadow: "0 8px 24px rgba(0,0,0,0.1), 0 2px 6px rgba(0,0,0,0.06)",
-                padding: 5,
-                zIndex: 200,
-              }}
-            >
-              <div
-                style={{
-                  fontSize: 10.5,
-                  color: "var(--muted)",
-                  padding: "5px 10px 3px",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.08em",
-                  fontWeight: 500,
-                }}
-              >
-                Change status
-              </div>
-              {MENU_ITEMS.filter((m) => m.value !== status).map((m) => (
-                <button
-                  key={m.value}
-                  className="menu-item"
-                  onClick={() => handleStatusClick(m.value)}
-                  style={{
-                    color: m.accent,
-                    fontSize: 13,
-                    fontWeight: 400,
-                  }}
-                >
-                  <span
-                    style={{
-                      width: 7,
-                      height: 7,
-                      borderRadius: 999,
-                      background: m.accent,
-                      flexShrink: 0,
-                    }}
-                  />
-                  {m.label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {feedbackOpen && (
-        <div
-          className="animate-fade-in"
+      <div
+        ref={menuRef}
+        style={{ position: "relative", zIndex: menuRaised ? 1000 : undefined }}
+      >
+        <button
+          onClick={() => {
+            if (menuOpen) closeMenu();
+            else setMenuOpen(true);
+          }}
+          disabled={disabled}
+          aria-label="Change status"
           style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(6,31,0,0.18)",
-            backdropFilter: "blur(3px)",
-            WebkitBackdropFilter: "blur(3px)",
-            zIndex: 400,
+            width: 32,
+            height: 32,
+            borderRadius: 5,
+            border: "1px solid var(--border)",
+            background: menuOpen ? "rgba(0,122,255,0.06)" : "rgba(255,255,255,0.7)",
+            color: menuOpen ? "var(--accent)" : "var(--label)",
+            cursor: disabled ? "not-allowed" : "pointer",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            padding: 24,
-          }}
-          onClick={() => {
-            setFeedbackOpen(false);
-            setPendingStatus(null);
+            opacity: disabled ? 0.5 : 1,
+            transition: "background 0.15s ease, color 0.15s ease",
+            flexShrink: 0,
           }}
         >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <circle cx="12" cy="5" r="1.8" />
+            <circle cx="12" cy="12" r="1.8" />
+            <circle cx="12" cy="19" r="1.8" />
+          </svg>
+        </button>
+
+        {menuOpen && (
           <div
-            className="animate-scale-in"
-            onClick={(e) => e.stopPropagation()}
+            className="menu-pop"
             style={{
-              width: "100%",
-              maxWidth: 480,
+              position: "absolute",
+              right: 0,
+              top: 38,
+              width: feedbackFor ? 220 : 176,
               background: "var(--card-bg)",
-              borderRadius: 12,
               border: "1px solid var(--border)",
-              boxShadow: "0 20px 50px rgba(0,0,0,0.14)",
-              padding: "22px 22px 18px",
+              borderRadius: 8,
+              boxShadow: "0 8px 24px rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.06)",
+              padding: feedbackFor ? "8px" : 5,
             }}
           >
-            <div style={{ marginBottom: 14 }}>
-              <div
-                style={{
-                  fontSize: 10.5,
-                  color: "var(--muted)",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.08em",
-                  fontWeight: 500,
-                  marginBottom: 6,
-                }}
-              >
-                Agent feedback
-              </div>
-              <h3
-                style={{
-                  margin: 0,
-                  fontSize: 17,
-                  fontWeight: 600,
-                  color: "var(--heading)",
-                  letterSpacing: "-0.02em",
-                }}
-              >
-                {name}
-              </h3>
-              <p style={{ margin: "6px 0 0", fontSize: 12.5, color: "var(--label)", lineHeight: 1.45 }}>
-                {pendingStatus
-                  ? `Tell the agent why you're marking this ${pendingStatus}. It saves a seek/avoid pattern to memory.`
-                  : "Tell the agent why you approve, pass, or what to look for next. Saved to Supermemory."}
-              </p>
-            </div>
-            <FeedbackForm
-              slug={slug}
-              name={name}
-              status={status}
-              targetStatus={pendingStatus ?? undefined}
-              placeholder={
-                pendingStatus === "approved"
-                  ? "e.g. strong founder-market fit, unique wedge in legal AI…"
-                  : pendingStatus === "passed"
-                    ? "e.g. too crowded, no clear moat, pre-revenue with big team…"
-                    : "why are you approving or passing this one?"
-              }
-              submitLabel={
-                pendingStatus
-                  ? `Save & mark ${pendingStatus}`
-                  : "Send to agent"
-              }
-              compact
-              onCancel={() => {
-                setFeedbackOpen(false);
-                setPendingStatus(null);
-              }}
-              onSuccess={() => {
-                setFeedbackOpen(false);
-                setPendingStatus(null);
-              }}
-            />
+            {feedbackFor ? (
+              <>
+                <div
+                  style={{
+                    fontSize: 10.5,
+                    color: "var(--muted)",
+                    padding: "4px 8px 6px",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.08em",
+                    fontWeight: 500,
+                  }}
+                >
+                  Why {feedbackFor}?
+                </div>
+                <textarea
+                  value={feedback}
+                  onChange={(e) => setFeedback(e.target.value)}
+                  placeholder={
+                    feedbackFor === "approved"
+                      ? "quick reason…"
+                      : "why passing…"
+                  }
+                  rows={2}
+                  disabled={busy === "feedback"}
+                  style={{
+                    width: "100%",
+                    resize: "none",
+                    padding: "8px 9px",
+                    borderRadius: 6,
+                    border: "1px solid var(--border)",
+                    background: "rgba(255,255,255,0.8)",
+                    fontSize: 12.5,
+                    lineHeight: 1.45,
+                    color: "var(--body)",
+                    fontFamily: "inherit",
+                    outline: "none",
+                    boxSizing: "border-box",
+                  }}
+                />
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 6,
+                    padding: "8px 4px 2px",
+                    justifyContent: "flex-end",
+                  }}
+                >
+                  <button
+                    type="button"
+                    className="menu-item"
+                    onClick={skipFeedback}
+                    disabled={busy === "feedback"}
+                    style={{
+                      width: "auto",
+                      padding: "6px 10px",
+                      fontSize: 12,
+                      color: "var(--label)",
+                    }}
+                  >
+                    Skip
+                  </button>
+                  <button
+                    type="button"
+                    onClick={sendFeedback}
+                    disabled={busy === "feedback" || !feedback.trim()}
+                    style={{
+                      height: 28,
+                      padding: "0 10px",
+                      borderRadius: 5,
+                      border: "none",
+                      background: "var(--accent)",
+                      color: "#fff",
+                      fontSize: 12,
+                      fontWeight: 500,
+                      cursor:
+                        busy === "feedback" || !feedback.trim()
+                          ? "not-allowed"
+                          : "pointer",
+                      opacity:
+                        busy === "feedback" || !feedback.trim() ? 0.5 : 1,
+                    }}
+                  >
+                    {busy === "feedback" ? "…" : "Send"}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div
+                  style={{
+                    fontSize: 10.5,
+                    color: "var(--muted)",
+                    padding: "5px 10px 3px",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.08em",
+                    fontWeight: 500,
+                  }}
+                >
+                  Change status
+                </div>
+                {MENU_ITEMS.filter((m) => m.value !== status).map((m) => (
+                  <button
+                    key={m.value}
+                    className="menu-item"
+                    onClick={() => handleStatusClick(m.value)}
+                    style={{
+                      color: m.accent,
+                      fontSize: 13,
+                      fontWeight: 400,
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 7,
+                        height: 7,
+                        borderRadius: 999,
+                        background: m.accent,
+                        flexShrink: 0,
+                      }}
+                    />
+                    {m.label}
+                  </button>
+                ))}
+              </>
+            )}
           </div>
-        </div>
-      )}
-    </>
+        )}
+      </div>
+    </div>
   );
 }

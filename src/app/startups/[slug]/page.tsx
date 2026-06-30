@@ -4,7 +4,6 @@ import { supabase, type Startup } from "../../../lib/supabase";
 import StatusBadge from "../../components/StatusBadge";
 import StartupActions from "../../components/StartupActions";
 import EnrichmentSection from "../../components/EnrichmentSection";
-import FeedbackForm from "../../components/FeedbackForm";
 
 export const dynamic = "force-dynamic";
 
@@ -101,7 +100,7 @@ export default async function StartupDetail({
             </div>
 
             {/* Actions */}
-            <div style={{ flexShrink: 0, position: "relative", zIndex: 1 }}>
+            <div style={{ flexShrink: 0, position: "relative", zIndex: 20 }}>
               <StartupActions
                 slug={s.slug}
                 name={s.name}
@@ -127,20 +126,6 @@ export default async function StartupDetail({
           >
             {s.assessment || "No assessment yet."}
           </p>
-        </Section>
-
-        <Section title="Agent feedback">
-          <p
-            style={{
-              fontSize: 12.5,
-              color: "var(--label)",
-              margin: "0 0 12px",
-              lineHeight: 1.5,
-            }}
-          >
-            Send why you&apos;d approve or pass this startup. The agent distills it into a seek/avoid pattern in memory.
-          </p>
-          <FeedbackForm slug={s.slug} name={s.name} status={s.status} />
         </Section>
 
         {/* Enrichment */}

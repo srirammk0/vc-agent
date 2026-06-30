@@ -250,6 +250,7 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
               return (
                 <div
                   key={s.slug}
+                  data-startup-card
                   className="row-enter"
                   style={{
                     animationDelay: `${Math.min(i * 22, 280)}ms`,
@@ -358,8 +359,8 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
                       )}
                     </div>
 
-                    {/* Actions (three-dot + enrich) */}
-                    <div style={{ flexShrink: 0, position: "relative", zIndex: 1 }}>
+                    {/* Actions (raised so menus sit above card content) */}
+                    <div style={{ flexShrink: 0, position: "relative", zIndex: 20 }}>
                       <StartupActions
                         slug={s.slug}
                         name={s.name}

@@ -294,6 +294,7 @@ a {
 .menu-pop {
   animation: scaleIn 0.14s cubic-bezier(0.22, 1, 0.36, 1) both;
   transform-origin: top right;
+  z-index: 9999;
 }
 
 .menu-item {
