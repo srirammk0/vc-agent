@@ -95,8 +95,8 @@ export default function EnrichmentSection({ startup }: Props) {
         borderRadius: 14,
         padding: 24,
         marginBottom: 24,
-        background: "var(--cream)",
-        boxShadow: "0 1px 2px rgba(26,25,22,0.04)",
+        background: "#fff",
+        boxShadow: "0 1px 3px rgba(15, 23, 42, 0.05)",
       }}
     >
       <h2 style={{ fontSize: 21, lineHeight: "35px", margin: "0 0 12px" }}>
@@ -104,9 +104,9 @@ export default function EnrichmentSection({ startup }: Props) {
       </h2>
 
       {data.enrichment_status === "running" ? (
-        <p style={{ fontSize: 13, color: "#616061" }}>enriching...</p>
+        <p style={{ fontSize: 13, color: "var(--gray)" }}>enriching...</p>
       ) : !enriched ? (
-        <p style={{ fontSize: 13, color: "#616061" }}>
+        <p style={{ fontSize: 13, color: "var(--gray)" }}>
           Not yet enriched. Click Enrich above to fetch company and founder data.
         </p>
       ) : (
@@ -123,7 +123,7 @@ export default function EnrichmentSection({ startup }: Props) {
                 <div
                   key={key}
                   style={{
-                    background: "#F7F7F7",
+                    background: "#f1f5f9",
                     borderRadius: 10,
                     padding: "12px 14px",
                   }}
@@ -131,15 +131,16 @@ export default function EnrichmentSection({ startup }: Props) {
                   <div
                     style={{
                       fontSize: 11,
-                      color: "#999999",
+                      color: "var(--gray-light)",
                       textTransform: "uppercase",
                       letterSpacing: "0.04em",
                       marginBottom: 4,
+                      fontWeight: 500,
                     }}
                   >
                     {label}
                   </div>
-                  <div style={{ fontSize: 14, color: "#171717" }}>
+                  <div style={{ fontSize: 14, color: "var(--black)" }}>
                     {data[key] as string}
                   </div>
                 </div>
@@ -152,7 +153,7 @@ export default function EnrichmentSection({ startup }: Props) {
               <h3
                 style={{
                   fontSize: 13,
-                  color: "#999999",
+                  color: "var(--gray-light)",
                   textTransform: "uppercase",
                   letterSpacing: "0.04em",
                   margin: "0 0 8px",
@@ -164,7 +165,7 @@ export default function EnrichmentSection({ startup }: Props) {
                 style={{
                   fontSize: 14,
                   lineHeight: "22px",
-                  color: "#171717",
+                  color: "var(--black)",
                   margin: 0,
                 }}
               >
@@ -178,7 +179,7 @@ export default function EnrichmentSection({ startup }: Props) {
               <h3
                 style={{
                   fontSize: 13,
-                  color: "#999999",
+                  color: "var(--gray-light)",
                   textTransform: "uppercase",
                   letterSpacing: "0.04em",
                   margin: "0 0 12px",
@@ -191,10 +192,10 @@ export default function EnrichmentSection({ startup }: Props) {
                   <div
                     key={i}
                     style={{
-                      border: "1px solid #F0F0F0",
+                      border: "1px solid var(--border)",
                       borderRadius: 12,
                       padding: 16,
-                      background: "#FFFFFF",
+                      background: "#f8fafc",
                     }}
                   >
                     <div
@@ -205,7 +206,7 @@ export default function EnrichmentSection({ startup }: Props) {
                         gap: 12,
                       }}
                     >
-                      <div style={{ fontSize: 15, color: "#171717" }}>
+                      <div style={{ fontSize: 15, color: "var(--black)" }}>
                         {f.name || "Unknown"}
                       </div>
                       {f.linkedin && (
@@ -215,7 +216,7 @@ export default function EnrichmentSection({ startup }: Props) {
                           rel="noreferrer"
                           style={{
                             fontSize: 12,
-                            color: "#007AFF",
+                            color: "var(--blue)",
                             textDecoration: "none",
                             whiteSpace: "nowrap",
                           }}
@@ -229,7 +230,7 @@ export default function EnrichmentSection({ startup }: Props) {
                         style={{
                           fontSize: 13,
                           lineHeight: "20px",
-                          color: "#616061",
+                          color: "var(--gray)",
                           margin: "8px 0 0",
                         }}
                       >

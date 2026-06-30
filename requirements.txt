@@ -1,4 +1,4 @@
-pydantic-ai==2.0.0
+pydantic-ai[openai,google]==2.0.0
 openai==2.44.0
 exa-py==2.15.0
 supabase

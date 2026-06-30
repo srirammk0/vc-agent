@@ -28,7 +28,7 @@ export default function LoginPage() {
           borderRadius: 16,
           padding: 32,
           background: "var(--cream)",
-          boxShadow: "0 12px 32px rgba(26,25,22,0.1)",
+          boxShadow: "0 8px 24px rgba(15, 23, 42, 0.08)",
           display: "flex",
           flexDirection: "column",
           gap: 18,
@@ -63,7 +63,7 @@ export default function LoginPage() {
             height: 46,
             padding: "12px 16px",
             borderRadius: 10,
-            border: state?.error ? "2px solid #E5484D" : "1px solid var(--border-med)",
+            border: state?.error ? "2px solid var(--red)" : "1px solid var(--border)",
             background: "#fff",
             fontSize: 14,
             outline: "none",
@@ -71,7 +71,7 @@ export default function LoginPage() {
         />
 
         {state?.error && (
-          <p style={{ fontSize: 12, color: "#E5484D", margin: 0 }}>{state.error}</p>
+          <p style={{ fontSize: 12, color: "var(--red)", margin: 0 }}>{state.error}</p>
         )}
 
         <button

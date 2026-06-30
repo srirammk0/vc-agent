@@ -6,60 +6,25 @@ import threading
 import time
 import urllib.request
 from pydantic_ai import Agent, RunContext, ToolDefinition
-from pydantic_ai.models.openai import OpenAIChatModel
-from pydantic_ai.providers.openai import OpenAIProvider
-from openai import AsyncOpenAI, RateLimitError
-from pydantic_ai.exceptions import ModelHTTPError
 
 from tools.exa import exa
 import memory_store as sm
 import cache
+import llm
 
 # Scout queries vary a lot, so keep a short reuse window; page content itself
 # is served from Exa's crawl cache via max_age_hours.
 _EXA_DEEP_TTL_SECONDS = 6 * 3600
 
-cerebras_client = AsyncOpenAI(
-    base_url="https://api.cerebras.ai/v1",
-    api_key=os.environ.get("CEREBRAS_API_KEY", ""),
-    max_retries=0,
-)
-
-model = OpenAIChatModel(
-    "gpt-oss-120b",
-    provider=OpenAIProvider(openai_client=cerebras_client),
-)
+model = llm.model
 
 RATE_LIMIT_REPLY = (
     "cerebras is getting hammered rn - give it a min and text again"
 )
 
 
-def _is_rate_limit_error(exc: BaseException) -> bool:
-    if isinstance(exc, RateLimitError):
-        return True
-    if isinstance(exc, ModelHTTPError) and exc.status_code == 429:
-        return True
-    cause = exc.__cause__
-    if cause is not None and cause is not exc:
-        return _is_rate_limit_error(cause)
-    return False
-
-
 async def agent_run_with_retry(agent: Agent, prompt: str, **kwargs):
-    max_attempts = 6
-    for attempt in range(max_attempts):
-        try:
-            return await agent.run(prompt, **kwargs)
-        except Exception as e:
-            if not _is_rate_limit_error(e) or attempt == max_attempts - 1:
-                raise
-            delay = 3 * (2 ** attempt)
-            print(
-                f"rate limited, retrying in {delay}s "
-                f"(attempt {attempt + 1}/{max_attempts})"
-            )
-            await asyncio.sleep(delay)
+    return await llm.run_with_retry(agent, prompt, **kwargs)
 
 
 @dataclass
@@ -390,7 +355,7 @@ async def run_scout() -> dict:
 
         return {"reply": r4.output}
     except Exception as e:
-        if _is_rate_limit_error(e):
+        if llm._is_rate_limit_error(e):
             return {"reply": RATE_LIMIT_REPLY}
         raise
 
@@ -405,7 +370,7 @@ async def run_text_handler(message: str, slug: str = None, sender: str = None, m
         res = await agent_run_with_retry(text_agent, prompt, deps=deps)
         return {"reply": res.output}
     except Exception as e:
-        if _is_rate_limit_error(e):
+        if llm._is_rate_limit_error(e):
             return {"reply": RATE_LIMIT_REPLY}
         raise
 

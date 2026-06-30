@@ -2,19 +2,19 @@ type Status = "new" | "approved" | "passed";
 
 const STYLES: Record<Status, React.CSSProperties> = {
   new: {
-    background: "#EAF3FF",
-    color: "#007AFF",
-    border: "1px solid rgba(0,122,255,0.25)",
+    background: "#dbeafe",
+    color: "#0066ff",
+    border: "1px solid rgba(0,102,255,0.2)",
   },
   approved: {
-    background: "#E9F8EF",
-    color: "#147A45",
-    border: "1px solid rgba(31,174,103,0.35)",
+    background: "#dcfce7",
+    color: "#15803d",
+    border: "1px solid rgba(22,163,74,0.25)",
   },
   passed: {
-    background: "#FDECEC",
-    color: "#C13438",
-    border: "1px solid rgba(229,72,77,0.3)",
+    background: "#fee2e2",
+    color: "#dc2626",
+    border: "1px solid rgba(239,68,68,0.25)",
   },
 };
 

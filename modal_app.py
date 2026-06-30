@@ -10,7 +10,7 @@ app = modal.App("vc-scout")
 image = (
     modal.Image.debian_slim()
     .pip_install(
-        "pydantic-ai[openai]",
+        "pydantic-ai[openai,google]",
         "openai",
         "exa-py",
         "logfire[pydantic-ai]",

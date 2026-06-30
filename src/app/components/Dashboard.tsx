@@ -44,13 +44,14 @@ function HeroLoader() {
             fontSize: 13,
             letterSpacing: "0.18em",
             textTransform: "uppercase",
-            color: "#999",
+            color: "var(--blue)",
             marginBottom: 10,
+            fontWeight: 500,
           }}
         >
           VC Scout
         </div>
-        <div style={{ fontSize: 34, color: "#171717", letterSpacing: "-0.01em" }}>
+        <div style={{ fontSize: 34, color: "var(--black)", letterSpacing: "-0.02em" }}>
           Dealflow Agent
         </div>
       </div>
@@ -60,7 +61,7 @@ function HeroLoader() {
           width: 220,
           height: 4,
           borderRadius: 999,
-          background: "#F0F0F0",
+          background: "#f1f5f9",
           overflow: "hidden",
         }}
       >
@@ -70,7 +71,7 @@ function HeroLoader() {
             top: 0,
             bottom: 0,
             borderRadius: 999,
-            background: "linear-gradient(90deg, #007AFF, #86FC6F)",
+            background: "linear-gradient(90deg, #0066ff, #22c55e)",
             animation: "indeterminate 1.1s ease-in-out infinite",
           }}
         />
@@ -127,8 +128,8 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
       <nav
         style={{
           height: 58,
-          background: "#000",
-          color: "#fff",
+          background: "#fff",
+          color: "var(--black)",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
@@ -136,10 +137,12 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
           position: "sticky",
           top: 0,
           zIndex: 50,
+          borderBottom: "1px solid var(--border)",
+          boxShadow: "0 1px 3px rgba(15, 23, 42, 0.04)",
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span style={{ fontSize: 16 }}>VC Scout</span>
+          <span style={{ fontSize: 16, fontWeight: 600 }}>VC Scout</span>
           <span
             title={mode === "realtime" ? "Live" : "Auto-refreshing"}
             style={{
@@ -147,10 +150,11 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
               alignItems: "center",
               gap: 6,
               fontSize: 11,
-              color: "#bbb",
-              border: "1px solid #2a2a2a",
+              color: "var(--gray)",
+              border: "1px solid var(--border)",
               borderRadius: 999,
               padding: "2px 8px",
+              background: "#f8fafc",
             }}
           >
             <span
@@ -159,16 +163,16 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
                 width: 6,
                 height: 6,
                 borderRadius: 999,
-                background: mode === "realtime" ? "#86FC6F" : "#F59E0B",
+                background: mode === "realtime" ? "#22c55e" : "#f59e0b",
               }}
             />
             {mode === "realtime" ? "live" : "syncing"}
           </span>
         </div>
-        <div style={{ display: "flex", gap: 18, fontSize: 13, color: "#ccc" }}>
-          <span>{counts.new} new</span>
-          <span style={{ color: "#86FC6F" }}>{counts.approved} approved</span>
-          <span>{counts.passed} passed</span>
+        <div style={{ display: "flex", gap: 18, fontSize: 13, color: "var(--gray)" }}>
+          <span style={{ color: "var(--blue)", fontWeight: 500 }}>{counts.new} new</span>
+          <span style={{ color: "var(--green)", fontWeight: 500 }}>{counts.approved} approved</span>
+          <span style={{ color: "var(--red)", fontWeight: 500 }}>{counts.passed} passed</span>
         </div>
       </nav>
 
@@ -184,7 +188,9 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
             flexWrap: "wrap",
           }}
         >
-          <h1 style={{ fontSize: 32, lineHeight: "40px", margin: 0 }}>Dealflow</h1>
+          <h1 style={{ fontSize: 32, lineHeight: "40px", margin: 0, letterSpacing: "-0.02em" }}>
+            Dealflow
+          </h1>
           <SearchBar query={query} setQuery={setQuery} isMac={isMac} />
         </div>
 
@@ -197,10 +203,10 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
             marginBottom: 24,
           }}
         >
-          <StatCard label="Total" value={counts.total} />
-          <StatCard label="New" value={counts.new} accent="#007AFF" />
-          <StatCard label="Approved" value={counts.approved} accent="#1FAE67" />
-          <StatCard label="Passed" value={counts.passed} accent="#E5484D" />
+          <StatCard label="Total" value={counts.total} tint="#fff" />
+          <StatCard label="New" value={counts.new} accent="var(--blue)" tint="#eff6ff" />
+          <StatCard label="Approved" value={counts.approved} accent="var(--green)" tint="#ecfdf3" />
+          <StatCard label="Passed" value={counts.passed} accent="var(--red)" tint="#fef2f2" />
         </div>
 
         {/* Tabs */}
@@ -220,13 +226,14 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
         {filtered.length === 0 ? (
           <div
             style={{
-              border: "1px dashed #E2E2E2",
+              border: "1px dashed var(--border-med)",
               borderRadius: 14,
               padding: 56,
               textAlign: "center",
-              color: "#999",
+              color: "var(--gray-light)",
               fontSize: 14,
               marginTop: 16,
+              background: "#fff",
             }}
             className="animate-fade-in"
           >
@@ -249,12 +256,12 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
                     padding: 16,
                     border: "1px solid var(--border)",
                     borderRadius: 14,
-                    background: isPassed ? "var(--cream-deep)" : "var(--cream)",
+                    background: isPassed ? "#f8fafc" : "#fff",
                     boxShadow: isPassed
                       ? "none"
-                      : "0 1px 2px rgba(26,25,22,0.05), 0 1px 3px rgba(26,25,22,0.04)",
-                    opacity: isPassed ? 0.6 : 1,
-                    filter: isPassed ? "grayscale(0.5)" : "none",
+                      : "0 1px 3px rgba(15, 23, 42, 0.06), 0 0 0 1px rgba(255,255,255,0.8) inset",
+                    opacity: isPassed ? 0.72 : 1,
+                    filter: isPassed ? "grayscale(0.2)" : "none",
                     transition: "opacity 0.2s ease, background 0.2s ease",
                   }}
                 >
@@ -279,7 +286,7 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
                         href={s.website}
                         target="_blank"
                         rel="noreferrer"
-                        style={{ fontSize: 12, color: "#007AFF", textDecoration: "none" }}
+                        style={{ fontSize: 12, color: "var(--blue)", textDecoration: "none" }}
                       >
                         {s.website.replace(/^https?:\/\//, "")}
                       </a>
@@ -371,11 +378,13 @@ function SearchBar({
 function StatCard({
   label,
   value,
-  accent = "#171717",
+  accent = "var(--black)",
+  tint = "#fff",
 }: {
   label: string;
   value: number;
   accent?: string;
+  tint?: string;
 }) {
   return (
     <div
@@ -384,14 +393,14 @@ function StatCard({
         border: "1px solid var(--border)",
         borderRadius: 14,
         padding: "16px 18px",
-        background: "var(--cream)",
-        boxShadow: "0 1px 2px rgba(26,25,22,0.04)",
+        background: tint,
+        boxShadow: "0 1px 3px rgba(15, 23, 42, 0.05)",
       }}
     >
-      <div style={{ fontSize: 12, color: "var(--gray-light)", marginBottom: 6 }}>
+      <div style={{ fontSize: 12, color: "var(--gray)", marginBottom: 6, fontWeight: 500 }}>
         {label}
       </div>
-      <div style={{ fontSize: 26, color: accent, lineHeight: 1 }}>{value}</div>
+      <div style={{ fontSize: 28, color: accent, lineHeight: 1, fontWeight: 600 }}>{value}</div>
     </div>
   );
 }

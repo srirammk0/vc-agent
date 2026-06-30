@@ -34,14 +34,19 @@ export default async function StartupDetail({
       <nav
         style={{
           height: 58,
-          background: "#000000",
-          color: "#FFFFFF",
+          background: "#fff",
+          color: "var(--black)",
           display: "flex",
           alignItems: "center",
           padding: "0 24px",
+          borderBottom: "1px solid var(--border)",
+          boxShadow: "0 1px 3px rgba(15, 23, 42, 0.04)",
         }}
       >
-        <Link href="/" style={{ fontSize: 16, color: "#FFFFFF", textDecoration: "none" }}>
+        <Link
+          href="/"
+          style={{ fontSize: 16, color: "var(--blue)", textDecoration: "none", fontWeight: 500 }}
+        >
           ← VC Scout
         </Link>
       </nav>
@@ -53,7 +58,7 @@ export default async function StartupDetail({
           <StatusBadge status={s.status} />
         </div>
         {s.one_liner && (
-          <p style={{ fontSize: 16, color: "#616061", margin: "0 0 8px" }}>
+          <p style={{ fontSize: 16, color: "var(--gray)", margin: "0 0 8px" }}>
             {s.one_liner}
           </p>
         )}
@@ -62,7 +67,7 @@ export default async function StartupDetail({
             href={s.website}
             target="_blank"
             rel="noreferrer"
-            style={{ fontSize: 14, color: "#007AFF", textDecoration: "none" }}
+            style={{ fontSize: 14, color: "var(--blue)", textDecoration: "none" }}
           >
             {s.website.replace(/^https?:\/\//, "")}
           </a>
@@ -111,7 +116,7 @@ export default async function StartupDetail({
                     href={u}
                     target="_blank"
                     rel="noreferrer"
-                    style={{ color: "#007AFF", textDecoration: "none" }}
+                    style={{ color: "var(--blue)", textDecoration: "none" }}
                   >
                     {u}
                   </a>
@@ -133,8 +138,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
         borderRadius: 14,
         padding: 24,
         marginBottom: 24,
-        background: "var(--cream)",
-        boxShadow: "0 1px 2px rgba(26,25,22,0.04)",
+        background: "#fff",
+        boxShadow: "0 1px 3px rgba(15, 23, 42, 0.05)",
       }}
     >
       <h2 style={{ fontSize: 21, lineHeight: "35px", margin: "0 0 12px" }}>{title}</h2>

@@ -92,18 +92,18 @@ export default function StartupActions({
   const disabled = isPending || busy !== null;
 
   const MENU: { value: Status; label: string; color: string; dot: string }[] = [
-    { value: "approved", label: "Mark approved", color: "#1FAE67", dot: "#1FAE67" },
-    { value: "passed", label: "Mark passed", color: "#E5484D", dot: "#E5484D" },
-    { value: "new", label: "Mark new", color: "#6B6862", dot: "#9C988F" },
+    { value: "approved", label: "Mark approved", color: "var(--green)", dot: "#16a34a" },
+    { value: "passed", label: "Mark passed", color: "var(--red)", dot: "#ef4444" },
+    { value: "new", label: "Mark new", color: "var(--gray)", dot: "#94a3b8" },
   ];
 
   return (
     <div style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "flex-end" }}>
       {enrichmentStatus === "running" && (
-        <span style={{ fontSize: 12, color: "#9C988F" }}>enriching…</span>
+        <span style={{ fontSize: 12, color: "var(--gray-light)" }}>enriching…</span>
       )}
       {status === "approved" && enriched && enrichmentStatus !== "running" && (
-        <span style={{ fontSize: 12, color: "#1FAE67" }}>enriched</span>
+        <span style={{ fontSize: 12, color: "var(--green)", fontWeight: 500 }}>enriched</span>
       )}
 
       {enrichVisible && (
@@ -115,12 +115,12 @@ export default function StartupActions({
             padding: "0 14px",
             borderRadius: 9,
             border: "0 solid transparent",
-            background: "#007AFF",
+            background: "var(--blue)",
             color: "#fff",
             fontSize: 13,
             cursor: disabled ? "not-allowed" : "pointer",
             opacity: disabled ? 0.6 : 1,
-            boxShadow: "0 3px 10px rgba(0,122,255,0.25)",
+            boxShadow: "0 3px 12px rgba(0,102,255,0.3)",
           }}
         >
           {busy === "enrich" ? "enriching…" : "Enrich"}
@@ -136,9 +136,9 @@ export default function StartupActions({
             width: 34,
             height: 34,
             borderRadius: 9,
-            border: "1px solid var(--border-med, #E2DDD2)",
-            background: menuOpen ? "#F5F3EC" : "#fff",
-            color: "#6B6862",
+            border: "1px solid var(--border)",
+            background: menuOpen ? "#eff6ff" : "#fff",
+            color: "var(--gray)",
             cursor: disabled ? "not-allowed" : "pointer",
             display: "flex",
             alignItems: "center",
@@ -164,7 +164,7 @@ export default function StartupActions({
               background: "#fff",
               border: "1px solid var(--border, #ECE8DF)",
               borderRadius: 12,
-              boxShadow: "0 12px 28px rgba(26,25,22,0.14)",
+              boxShadow: "0 12px 28px rgba(15, 23, 42, 0.1)",
               padding: 6,
               zIndex: 30,
             }}
@@ -172,7 +172,7 @@ export default function StartupActions({
             <div
               style={{
                 fontSize: 11,
-                color: "#9C988F",
+                color: "var(--gray-light)",
                 padding: "6px 10px 4px",
                 textTransform: "uppercase",
                 letterSpacing: "0.06em",

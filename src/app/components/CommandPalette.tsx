@@ -77,7 +77,7 @@ export default function CommandPalette({ startups }: { startups: Startup[] }) {
           borderRadius: 16,
           boxShadow: "0px 20px 40px rgba(0,0,0,0.2)",
           overflow: "hidden",
-          border: "1px solid #E8E8E8",
+          border: "1px solid var(--border)",
         }}
       >
         <input
@@ -105,8 +105,8 @@ export default function CommandPalette({ startups }: { startups: Startup[] }) {
             outline: "none",
             padding: "18px 20px",
             fontSize: 16,
-            color: "#171717",
-            borderBottom: "1px solid #F0F0F0",
+            color: "var(--black)",
+            borderBottom: "1px solid var(--border)",
           }}
         />
         <div style={{ maxHeight: 360, overflowY: "auto", padding: 8 }}>
@@ -114,7 +114,7 @@ export default function CommandPalette({ startups }: { startups: Startup[] }) {
             <div
               style={{
                 padding: "24px 16px",
-                color: "#999",
+                color: "var(--gray-light)",
                 fontSize: 14,
                 textAlign: "center",
               }}
@@ -136,16 +136,16 @@ export default function CommandPalette({ startups }: { startups: Startup[] }) {
                   border: "none",
                   borderRadius: 10,
                   padding: "10px 12px",
-                  background: i === active ? "#F2F7FF" : "transparent",
+                  background: i === active ? "#eff6ff" : "transparent",
                   cursor: "pointer",
                 }}
               >
-                <span style={{ fontSize: 14, color: "#171717" }}>{s.name}</span>
+                <span style={{ fontSize: 14, color: "var(--black)" }}>{s.name}</span>
                 {s.one_liner && (
                   <span
                     style={{
                       fontSize: 12,
-                      color: "#999",
+                      color: "var(--gray-light)",
                       overflow: "hidden",
                       textOverflow: "ellipsis",
                       whiteSpace: "nowrap",

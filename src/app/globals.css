@@ -6,22 +6,22 @@
 }
 
 :root {
-  --black: #1a1916;
+  --black: #0f172a;
   --pure-black: #000000;
-  --blue: #007aff;
-  --blue-deep: #0066cc;
-  --green: #1fae67;
-  --green-soft: #e9f8ef;
-  --red: #e5484d;
-  --red-soft: #fdecec;
-  --gray: #6b6862;
-  --gray-light: #9c988f;
-  --border: #ece8df;
-  --border-med: #e2ddd2;
+  --blue: #0066ff;
+  --blue-deep: #0052cc;
+  --green: #16a34a;
+  --green-soft: #ecfdf3;
+  --red: #ef4444;
+  --red-soft: #fef2f2;
+  --gray: #64748b;
+  --gray-light: #94a3b8;
+  --border: #e2e8f0;
+  --border-med: #cbd5e1;
   --surface: #ffffff;
-  --page: #faf9f5;
-  --cream: #fbfaf6;
-  --cream-deep: #f5f3ec;
+  --page: #f8fafc;
+  --cream: #ffffff;
+  --cream-deep: #f1f5f9;
   --amber: #f59e0b;
 }
 
@@ -37,7 +37,7 @@ body {
 
 body {
   font-family: var(--font-sans);
-  background-color: var(--surface);
+  background: linear-gradient(180deg, #ffffff 0%, var(--page) 240px, var(--page) 100%);
   color: var(--black);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -126,9 +126,9 @@ body {
 .skeleton {
   background: linear-gradient(
     90deg,
-    #f0f0f0 25%,
-    #f7f7f7 37%,
-    #f0f0f0 63%
+    #f1f5f9 25%,
+    #f8fafc 37%,
+    #f1f5f9 63%
   );
   background-size: 800px 100%;
   animation: shimmer 1.4s infinite linear;
@@ -154,20 +154,20 @@ a {
 
 /* Liquid-glass search input */
 .glass-input {
-  background: rgba(255, 255, 255, 0.55);
-  backdrop-filter: blur(14px) saturate(160%);
-  -webkit-backdrop-filter: blur(14px) saturate(160%);
-  border: 1px solid rgba(255, 255, 255, 0.7);
-  box-shadow: 0 1px 2px rgba(26, 25, 22, 0.04),
-    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(14px) saturate(180%);
+  -webkit-backdrop-filter: blur(14px) saturate(180%);
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
   transition: box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease;
 }
 
 .glass-input:focus-within {
-  background: rgba(255, 255, 255, 0.75);
-  border-color: rgba(0, 122, 255, 0.4);
-  box-shadow: 0 4px 18px rgba(26, 25, 22, 0.08),
-    0 0 0 3px rgba(0, 122, 255, 0.1);
+  background: #fff;
+  border-color: rgba(0, 102, 255, 0.45);
+  box-shadow: 0 4px 18px rgba(15, 23, 42, 0.06),
+    0 0 0 3px rgba(0, 102, 255, 0.12);
 }
 
 /* Login CTA: deepen blue + nudge arrow + lift on hover */
@@ -176,22 +176,22 @@ a {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  background: #007aff;
+  background: var(--blue);
   color: #fff;
-  box-shadow: 0 4px 12px rgba(0, 122, 255, 0.25);
+  box-shadow: 0 4px 14px rgba(0, 102, 255, 0.3);
   transition: background 0.22s ease, box-shadow 0.22s ease,
     transform 0.22s ease;
 }
 
 .login-btn:hover:not(:disabled) {
-  background: #0061cc;
-  box-shadow: 0 10px 22px rgba(0, 122, 255, 0.38);
+  background: var(--blue-deep);
+  box-shadow: 0 10px 24px rgba(0, 102, 255, 0.42);
   transform: translateY(-2px);
 }
 
 .login-btn:active:not(:disabled) {
   transform: translateY(0);
-  box-shadow: 0 4px 12px rgba(0, 122, 255, 0.25);
+  box-shadow: 0 4px 14px rgba(0, 102, 255, 0.3);
 }
 
 .login-btn .arrow {
@@ -208,8 +208,9 @@ a {
   gap: 2px;
   padding: 4px;
   border-radius: 12px;
-  background: var(--cream-deep);
+  background: #fff;
   border: 1px solid var(--border);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
 .seg button {
@@ -227,9 +228,10 @@ a {
 }
 
 .seg button[data-active="true"] {
-  background: #fff;
-  color: var(--black);
-  box-shadow: 0 1px 3px rgba(26, 25, 22, 0.08);
+  background: #eff6ff;
+  color: var(--blue);
+  box-shadow: none;
+  font-weight: 500;
 }
 
 /* Kebab menu */
@@ -254,5 +256,5 @@ a {
 }
 
 .menu-item:hover {
-  background: var(--cream-deep);
+  background: #f1f5f9;
 }

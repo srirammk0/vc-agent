@@ -1,13 +1,9 @@
-import os
-import asyncio
 from typing import Optional
 
-from openai import AsyncOpenAI, RateLimitError
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
-from pydantic_ai.exceptions import ModelHTTPError
-from pydantic_ai.models.openai import OpenAIChatModel
-from pydantic_ai.providers.openai import OpenAIProvider
+
+import llm
 
 
 class FounderProfile(BaseModel):
@@ -28,19 +24,8 @@ class EnrichmentResult(BaseModel):
     founders: list[FounderProfile] = Field(default_factory=list)
 
 
-_cerebras = AsyncOpenAI(
-    base_url="https://api.cerebras.ai/v1",
-    api_key=os.environ.get("CEREBRAS_API_KEY", ""),
-    max_retries=0,
-)
-
-_model = OpenAIChatModel(
-    "gpt-oss-120b",
-    provider=OpenAIProvider(openai_client=_cerebras),
-)
-
 _enrich_agent = Agent(
-    _model,
+    llm.model,
     output_type=EnrichmentResult,
     system_prompt=(
         "You structure raw web search results into clean VC diligence notes. "
@@ -66,17 +51,6 @@ def _import_cache():
             return cache
         except Exception:
             return None
-
-
-def _is_rate_limit_error(exc: BaseException) -> bool:
-    if isinstance(exc, RateLimitError):
-        return True
-    if isinstance(exc, ModelHTTPError) and exc.status_code == 429:
-        return True
-    cause = exc.__cause__
-    if cause is not None and cause is not exc:
-        return _is_rate_limit_error(cause)
-    return False
 
 
 def _format_company_results(results: list[dict]) -> str:
@@ -129,20 +103,11 @@ async def structure_enrichment(
             except Exception:
                 pass
 
-    max_attempts = 4
-    for attempt in range(max_attempts):
-        try:
-            result = await _enrich_agent.run(prompt)
-            output = result.output
-            if cache is not None and cache_key:
-                await cache.cache_set(cache_key, output.model_dump())
-            return output
-        except Exception as e:
-            if not _is_rate_limit_error(e) or attempt == max_attempts - 1:
-                raise
-            await asyncio.sleep(3 * (2 ** attempt))
-
-    return None
+    result = await llm.run_with_retry(_enrich_agent, prompt, max_attempts=4)
+    output = result.output
+    if cache is not None and cache_key:
+        await cache.cache_set(cache_key, output.model_dump())
+    return output
 
 
 def has_enrichment_content(result: EnrichmentResult) -> bool:
