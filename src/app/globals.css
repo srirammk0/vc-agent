@@ -148,15 +148,17 @@ a {
   backdrop-filter: blur(12px) saturate(160%);
   -webkit-backdrop-filter: blur(12px) saturate(160%);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 14px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04),
     inset 0 1px 0 rgba(255, 255, 255, 0.9);
-  transition: box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease,
+    border-radius 0.2s ease;
 }
 
 .glass-input:focus-within {
   background: #fff;
   border-color: rgba(0, 122, 255, 0.4);
+  border-radius: 8px;
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.06),
     0 0 0 3px rgba(0, 122, 255, 0.1);
 }
@@ -258,9 +260,9 @@ a {
 
 .seg-tabs {
   display: inline-flex;
-  gap: 2px;
-  padding: 3px;
-  border-radius: 7px;
+  gap: 3px;
+  padding: 4px;
+  border-radius: 12px;
   background: rgba(255, 255, 255, 0.7);
   border: 1px solid var(--border);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
@@ -269,12 +271,12 @@ a {
 .seg-tabs button {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   border: none;
   background: transparent;
-  border-radius: 5px;
-  padding: 6px 14px;
-  font-size: 13px;
+  border-radius: 9px;
+  padding: 8px 16px;
+  font-size: 13.5px;
   color: var(--label);
   cursor: pointer;
   font-weight: 400;
@@ -284,10 +286,10 @@ a {
 .tab-count {
   font-size: 11px;
   font-weight: 600;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 999px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 4px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -301,6 +303,7 @@ a {
 .seg-tabs button[data-active="true"] {
   background: #fff;
   color: var(--accent);
+  border-radius: 9px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
   font-weight: 500;
 }

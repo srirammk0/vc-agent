@@ -97,7 +97,7 @@ function HeroLoader() {
 }
 
 export default function Dashboard({ initial }: { initial: Startup[] }) {
-  const { startups, mode } = useLiveStartups(initial);
+  const { startups } = useLiveStartups(initial);
   const [tab, setTab] = useState<Tab>("all");
   const [query, setQuery] = useState("");
   const [booting, setBooting] = useState(true);
@@ -154,7 +154,7 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
           }}
         >
           <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+            <div style={{ marginBottom: 6 }}>
               <span
                 style={{
                   fontSize: 12,
@@ -164,31 +164,6 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
                 }}
               >
                 VC Scout
-              </span>
-              <span
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 5,
-                  fontSize: 11,
-                  color: "var(--label)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 999,
-                  padding: "2px 7px",
-                  background: "rgba(255,255,255,0.6)",
-                }}
-              >
-                <span
-                  className="live-dot"
-                  style={{
-                    width: 5,
-                    height: 5,
-                    borderRadius: 999,
-                    background: mode === "realtime" ? "var(--success)" : "var(--warning)",
-                    flexShrink: 0,
-                  }}
-                />
-                {mode === "realtime" ? "live" : "syncing"}
               </span>
             </div>
             <h1
@@ -440,8 +415,7 @@ function SearchBar({
         alignItems: "center",
         gap: 8,
         height: 38,
-        padding: "0 11px",
-        borderRadius: 7,
+        padding: "0 12px",
         minWidth: 240,
       }}
     >
