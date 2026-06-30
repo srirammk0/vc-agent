@@ -32,16 +32,16 @@ def _settings(max_tokens: int) -> AnthropicModelSettings:
 
 
 # Research settings (used by research agents, mapped to Sonnet 5)
-RESEARCH_SETTINGS = _settings(1400)
+RESEARCH_SETTINGS = _settings(4000)
 
 # Sonnet 5 — all agents
-FINALIZE_SMS_SETTINGS = _settings(800)
-FINALIZE_SCOUT_SETTINGS = _settings(2200)
-FINALIZE_NEWS_SETTINGS = _settings(1800)
-FINALIZE_FEEDBACK_SETTINGS = _settings(450)
+FINALIZE_SMS_SETTINGS = _settings(3000)
+FINALIZE_SCOUT_SETTINGS = _settings(4000)
+FINALIZE_NEWS_SETTINGS = _settings(4000)
+FINALIZE_FEEDBACK_SETTINGS = _settings(1500)
 
-ENRICH_SETTINGS = _settings(1100)
-SUMMARY_SETTINGS = _settings(350)
+ENRICH_SETTINGS = _settings(3000)
+SUMMARY_SETTINGS = _settings(1500)
 
 # Back-compat aliases
 SMS_SETTINGS = FINALIZE_SMS_SETTINGS

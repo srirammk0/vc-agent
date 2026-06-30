@@ -35,15 +35,18 @@ async def _search(query: str, category: str) -> list[dict]:
             return cached
 
     try:
-        res = await asyncio.to_thread(
-            exa.search,
-            query,
-            category=category,
-            num_results=3,
-            contents={
-                "text": {"max_characters": 1000},
-                "max_age_hours": _ENRICH_MAX_AGE_HOURS,
-            },
+        res = await asyncio.wait_for(
+            asyncio.to_thread(
+                exa.search,
+                query,
+                category=category,
+                num_results=3,
+                contents={
+                    "text": {"max_characters": 1000},
+                    "max_age_hours": _ENRICH_MAX_AGE_HOURS,
+                },
+            ),
+            timeout=30.0,
         )
         results = [
             {

@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from supermemory import Supermemory
 
 _client = None
+_SM_TIMEOUT = 30.0
 
 
 def get_client() -> Supermemory:
@@ -28,11 +29,14 @@ def truncate_text(text: str, max_chars: int) -> str:
 
 async def load_thesis() -> str:
     try:
-        res = await asyncio.to_thread(
-            get_client().search.memories,
-            q="investment thesis criteria",
-            container_tag="vc:thesis",
-            limit=1,
+        res = await asyncio.wait_for(
+            asyncio.to_thread(
+                get_client().search.memories,
+                q="investment thesis criteria",
+                container_tag="vc:thesis",
+                limit=1,
+            ),
+            timeout=_SM_TIMEOUT,
         )
         results = getattr(res, "results", [])
         if results:
@@ -44,11 +48,14 @@ async def load_thesis() -> str:
 
 async def load_preferences() -> str:
     try:
-        res = await asyncio.to_thread(
-            get_client().search.memories,
-            q="startup patterns preferences",
-            container_tag="vc:preferences",
-            limit=20,
+        res = await asyncio.wait_for(
+            asyncio.to_thread(
+                get_client().search.memories,
+                q="startup patterns preferences",
+                container_tag="vc:preferences",
+                limit=20,
+            ),
+            timeout=_SM_TIMEOUT,
         )
         results = getattr(res, "results", [])
         if results:
@@ -61,18 +68,21 @@ async def load_preferences() -> str:
 
 async def semantic_search(query: str, container_tag: str, limit: int = 10) -> str:
     try:
-        res = await asyncio.to_thread(
-            get_client().search.memories,
-            q=query,
-            container_tag=container_tag,
-            search_mode="hybrid",
-            limit=limit,
+        res = await asyncio.wait_for(
+            asyncio.to_thread(
+                get_client().search.memories,
+                q=query,
+                container_tag=container_tag,
+                search_mode="hybrid",
+                limit=limit,
+            ),
+            timeout=_SM_TIMEOUT,
         )
         results = getattr(res, "results", [])
         joined = "\n---\n".join(_result_text(r) for r in results if _result_text(r))
         return joined or "No results."
     except Exception as e:
-        return f"Search failed: {e}"
+        return f"[MEMORY UNAVAILABLE: {e} — proceed without memory context]"
 
 
 async def save_startup(
@@ -92,20 +102,23 @@ async def save_startup(
         f"Signal URLs: {', '.join(signal_urls)}\n"
         f"Status: {status}"
     )
-    await asyncio.to_thread(
-        lambda: get_client().add(
-            content=content,
-            container_tag="vc:startups",
-            custom_id=slug,
-            metadata={
-                "name": name,
-                "website": website or "",
-                "status": status,
-                "found_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
-                "one_liner": one_liner,
-            },
-            dreaming="dynamic",
-        )
+    await asyncio.wait_for(
+        asyncio.to_thread(
+            lambda: get_client().add(
+                content=content,
+                container_tag="vc:startups",
+                custom_id=slug,
+                metadata={
+                    "name": name,
+                    "website": website or "",
+                    "status": status,
+                    "found_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                    "one_liner": one_liner,
+                },
+                dreaming="dynamic",
+            )
+        ),
+        timeout=_SM_TIMEOUT,
     )
 
 
@@ -179,8 +192,11 @@ async def write_preferences_batch(items: list[dict]) -> tuple[int, list[str]]:
 
 async def list_startups() -> list[dict]:
     """Return lightweight records of every startup already in memory."""
-    docs = await asyncio.to_thread(
-        get_client().documents.list, container_tags=["vc:startups"]
+    docs = await asyncio.wait_for(
+        asyncio.to_thread(
+            get_client().documents.list, container_tags=["vc:startups"]
+        ),
+        timeout=_SM_TIMEOUT,
     )
     out = []
     for doc in getattr(docs, "memories", []):
@@ -196,7 +212,10 @@ async def list_startups() -> list[dict]:
 
 async def known_startups_summary() -> str:
     """A compact list of already-seen startups, for deduping scout sweeps."""
-    startups = await list_startups()
+    try:
+        startups = await list_startups()
+    except Exception:
+        return "None yet."
     if not startups:
         return "None yet."
     return "\n".join(
@@ -208,7 +227,10 @@ async def known_startups_summary() -> str:
 
 async def known_startups_brief() -> str:
     """Name + website list for SMS context."""
-    startups = await list_startups()
+    try:
+        startups = await list_startups()
+    except Exception:
+        return "None yet."
     if not startups:
         return "None yet."
 
@@ -227,16 +249,22 @@ async def known_startups_brief() -> str:
 
 
 async def update_startup_status(slug: str, status: str) -> str:
-    docs = await asyncio.to_thread(
-        get_client().documents.list, container_tags=["vc:startups"]
+    docs = await asyncio.wait_for(
+        asyncio.to_thread(
+            get_client().documents.list, container_tags=["vc:startups"]
+        ),
+        timeout=_SM_TIMEOUT,
     )
     for doc in getattr(docs, "memories", []):
         if getattr(doc, "custom_id", None) == slug:
             meta = {**(doc.metadata or {}), "status": status}
-            await asyncio.to_thread(
-                lambda doc_id=doc.id, meta=meta: get_client().documents.update(
-                    doc_id, metadata=meta
-                )
+            await asyncio.wait_for(
+                asyncio.to_thread(
+                    lambda doc_id=doc.id, meta=meta: get_client().documents.update(
+                        doc_id, metadata=meta
+                    )
+                ),
+                timeout=_SM_TIMEOUT,
             )
             return f"Updated {slug} to {status}"
     return f"Startup {slug} not found."
@@ -244,26 +272,32 @@ async def update_startup_status(slug: str, status: str) -> str:
 
 async def write_preference(pattern: str, pattern_type: str):
     h = hashlib.md5(pattern.encode()).hexdigest()[:8]
-    await asyncio.to_thread(
-        lambda: get_client().add(
-            content=pattern,
-            container_tag="vc:preferences",
-            custom_id=f"{pattern_type}-{h}",
-            metadata={"type": pattern_type},
-            dreaming="dynamic",
-        )
+    await asyncio.wait_for(
+        asyncio.to_thread(
+            lambda: get_client().add(
+                content=pattern,
+                container_tag="vc:preferences",
+                custom_id=f"{pattern_type}-{h}",
+                metadata={"type": pattern_type},
+                dreaming="dynamic",
+            )
+        ),
+        timeout=_SM_TIMEOUT,
     )
 
 
 async def write_reflection(reflection: str):
     date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    await asyncio.to_thread(
-        lambda: get_client().add(
-            content=reflection,
-            container_tag="vc:reflections",
-            custom_id=f"reflection-{date}",
-            dreaming="dynamic",
-        )
+    await asyncio.wait_for(
+        asyncio.to_thread(
+            lambda: get_client().add(
+                content=reflection,
+                container_tag="vc:reflections",
+                custom_id=f"reflection-{date}",
+                dreaming="dynamic",
+            )
+        ),
+        timeout=_SM_TIMEOUT,
     )
 
 
@@ -272,24 +306,30 @@ async def write_market_brief(brief: str, headline: str = "") -> str:
     date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     title = headline.strip() or f"Weekly VC brief — {date}"
     content = f"# {title}\n\n{brief.strip()}"
-    await asyncio.to_thread(
-        lambda: get_client().add(
-            content=content,
-            container_tag="vc:market-intel",
-            custom_id=f"brief-{date}",
-            metadata={"date": date, "type": "weekly_brief"},
-            dreaming="dynamic",
-        )
+    await asyncio.wait_for(
+        asyncio.to_thread(
+            lambda: get_client().add(
+                content=content,
+                container_tag="vc:market-intel",
+                custom_id=f"brief-{date}",
+                metadata={"date": date, "type": "weekly_brief"},
+                dreaming="dynamic",
+            )
+        ),
+        timeout=_SM_TIMEOUT,
     )
     return date
 
 
 async def update_thesis(new_content: str):
-    await asyncio.to_thread(
-        lambda: get_client().add(
-            content=new_content,
-            container_tag="vc:thesis",
-            custom_id="thesis",
-            dreaming="instant",
-        )
+    await asyncio.wait_for(
+        asyncio.to_thread(
+            lambda: get_client().add(
+                content=new_content,
+                container_tag="vc:thesis",
+                custom_id="thesis",
+                dreaming="instant",
+            )
+        ),
+        timeout=_SM_TIMEOUT,
     )

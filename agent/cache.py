@@ -77,11 +77,21 @@ def _set_sync(key: str, value: Any) -> None:
 
 
 async def cache_get(key: str, ttl_seconds: int) -> Optional[Any]:
-    return await asyncio.to_thread(_get_sync, key, ttl_seconds)
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_get_sync, key, ttl_seconds), timeout=10.0
+        )
+    except Exception:
+        return None
 
 
 async def cache_set(key: str, value: Any) -> None:
-    await asyncio.to_thread(_set_sync, key, value)
+    try:
+        await asyncio.wait_for(
+            asyncio.to_thread(_set_sync, key, value), timeout=10.0
+        )
+    except Exception:
+        pass
 
 
 def _delete_sync(key: str) -> None:
@@ -95,7 +105,12 @@ def _delete_sync(key: str) -> None:
 
 
 async def cache_delete(key: str) -> None:
-    await asyncio.to_thread(_delete_sync, key)
+    try:
+        await asyncio.wait_for(
+            asyncio.to_thread(_delete_sync, key), timeout=10.0
+        )
+    except Exception:
+        pass
 
 
 def cache_get_sync(key: str, ttl_seconds: int) -> Optional[Any]:
