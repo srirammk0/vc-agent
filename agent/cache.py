@@ -84,6 +84,20 @@ async def cache_set(key: str, value: Any) -> None:
     await asyncio.to_thread(_set_sync, key, value)
 
 
+def _delete_sync(key: str) -> None:
+    client = _get_client()
+    if client is None:
+        return
+    try:
+        client.table("cache").delete().eq("key", key).execute()
+    except Exception as e:
+        print("cache delete failed:", e)
+
+
+async def cache_delete(key: str) -> None:
+    await asyncio.to_thread(_delete_sync, key)
+
+
 def cache_get_sync(key: str, ttl_seconds: int) -> Optional[Any]:
     return _get_sync(key, ttl_seconds)
 

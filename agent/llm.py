@@ -28,6 +28,16 @@ def _is_rate_limit_error(exc: BaseException) -> bool:
     return False
 
 
+def is_broken_history_error(exc: BaseException) -> bool:
+    """True when cached message_history is malformed for the model API."""
+    if isinstance(exc, ModelHTTPError) and exc.status_code == 400:
+        body = str(getattr(exc, "body", "") or "").lower()
+        if "tool_use" in body or "tool_result" in body:
+            return True
+    msg = str(exc).lower()
+    return "tool_use_id" in msg or "tool_result" in msg
+
+
 def _gemini_model() -> GoogleModel:
     return GoogleModel(
         GEMINI_MODEL,

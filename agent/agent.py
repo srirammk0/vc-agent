@@ -7,7 +7,14 @@ import time
 import urllib.request
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext, ToolDefinition
-from pydantic_ai.messages import ModelMessagesTypeAdapter
+from pydantic_ai.messages import (
+    ModelMessagesTypeAdapter,
+    ModelRequest,
+    ModelResponse,
+    TextPart,
+    ToolCallPart,
+    ToolReturnPart,
+)
 from pydantic_ai.usage import UsageLimits
 
 from tools.exa import exa
@@ -45,16 +52,82 @@ async def _load_history(sender: str) -> list:
     try:
         data = await cache.cache_get(_convo_key(sender), _CONVO_TTL_SECONDS)
         if data:
-            return ModelMessagesTypeAdapter.validate_python(data)
+            messages = ModelMessagesTypeAdapter.validate_python(data)
+            return _sanitize_history(messages)
     except Exception as e:
         print("failed to load conversation history:", e)
     return []
 
 
+async def _clear_history(sender: str) -> None:
+    try:
+        await cache.cache_delete(_convo_key(sender))
+    except Exception as e:
+        print("failed to clear conversation history:", e)
+
+
+def _sanitize_history(messages: list) -> list:
+    """Drop orphan tool results and incomplete tool-call tails from cached history."""
+    if not messages:
+        return []
+
+    msgs = list(messages)
+
+    while msgs and isinstance(msgs[0], ModelRequest):
+        parts = msgs[0].parts
+        if parts and all(isinstance(p, ToolReturnPart) for p in parts):
+            msgs.pop(0)
+            continue
+        break
+
+    valid: list = []
+    pending: set[str] = set()
+
+    for msg in msgs:
+        if isinstance(msg, ModelResponse):
+            for part in msg.parts:
+                if isinstance(part, ToolCallPart):
+                    pending.add(part.tool_call_id)
+            valid.append(msg)
+            continue
+
+        if isinstance(msg, ModelRequest):
+            orphan = False
+            for part in msg.parts:
+                if isinstance(part, ToolReturnPart):
+                    if part.tool_call_id not in pending:
+                        orphan = True
+                        break
+                    pending.discard(part.tool_call_id)
+            if orphan:
+                return _sanitize_history(valid)
+            valid.append(msg)
+            continue
+
+        valid.append(msg)
+
+    while valid:
+        last = valid[-1]
+        if isinstance(last, ModelResponse):
+            has_tool_calls = any(isinstance(p, ToolCallPart) for p in last.parts)
+            has_text = any(isinstance(p, TextPart) for p in last.parts)
+            if has_tool_calls and not has_text:
+                valid.pop()
+                continue
+        break
+
+    if len(valid) > _CONVO_MAX_MESSAGES:
+        return _sanitize_history(valid[-_CONVO_MAX_MESSAGES:])
+
+    return valid
+
+
 async def _save_history(sender: str, messages: list) -> None:
     try:
-        trimmed = messages[-_CONVO_MAX_MESSAGES:]
-        data = ModelMessagesTypeAdapter.dump_python(trimmed, mode="json")
+        sanitized = _sanitize_history(messages)
+        if not sanitized:
+            return
+        data = ModelMessagesTypeAdapter.dump_python(sanitized, mode="json")
         await cache.cache_set(_convo_key(sender), data)
     except Exception as e:
         print("failed to save conversation history:", e)
@@ -116,6 +189,7 @@ STYLE_RULES = """Style rules:
 - Do NOT use emojis at all.
 - Do NOT say "hey" or "hi" or greet the user. Assume this is a continuation of an ongoing chat (no greetings).
 - Do NOT use em dashes (—). Use hyphens (-) or standard punctuation.
+- Do NOT use markdown formatting of any kind: no **bold**, no *italics*, no bullet lists, no headers, no backticks. Plain text only.
 - Use exactly 1 line of whitespace (one empty line) to separate things for easy readability."""
 
 CORE_RULES = """You are a smart, fully autonomous research analyst for a VC. Your boss texts you to manage startup dealflow and do deep research.
@@ -288,6 +362,8 @@ Your core thesis is:
 
 Patterns you've learned (seek/avoid):
 {preferences}
+
+Your replies go out as plain iMessage texts. Never use markdown, asterisks, or formatting.
 
 {STYLE_RULES}
 """
@@ -716,18 +792,27 @@ async def run_text_handler(message: str, slug: str = None, sender: str = None, m
 
     deps = _default_deps(sender=sender, message_handle=message_handle)
     history = await _load_history(sender) if sender else []
-    try:
-        res = await agent_run_with_retry(
-            text_agent, prompt, deps=deps,
-            message_history=history if history else None,
-        )
-        if sender:
-            await _save_history(sender, res.all_messages())
-        return {"reply": res.output}
-    except Exception as e:
-        if llm._is_rate_limit_error(e):
-            return {"reply": RATE_LIMIT_REPLY}
-        raise
+
+    for attempt in range(2):
+        try:
+            res = await agent_run_with_retry(
+                text_agent,
+                prompt,
+                deps=deps,
+                message_history=history if history else None,
+            )
+            if sender:
+                await _save_history(sender, res.all_messages())
+            return {"reply": res.output}
+        except Exception as e:
+            if llm._is_rate_limit_error(e):
+                return {"reply": RATE_LIMIT_REPLY}
+            if attempt == 0 and sender and llm.is_broken_history_error(e):
+                print("broken conversation history, clearing cache and retrying:", e)
+                await _clear_history(sender)
+                history = []
+                continue
+            raise
 
 
 async def run_feedback(slug: str, name: str, status: str, message: str) -> dict:
