@@ -1,39 +1,30 @@
 import os
 import asyncio
 
-from openai import AsyncOpenAI, RateLimitError
 from pydantic_ai.exceptions import ModelHTTPError
+from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
 from pydantic_ai.models.fallback import FallbackModel
 from pydantic_ai.models.google import GoogleModel
-from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.google import GoogleProvider
-from pydantic_ai.providers.openai import OpenAIProvider
 
-CEREBRAS_MODEL = "gpt-oss-120b"
 GEMINI_MODEL = "gemini-3.1-flash-lite"
+CLAUDE_MODEL = "claude-sonnet-4-6"
+
+CACHE_SETTINGS = AnthropicModelSettings(
+    anthropic_cache_tool_definitions="1h",
+    anthropic_cache_instructions=True,
+    anthropic_cache=True,
+)
 
 
 def _is_rate_limit_error(exc: BaseException) -> bool:
-    if isinstance(exc, RateLimitError):
-        return True
     if isinstance(exc, ModelHTTPError) and exc.status_code == 429:
         return True
     cause = exc.__cause__
     if cause is not None and cause is not exc:
         return _is_rate_limit_error(cause)
     return False
-
-
-def _cerebras_model() -> OpenAIChatModel:
-    client = AsyncOpenAI(
-        base_url="https://api.cerebras.ai/v1",
-        api_key=os.environ.get("CEREBRAS_API_KEY", ""),
-        max_retries=0,
-    )
-    return OpenAIChatModel(
-        CEREBRAS_MODEL,
-        provider=OpenAIProvider(openai_client=client),
-    )
 
 
 def _gemini_model() -> GoogleModel:
@@ -43,11 +34,18 @@ def _gemini_model() -> GoogleModel:
     )
 
 
+def _claude_model() -> AnthropicModel:
+    return AnthropicModel(
+        CLAUDE_MODEL,
+        provider=AnthropicProvider(api_key=os.environ.get("ANTHROPIC_API_KEY")),
+    )
+
+
 def build_model() -> FallbackModel:
-    """Gemini primary; Cerebras when Gemini returns 429."""
+    """Claude Sonnet 4.6 primary; Gemini Flash Lite when Claude returns 429."""
     return FallbackModel(
+        _claude_model(),
         _gemini_model(),
-        _cerebras_model(),
         fallback_on=_is_rate_limit_error,
     )
 

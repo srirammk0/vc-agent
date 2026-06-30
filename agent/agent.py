@@ -114,6 +114,7 @@ text_agent = Agent(
     deps_type=AgentDeps,
     capabilities=[hooks],
     system_prompt=CORE_RULES,
+    model_settings=llm.CACHE_SETTINGS,
 )
 
 scout_agent = Agent(
@@ -121,6 +122,7 @@ scout_agent = Agent(
     deps_type=AgentDeps,
     capabilities=[hooks],
     system_prompt=CORE_RULES,
+    model_settings=llm.CACHE_SETTINGS,
 )
 
 news_agent = Agent(
@@ -128,6 +130,7 @@ news_agent = Agent(
     deps_type=AgentDeps,
     capabilities=[hooks],
     system_prompt=CORE_RULES + "\n\n" + NEWS_DIGEST_RULES,
+    model_settings=llm.CACHE_SETTINGS,
 )
 
 FEEDBACK_RULES = """You process dashboard feedback for a VC scout's dealflow.
@@ -147,6 +150,7 @@ Rules:
 feedback_agent = Agent(
     model,
     system_prompt=FEEDBACK_RULES,
+    model_settings=llm.CACHE_SETTINGS,
 )
 
 
