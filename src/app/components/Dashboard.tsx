@@ -97,7 +97,7 @@ function HeroLoader() {
 }
 
 export default function Dashboard({ initial }: { initial: Startup[] }) {
-  const { startups } = useLiveStartups(initial);
+  const { startups, refresh, refreshing } = useLiveStartups(initial);
   const [tab, setTab] = useState<Tab>("all");
   const [query, setQuery] = useState("");
   const [booting, setBooting] = useState(true);
@@ -179,35 +179,36 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
               Dealflow
             </h1>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <button
-              onClick={() => window.location.reload()}
+              onClick={refresh}
               style={{
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                width: 38,
-                height: 38,
-                borderRadius: 8,
-                border: "1px solid var(--border)",
-                background: "var(--card-bg)",
+                width: 32,
+                height: 32,
+                borderRadius: 6,
+                border: "none",
+                background: "transparent",
                 cursor: "pointer",
                 color: "var(--muted)",
                 transition: "all 0.15s ease",
               }}
-              title="Reload page"
+              title="Refresh list"
               onMouseEnter={(e) => {
+                e.currentTarget.style.background = "rgba(0, 0, 0, 0.05)";
                 e.currentTarget.style.color = "var(--heading)";
-                e.currentTarget.style.borderColor = "var(--accent)";
               }}
               onMouseLeave={(e) => {
+                e.currentTarget.style.background = "transparent";
                 e.currentTarget.style.color = "var(--muted)";
-                e.currentTarget.style.borderColor = "var(--border)";
               }}
             >
               <svg
-                width="14"
-                height="14"
+                className={refreshing ? "animate-spin" : ""}
+                width="15"
+                height="15"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"

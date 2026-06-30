@@ -15,9 +15,29 @@ type Mode = "connecting" | "realtime" | "polling";
 export function useLiveStartups(initial: Startup[]) {
   const [startups, setStartups] = useState<Startup[]>(() => sortStartups(initial));
   const [mode, setMode] = useState<Mode>("connecting");
+  const [refreshing, setRefreshing] = useState(false);
   const mapRef = useRef<Map<string, Startup>>(
     new Map(sortStartups(initial).map((s) => [s.slug, s]))
   );
+
+  async function refresh() {
+    setRefreshing(true);
+    try {
+      const res = await fetch("/api/startups");
+      if (!res.ok) return;
+      const { startups: rows } = await res.json();
+      if (!Array.isArray(rows)) return;
+      mapRef.current = new Map(
+        (rows as Startup[]).map((s) => [s.slug, s])
+      );
+      commit();
+    } catch {
+      // ignore
+    } finally {
+      await new Promise((r) => setTimeout(r, 600));
+      setRefreshing(false);
+    }
+  }
 
   function commit() {
     setStartups(sortStartups(Array.from(mapRef.current.values())));
@@ -76,5 +96,5 @@ export function useLiveStartups(initial: Startup[]) {
     };
   }, []);
 
-  return { startups, mode };
+  return { startups, mode, refresh, refreshing };
 }
