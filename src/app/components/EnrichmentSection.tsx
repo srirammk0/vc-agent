@@ -91,11 +91,12 @@ export default function EnrichmentSection({ startup }: Props) {
   return (
     <div
       style={{
-        border: "1px solid #F0F0F0",
-        borderRadius: 12,
+        border: "1px solid var(--border)",
+        borderRadius: 14,
         padding: 24,
         marginBottom: 24,
-        boxShadow: "0px 1px 3px rgba(0, 0, 0, 0.08)",
+        background: "var(--cream)",
+        boxShadow: "0 1px 2px rgba(26,25,22,0.04)",
       }}
     >
       <h2 style={{ fontSize: 21, lineHeight: "35px", margin: "0 0 12px" }}>

@@ -119,7 +119,7 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
   }, [startups, tab, query]);
 
   return (
-    <main style={{ minHeight: "100vh", background: "#fff", color: "#171717" }}>
+    <main style={{ minHeight: "100vh", background: "var(--page)", color: "var(--black)" }}>
       {booting && <HeroLoader />}
       <CommandPalette startups={startups} />
 
@@ -199,42 +199,21 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
         >
           <StatCard label="Total" value={counts.total} />
           <StatCard label="New" value={counts.new} accent="#007AFF" />
-          <StatCard label="Approved" value={counts.approved} accent="#0F7A3D" />
-          <StatCard label="Passed" value={counts.passed} accent="#999999" />
+          <StatCard label="Approved" value={counts.approved} accent="#1FAE67" />
+          <StatCard label="Passed" value={counts.passed} accent="#E5484D" />
         </div>
 
         {/* Tabs */}
-        <div
-          style={{
-            display: "flex",
-            gap: 28,
-            borderBottom: "1px solid #E8E8E8",
-            marginBottom: 8,
-          }}
-        >
-          {TABS.map((t) => {
-            const active = t.id === tab;
-            return (
-              <button
-                key={t.id}
-                onClick={() => setTab(t.id)}
-                style={{
-                  background: "none",
-                  border: "none",
-                  borderBottom: active
-                    ? "2px solid #007AFF"
-                    : "2px solid transparent",
-                  padding: "10px 0",
-                  marginBottom: -1,
-                  fontSize: 14,
-                  color: active ? "#171717" : "#999",
-                  cursor: "pointer",
-                }}
-              >
-                {t.label}
-              </button>
-            );
-          })}
+        <div className="seg" style={{ marginBottom: 4 }}>
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              data-active={t.id === tab}
+              onClick={() => setTab(t.id)}
+            >
+              {t.label}
+            </button>
+          ))}
         </div>
 
         {/* List */}
@@ -255,68 +234,76 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
           </div>
         ) : (
           <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 10 }}>
-            {filtered.map((s, i) => (
-              <div
-                key={s.slug}
-                className="row-enter"
-                style={{
-                  animationDelay: `${Math.min(i * 25, 300)}ms`,
-                  display: "grid",
-                  gridTemplateColumns: "1.5fr 1.9fr auto",
-                  gap: 16,
-                  alignItems: "center",
-                  padding: 16,
-                  border: "1px solid #F0F0F0",
-                  borderRadius: 14,
-                  background: "#fff",
-                  boxShadow: "0px 1px 3px rgba(0,0,0,0.05)",
-                }}
-              >
-                <div style={{ minWidth: 0 }}>
-                  <div
-                    style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}
-                  >
-                    <Link
-                      href={`/startups/${s.slug}`}
-                      style={{
-                        fontSize: 15,
-                        color: "#171717",
-                        textDecoration: "none",
-                      }}
+            {filtered.map((s, i) => {
+              const isPassed = s.status === "passed";
+              return (
+                <div
+                  key={s.slug}
+                  className="row-enter"
+                  style={{
+                    animationDelay: `${Math.min(i * 25, 300)}ms`,
+                    display: "grid",
+                    gridTemplateColumns: "1.5fr 1.9fr auto",
+                    gap: 16,
+                    alignItems: "center",
+                    padding: 16,
+                    border: "1px solid var(--border)",
+                    borderRadius: 14,
+                    background: isPassed ? "var(--cream-deep)" : "var(--cream)",
+                    boxShadow: isPassed
+                      ? "none"
+                      : "0 1px 2px rgba(26,25,22,0.05), 0 1px 3px rgba(26,25,22,0.04)",
+                    opacity: isPassed ? 0.6 : 1,
+                    filter: isPassed ? "grayscale(0.5)" : "none",
+                    transition: "opacity 0.2s ease, background 0.2s ease",
+                  }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <div
+                      style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}
                     >
-                      {s.name}
-                    </Link>
-                    <StatusBadge status={s.status} />
+                      <Link
+                        href={`/startups/${s.slug}`}
+                        style={{
+                          fontSize: 15,
+                          color: "var(--black)",
+                          textDecoration: isPassed ? "line-through" : "none",
+                        }}
+                      >
+                        {s.name}
+                      </Link>
+                      <StatusBadge status={s.status} />
+                    </div>
+                    {s.website && (
+                      <a
+                        href={s.website}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ fontSize: 12, color: "#007AFF", textDecoration: "none" }}
+                      >
+                        {s.website.replace(/^https?:\/\//, "")}
+                      </a>
+                    )}
                   </div>
-                  {s.website && (
-                    <a
-                      href={s.website}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{ fontSize: 12, color: "#007AFF", textDecoration: "none" }}
-                    >
-                      {s.website.replace(/^https?:\/\//, "")}
-                    </a>
-                  )}
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 13, color: "var(--black)" }}>
+                      {truncate(s.one_liner, 90)}
+                    </div>
+                    <div style={{ fontSize: 12, color: "var(--gray-light)", marginTop: 3 }}>
+                      {truncate(s.assessment, 110)}
+                    </div>
+                  </div>
+                  <StartupActions
+                    slug={s.slug}
+                    name={s.name}
+                    status={s.status}
+                    enrichmentStatus={s.enrichment_status}
+                    companyDescription={s.company_description}
+                    founders={s.founders}
+                  />
                 </div>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 13, color: "#171717" }}>
-                    {truncate(s.one_liner, 90)}
-                  </div>
-                  <div style={{ fontSize: 12, color: "#999", marginTop: 3 }}>
-                    {truncate(s.assessment, 110)}
-                  </div>
-                </div>
-                <StartupActions
-                  slug={s.slug}
-                  name={s.name}
-                  status={s.status}
-                  enrichmentStatus={s.enrichment_status}
-                  companyDescription={s.company_description}
-                  founders={s.founders}
-                />
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -335,32 +322,31 @@ function SearchBar({
 }) {
   return (
     <div
+      className="glass-input"
       style={{
         display: "flex",
         alignItems: "center",
         gap: 8,
-        height: 40,
+        height: 42,
         padding: "0 12px",
-        borderRadius: 10,
-        border: "1px solid #E2E2E2",
-        background: "#FAFAFA",
-        minWidth: 260,
+        borderRadius: 12,
+        minWidth: 280,
       }}
     >
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#999" strokeWidth="2">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9C988F" strokeWidth="2">
         <circle cx="11" cy="11" r="7" />
         <path d="m21 21-4.3-4.3" />
       </svg>
       <input
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="Search..."
+        placeholder="Search startups..."
         style={{
           border: "none",
           outline: "none",
           background: "transparent",
           fontSize: 14,
-          color: "#171717",
+          color: "var(--black)",
           flex: 1,
           minWidth: 0,
         }}
@@ -368,11 +354,11 @@ function SearchBar({
       <kbd
         style={{
           fontSize: 11,
-          color: "#999",
-          border: "1px solid #E2E2E2",
+          color: "#9C988F",
+          border: "1px solid rgba(0,0,0,0.08)",
           borderRadius: 6,
           padding: "1px 6px",
-          background: "#fff",
+          background: "rgba(255,255,255,0.6)",
           fontFamily: "inherit",
         }}
       >
@@ -395,14 +381,16 @@ function StatCard({
     <div
       className="animate-fade-up"
       style={{
-        border: "1px solid #F0F0F0",
+        border: "1px solid var(--border)",
         borderRadius: 14,
         padding: "16px 18px",
-        background: "#fff",
-        boxShadow: "0px 1px 3px rgba(0,0,0,0.05)",
+        background: "var(--cream)",
+        boxShadow: "0 1px 2px rgba(26,25,22,0.04)",
       }}
     >
-      <div style={{ fontSize: 12, color: "#999", marginBottom: 6 }}>{label}</div>
+      <div style={{ fontSize: 12, color: "var(--gray-light)", marginBottom: 6 }}>
+        {label}
+      </div>
       <div style={{ fontSize: 26, color: accent, lineHeight: 1 }}>{value}</div>
     </div>
   );

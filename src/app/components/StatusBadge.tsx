@@ -7,15 +7,14 @@ const STYLES: Record<Status, React.CSSProperties> = {
     border: "1px solid rgba(0,122,255,0.25)",
   },
   approved: {
-    background: "#ECFFE7",
-    color: "#0F7A3D",
-    border: "1px solid rgba(134,252,111,0.6)",
+    background: "#E9F8EF",
+    color: "#147A45",
+    border: "1px solid rgba(31,174,103,0.35)",
   },
   passed: {
-    background: "#F4F4F4",
-    color: "#999999",
-    border: "1px solid #E2E2E2",
-    textDecoration: "line-through",
+    background: "#FDECEC",
+    color: "#C13438",
+    border: "1px solid rgba(229,72,77,0.3)",
   },
 };
 
