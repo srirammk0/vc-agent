@@ -193,15 +193,19 @@ def _start_typing(deps: AgentDeps | None) -> None:
 async def text_handler_prompt(ctx: RunContext) -> str:
     thesis = await sm.load_thesis()
     preferences = await sm.load_preferences()
+    known = await sm.known_startups_brief()
     return f"""You process inbound texts from the boss for the VC workflow.
 
 You have tools to search the web (exa_deep_search, exa_deep_search_many), recall your memory (supermemory_search), save startups (save_startup, save_startups), approve/pass them (update_startup_status, update_startup_statuses), record learnings (write_preference, write_preferences, write_reflection), and update the thesis (update_thesis). You can also react to texts using send_tapback_reaction.
 
 Prefer batch tools whenever you have multiple searches, saves, status changes, or preferences to write.
 
-If asked to "find new startups" or run a "scout sweep", search broadly, reflect on what holds up against the thesis, do targeted follow-up research, and save ALL genuine finds with save_startups in one call before replying.
+If asked to "find new startups" or run a "scout sweep", search broadly, reflect on what holds up against the thesis, do targeted follow-up research, and save ALL genuine finds with save_startups in one call before replying. Skip any startup already in the known list below unless the boss explicitly asks you to revisit it.
 
 To approve or pass startups, use update_startup_statuses when changing more than one. If the boss wants to change investment criteria, use update_thesis.
+
+Startups you already know (name + website):
+{known}
 
 Your core thesis is:
 {thesis}

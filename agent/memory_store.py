@@ -180,6 +180,7 @@ async def list_startups() -> list[dict]:
         out.append({
             "slug": getattr(doc, "custom_id", None) or "",
             "name": meta.get("name", ""),
+            "website": meta.get("website", ""),
             "status": meta.get("status", "new"),
         })
     return out
@@ -195,6 +196,26 @@ async def known_startups_summary() -> str:
         for s in startups
         if s["name"] or s["slug"]
     )
+
+
+async def known_startups_brief() -> str:
+    """Name + website list for SMS context."""
+    startups = await list_startups()
+    if not startups:
+        return "None yet."
+
+    lines = []
+    for s in startups:
+        name = (s.get("name") or s.get("slug") or "").strip()
+        if not name:
+            continue
+        website = (s.get("website") or "").strip()
+        if website:
+            website = website.removeprefix("https://").removeprefix("http://").rstrip("/")
+            lines.append(f"- {name} ({website})")
+        else:
+            lines.append(f"- {name}")
+    return "\n".join(lines) or "None yet."
 
 
 async def update_startup_status(slug: str, status: str) -> str:
