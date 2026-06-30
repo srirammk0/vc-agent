@@ -126,7 +126,7 @@ Tool routing — follow this exactly:
 - Fetch a known URL → linkup_fetch
 - Look up something you already know → supermemory_search (FIRST before any web search)
 - Status change (approve/pass) → update_startup_statuses. If you don't have the slug, call list_known_startups FIRST to find it.
-- Save new startups → save_startups (batch, always check press first with check_press_coverage_many)
+- Save new startups → save_startups (batch). Skip anything with significant existing press coverage — use your own judgment based on what you found in research.
 - Learn a pattern → write_preferences; record a reflection → write_reflection
 
 Batch-only tools — non-negotiable, pass a list even for a single item:
@@ -286,8 +286,7 @@ Common requests and exactly how to handle them:
 
 "find me startups" / "run a sweep" / "scout for X"
 → call exa_deep_search_many with 4-5 diverse queries in ONE call
-→ call check_press_coverage_many on all candidates
-→ skip any with press hits OR already in the known list below
+→ skip anything already in the known list below or with obvious major press coverage
 → call save_startups in ONE batch call for all survivors
 → reply with what you found and saved
 
@@ -325,7 +324,7 @@ Each turn follows a strict discipline:
 1. Search broadly — exa_deep_search_many with 5+ diverse queries in ONE call
 2. Filter critically — does each candidate pass the thesis hard filters? Does it hit your seek patterns? Avoid your pass patterns?
 3. Confirm with depth — targeted exa_deep_search_many on top candidates to validate claims
-4. Press gate — check_press_coverage_many on all survivors. SKIP any with press hits.
+4. Press filter — from your research results, skip any startup that already has significant coverage on major outlets (TechCrunch, Bloomberg, Forbes, etc.). Use your judgment — a single mention is fine, a funding round announcement is not.
 5. Save — save_startups in ONE batch call with qualitative assessments
 6. Learn — write_preferences for new patterns, write_reflection for sweep notes
 
@@ -488,15 +487,6 @@ def register_tools(
             except Exception as e:
                 return _err(e)
 
-        @agent.tool(prepare=make_non_strict)
-        async def check_press_coverage_many(ctx: RunContext, startup_names: list[str]) -> str:
-            """Check press coverage for multiple startups in parallel. Hard filter: must have NO recent press. Use even for one startup."""
-            try:
-                return await linkup.check_press_coverage_many(startup_names)
-            except asyncio.TimeoutError:
-                return _T
-            except Exception as e:
-                return _err(e)
 
     @agent.tool(prepare=make_non_strict)
     async def supermemory_search(ctx: RunContext, query: str, container_tag: str = "vc:startups") -> str:
@@ -522,7 +512,7 @@ def register_tools(
 
         @agent.tool(prepare=make_non_strict)
         async def save_startups(ctx: RunContext, startups: list[StartupSave]) -> str:
-            """Save new startups to memory. Only call AFTER check_press_coverage_many confirms no press hits. slug must be a lowercase hyphenated identifier (e.g. 'acme-ai'). Use even for one startup — pass a one-element list."""
+            """Save new startups to memory. slug must be a lowercase hyphenated identifier (e.g. 'acme-ai'). Use even for one startup — pass a one-element list."""
             if not startups:
                 return "No startups provided."
             try:
@@ -698,8 +688,8 @@ async def run_scout() -> dict:
 
         r3 = await agent_run_with_retry(
             scout_agent,
-            "For every top candidate: run targeted exa_deep_search_many to confirm your thesis, "
-            "then check_press_coverage_many for ALL candidates. Skip any with press hits. "
+            "For every top candidate: run targeted exa_deep_search_many to confirm your thesis. "
+            "Filter out anything with major press coverage based on what you already found. "
             "Write a qualitative assessment for each survivor and call save_startups ONCE. "
             "Do not reply until save_startups has been called.",
             message_history=r2.all_messages(),
