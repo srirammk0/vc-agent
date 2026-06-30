@@ -13,6 +13,7 @@ image = (
         "pydantic-ai[openai,google]",
         "openai",
         "exa-py",
+        "httpx",
         "logfire[pydantic-ai]",
         "python-dotenv",
         "fastapi",
@@ -159,6 +160,21 @@ def scout_scheduled():
     reply = res.get("reply", "Sweep finished with no report.")
     send_sms(f"Scheduled sweep complete.\n\nAgent Report:\n{reply}")
     sync_on_demand.spawn()
+    return res
+
+
+# --- Daily market-intel brief: 6am local (default America/New_York) ---
+@app.function(
+    image=image,
+    secrets=[modal.Secret.from_name("vc-scout-secrets")],
+    schedule=modal.Cron("0 6 * * *", timezone="America/New_York"),
+    timeout=1200,
+    min_containers=1,
+)
+def news_digest_scheduled():
+    res = run_agent({"mode": "news_digest"})
+    reply = res.get("reply", "Brief finished with no summary.")
+    send_sms(f"Morning market brief.\n\n{reply}")
     return res
 
 
