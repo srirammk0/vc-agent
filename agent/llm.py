@@ -1,3 +1,17 @@
+"""LLM routing and cost controls.
+
+Two-tier agent architecture:
+- Haiku 4.5 (research_model): web search, press checks, discovery, reflection drafts
+- Sonnet 4.6 (finalize_model): save to memory, write reflections, final user reply
+
+Gemini 3.1 Flash Lite: rate-limit fallback only (not default).
+
+Extended thinking: NOT enabled. We never set `anthropic_thinking` on any request, so
+Sonnet/Haiku run in standard mode with no hidden thinking-token budget.
+
+Batch API: not used — scout, SMS, and digest jobs need synchronous replies.
+"""
+
 import os
 import asyncio
 
@@ -12,11 +26,37 @@ GEMINI_MODEL = "gemini-3.1-flash-lite"
 SONNET_MODEL = "claude-sonnet-4-6"
 HAIKU_MODEL = "claude-haiku-4-5"
 
-CACHE_SETTINGS = AnthropicModelSettings(
-    anthropic_cache_tool_definitions="1h",
-    anthropic_cache_instructions=True,
-    anthropic_cache=True,
-)
+
+def _cache_base() -> dict:
+    return {
+        "anthropic_cache_tool_definitions": "1h",
+        "anthropic_cache_instructions": True,
+        "anthropic_cache": True,
+    }
+
+
+def _settings(max_tokens: int) -> AnthropicModelSettings:
+    return AnthropicModelSettings(max_tokens=max_tokens, **_cache_base())
+
+
+# Haiku — research / tool-heavy turns
+RESEARCH_SETTINGS = _settings(1400)
+
+# Sonnet — finalize saves + final replies (cushioned vs prior caps)
+FINALIZE_SMS_SETTINGS = _settings(800)
+FINALIZE_SCOUT_SETTINGS = _settings(2200)
+FINALIZE_NEWS_SETTINGS = _settings(1800)
+FINALIZE_FEEDBACK_SETTINGS = _settings(450)
+
+ENRICH_SETTINGS = _settings(1100)
+SUMMARY_SETTINGS = _settings(350)
+
+# Back-compat aliases
+SMS_SETTINGS = FINALIZE_SMS_SETTINGS
+SCOUT_SETTINGS = FINALIZE_SCOUT_SETTINGS
+NEWS_SETTINGS = FINALIZE_NEWS_SETTINGS
+FAST_SETTINGS = FINALIZE_FEEDBACK_SETTINGS
+CACHE_SETTINGS = FINALIZE_SMS_SETTINGS
 
 
 def _is_rate_limit_error(exc: BaseException) -> bool:
@@ -61,18 +101,22 @@ def _build_fallback(anthropic_model: str) -> FallbackModel:
     )
 
 
-def build_model() -> FallbackModel:
-    """Sonnet — SMS, scout, and news digest agents."""
+def build_finalize_model() -> FallbackModel:
+    """Sonnet — saves, reflections, final replies."""
     return _build_fallback(SONNET_MODEL)
 
 
-def build_fast_model() -> FallbackModel:
-    """Haiku — enrichment, dashboard feedback, and other light tasks."""
+def build_research_model() -> FallbackModel:
+    """Haiku — search, diligence, research turns."""
     return _build_fallback(HAIKU_MODEL)
 
 
-model = build_model()
-fast_model = build_fast_model()
+finalize_model = build_finalize_model()
+research_model = build_research_model()
+
+# Back-compat
+model = finalize_model
+fast_model = research_model
 
 
 async def run_with_retry(agent, prompt: str, *, max_attempts: int = 6, **kwargs):

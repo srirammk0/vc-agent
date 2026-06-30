@@ -33,7 +33,7 @@ _enrich_agent = Agent(
         "Ignore unrelated companies with similar names. "
         "Founder names must be real people, not page titles or company names."
     ),
-    model_settings=llm.CACHE_SETTINGS,
+    model_settings=llm.ENRICH_SETTINGS,
 )
 
 

@@ -19,6 +19,13 @@ def _result_text(r) -> str:
     return getattr(r, "memory", None) or getattr(r, "chunk", None) or ""
 
 
+def truncate_text(text: str, max_chars: int) -> str:
+    text = (text or "").strip()
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 1].rstrip() + "…"
+
+
 async def load_thesis() -> str:
     try:
         res = await asyncio.to_thread(
@@ -29,7 +36,7 @@ async def load_thesis() -> str:
         )
         results = getattr(res, "results", [])
         if results:
-            return _result_text(results[0]) or "No thesis configured."
+            return truncate_text(_result_text(results[0]) or "No thesis configured.", 3500)
     except Exception as e:
         print("Failed to load thesis from Supermemory:", e)
     return "No thesis configured."
@@ -41,11 +48,12 @@ async def load_preferences() -> str:
             get_client().search.memories,
             q="startup patterns preferences",
             container_tag="vc:preferences",
-            limit=50,
+            limit=20,
         )
         results = getattr(res, "results", [])
         if results:
-            return "\n".join(_result_text(r) for r in results if _result_text(r))
+            text = "\n".join(_result_text(r) for r in results if _result_text(r))
+            return truncate_text(text, 2500)
     except Exception as e:
         print("Failed to load preferences from Supermemory:", e)
     return "No preferences yet."
@@ -193,7 +201,7 @@ async def known_startups_summary() -> str:
         return "None yet."
     return "\n".join(
         f"- {s['name']} (slug: {s['slug']}, status: {s['status']})"
-        for s in startups
+        for s in startups[:80]
         if s["name"] or s["slug"]
     )
 
@@ -205,7 +213,7 @@ async def known_startups_brief() -> str:
         return "None yet."
 
     lines = []
-    for s in startups:
+    for s in startups[:80]:
         name = (s.get("name") or s.get("slug") or "").strip()
         if not name:
             continue
