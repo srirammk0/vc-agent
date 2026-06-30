@@ -7,6 +7,7 @@ import time
 import urllib.request
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext, ToolDefinition
+from pydantic_ai.messages import ModelMessagesTypeAdapter
 from pydantic_ai.usage import UsageLimits
 
 from tools.exa import exa
@@ -30,6 +31,33 @@ model = llm.model
 RATE_LIMIT_REPLY = (
     "models are getting hammered rn - give it a min and text again"
 )
+
+_CONVO_TTL_SECONDS = 24 * 3600
+_CONVO_MAX_MESSAGES = 40  # ~20 back-and-forth turns
+
+
+def _convo_key(sender: str) -> str:
+    digits = "".join(c for c in sender if c.isdigit())
+    return f"conv:{digits}"
+
+
+async def _load_history(sender: str) -> list:
+    try:
+        data = await cache.cache_get(_convo_key(sender), _CONVO_TTL_SECONDS)
+        if data:
+            return ModelMessagesTypeAdapter.validate_python(data)
+    except Exception as e:
+        print("failed to load conversation history:", e)
+    return []
+
+
+async def _save_history(sender: str, messages: list) -> None:
+    try:
+        trimmed = messages[-_CONVO_MAX_MESSAGES:]
+        data = ModelMessagesTypeAdapter.dump_python(trimmed, mode="json")
+        await cache.cache_set(_convo_key(sender), data)
+    except Exception as e:
+        print("failed to save conversation history:", e)
 
 
 class StartupSave(BaseModel):
@@ -687,8 +715,14 @@ async def run_text_handler(message: str, slug: str = None, sender: str = None, m
         prompt += f" Context startup slug: {slug}."
 
     deps = _default_deps(sender=sender, message_handle=message_handle)
+    history = await _load_history(sender) if sender else []
     try:
-        res = await agent_run_with_retry(text_agent, prompt, deps=deps)
+        res = await agent_run_with_retry(
+            text_agent, prompt, deps=deps,
+            message_history=history if history else None,
+        )
+        if sender:
+            await _save_history(sender, res.all_messages())
         return {"reply": res.output}
     except Exception as e:
         if llm._is_rate_limit_error(e):
