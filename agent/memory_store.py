@@ -5,6 +5,13 @@ from datetime import datetime, timezone
 
 from supermemory import Supermemory
 
+try:
+    import cache as _cache_mod
+except ImportError:
+    _cache_mod = None
+
+_STARTUP_LIST_TTL = 5 * 60  # 5 minutes — short enough to reflect new saves within a run
+
 _client = None
 _SM_TIMEOUT = 30.0
 
@@ -146,6 +153,8 @@ async def save_startups_batch(
     results = await asyncio.gather(*[_save_one(item) for item in items])
     saved = [slug for slug, err in results if err is None]
     errors = [f"{slug}: {err}" for slug, err in results if err is not None]
+    if saved:
+        await _bust_list_cache()
     return saved, errors
 
 
@@ -173,6 +182,8 @@ async def update_startup_statuses_batch(
     results = await asyncio.gather(*[_update_one(u) for u in updates])
     updated = [slug for slug, err in results if err is None]
     errors = [f"{slug}: {err}" for slug, err in results if err is not None]
+    if updated:
+        await _bust_list_cache()
     return updated, errors
 
 
@@ -191,11 +202,22 @@ async def write_preferences_batch(items: list[dict]) -> tuple[int, list[str]]:
     return len(items) - len(errors), errors
 
 
+_LIST_CACHE_KEY = "sm:startups:list"
+
+
 async def list_startups() -> list[dict]:
-    """Return lightweight records of every startup already in memory."""
+    """Return all startups from memory. Result is cached for 5 minutes."""
+    if _cache_mod:
+        cached = await _cache_mod.cache_get(_LIST_CACHE_KEY, _STARTUP_LIST_TTL)
+        if cached is not None:
+            return cached
+
     docs = await asyncio.wait_for(
         asyncio.to_thread(
-            get_client().documents.list, container_tags=["vc:startups"]
+            lambda: get_client().documents.list(
+                container_tags=["vc:startups"],
+                limit=500,
+            )
         ),
         timeout=_SM_TIMEOUT,
     )
@@ -208,11 +230,19 @@ async def list_startups() -> list[dict]:
             "website": meta.get("website", ""),
             "status": meta.get("status", "new"),
         })
+
+    if _cache_mod and out:
+        await _cache_mod.cache_set(_LIST_CACHE_KEY, out)
     return out
 
 
+async def _bust_list_cache() -> None:
+    if _cache_mod:
+        await _cache_mod.cache_delete(_LIST_CACHE_KEY)
+
+
 async def known_startups_summary() -> str:
-    """A compact list of already-seen startups, for deduping scout sweeps."""
+    """Compact list of all saved startups with slug and status, for agent deduplication."""
     try:
         startups = await list_startups()
     except Exception:
@@ -221,7 +251,7 @@ async def known_startups_summary() -> str:
         return "None yet."
     return "\n".join(
         f"- {s['name']} (slug: {s['slug']}, status: {s['status']})"
-        for s in startups[:80]
+        for s in startups
         if s["name"] or s["slug"]
     )
 
@@ -236,7 +266,7 @@ async def known_startups_brief() -> str:
         return "None yet."
 
     lines = []
-    for s in startups[:80]:
+    for s in startups:
         name = (s.get("name") or s.get("slug") or "").strip()
         if not name:
             continue
