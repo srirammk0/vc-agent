@@ -273,21 +273,39 @@ def _start_typing(deps: AgentDeps | None) -> None:
 async def text_handler_prompt(ctx: RunContext) -> str:
     thesis = await sm.load_thesis()
     preferences = await sm.load_preferences()
-    known = await sm.known_startups_brief()
-    return f"""You process inbound texts from the boss for the VC workflow.
+    known = await sm.known_startups_summary()
+    return f"""You handle inbound texts from your boss (a pre-seed VC) and execute their requests fully before replying.
 
-You have tools to search the web (exa_deep_search_many for discovery; linkup_search, linkup_search_many, linkup_fetch for news/facts/press), recall your memory (supermemory_search), save startups (save_startups), approve/pass them (update_startup_statuses), check press (check_press_coverage_many), record learnings (write_preferences, write_reflection), and update the thesis (update_thesis). React to texts with send_tapback_reaction.
+Common requests and exactly how to handle them:
 
-Search routing: startup discovery -> exa_deep_search_many. News, press checks, quick facts -> Linkup.
+"approve X" / "pass on X" / "mark X as [status]"
+→ call list_known_startups if you don't already have the slug
+→ call update_startup_statuses([{{slug, status, reason}}])
+→ call write_preferences([{{pattern, type}}]) with the distilled reason
+→ reply confirming what changed
 
-If asked to "find new startups" or run a "scout sweep", search broadly, reflect on what holds up against the thesis, do targeted follow-up research, and save ALL genuine finds with save_startups in one call before replying. Skip any startup already in the known list unless the boss explicitly asks to revisit it.
+"find me startups" / "run a sweep" / "scout for X"
+→ call exa_deep_search_many with 4-5 diverse queries in ONE call
+→ call check_press_coverage_many on all candidates
+→ skip any with press hits OR already in the known list below
+→ call save_startups in ONE batch call for all survivors
+→ reply with what you found and saved
 
-To approve or pass startups, use update_startup_statuses (even for one). If the boss wants to change investment criteria, use update_thesis.
+"what do you know about X" / "tell me about X"
+→ call supermemory_search FIRST (vc:startups container)
+→ if memory has useful info, reply from that
+→ only call exa_deep_search_many if memory has nothing
 
-Startups you already know (name + website):
+"what's happening in AI / VC" / news questions
+→ call linkup_search or linkup_search_many
+
+"change our thesis to..." / "update criteria"
+→ call update_thesis with the full new content
+
+Startups you already know (name | slug | status) — never re-save these:
 {known}
 
-Your core thesis is:
+Investment thesis:
 {thesis}
 
 Patterns you've learned (seek/avoid):
@@ -299,9 +317,25 @@ Patterns you've learned (seek/avoid):
 
 @scout_agent.system_prompt
 async def scout_prompt(ctx: RunContext) -> str:
+    thesis = await sm.load_thesis()
+    preferences = await sm.load_preferences()
     return f"""You are running an autonomous scouting sweep for pre-seed AI startups.
 
-Work through the sweep in disciplined turns: search broadly, reflect critically, do targeted deep research to confirm a thesis, then save ALL genuine finds with save_startups (one batch call) and record your learnings. Be specific about the signals that make a startup interesting or not. Do not finish a turn until the work for that turn is fully done.
+Each turn follows a strict discipline:
+1. Search broadly — exa_deep_search_many with 5+ diverse queries in ONE call
+2. Filter critically — does each candidate pass the thesis hard filters? Does it hit your seek patterns? Avoid your pass patterns?
+3. Confirm with depth — targeted exa_deep_search_many on top candidates to validate claims
+4. Press gate — check_press_coverage_many on all survivors. SKIP any with press hits.
+5. Save — save_startups in ONE batch call with qualitative assessments
+6. Learn — write_preferences for new patterns, write_reflection for sweep notes
+
+Do not reply until all five steps are complete for the turn.
+
+Investment thesis (hard filters — non-negotiable):
+{thesis}
+
+Patterns you've learned (seek / avoid):
+{preferences}
 
 {STYLE_RULES}
 """
@@ -478,7 +512,7 @@ def register_tools(
 
         @agent.tool(prepare=make_non_strict)
         async def list_known_startups(ctx: RunContext) -> str:
-            """List every startup already saved in memory (name, slug, status). Use to avoid re-researching companies already covered."""
+            """List every startup in memory with name, slug, and status. Call this before update_startup_statuses if you don't have the exact slug, and before any scout sweep to avoid duplicates."""
             try:
                 return await sm.known_startups_summary()
             except asyncio.TimeoutError:
@@ -488,7 +522,7 @@ def register_tools(
 
         @agent.tool(prepare=make_non_strict)
         async def save_startups(ctx: RunContext, startups: list[StartupSave]) -> str:
-            """Save startups to memory in parallel. Use even for a single startup — pass a one-element list."""
+            """Save new startups to memory. Only call AFTER check_press_coverage_many confirms no press hits. slug must be a lowercase hyphenated identifier (e.g. 'acme-ai'). Use even for one startup — pass a one-element list."""
             if not startups:
                 return "No startups provided."
             try:
@@ -505,7 +539,7 @@ def register_tools(
 
         @agent.tool(prepare=make_non_strict)
         async def update_startup_statuses(ctx: RunContext, updates: list[StatusUpdate]) -> str:
-            """Approve or pass startups. status: 'approved', 'passed', or 'new'. Use even for one startup — pass a one-element list."""
+            """Approve or pass startups. status: 'approved', 'passed', or 'new'. IMPORTANT: slug must be exact — call list_known_startups first if you're not 100% sure of the slug. Use even for one startup — pass a one-element list."""
             if not updates:
                 return "No updates provided."
             try:
