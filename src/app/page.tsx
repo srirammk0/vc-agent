@@ -1,4 +1,5 @@
 import { supabase, type Startup } from "../lib/supabase";
+import { sortStartups } from "../lib/sortStartups";
 import Dashboard from "./components/Dashboard";
 
 export const dynamic = "force-dynamic";
@@ -9,5 +10,5 @@ export default async function Home() {
     .select("*")
     .order("found_date", { ascending: false });
 
-  return <Dashboard initial={(data ?? []) as Startup[]} />;
+  return <Dashboard initial={sortStartups((data ?? []) as Startup[])} />;
 }

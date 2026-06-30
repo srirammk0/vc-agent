@@ -2,15 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { getBrowserClient } from "../../lib/supabaseBrowser";
+import { sortStartups } from "../../lib/sortStartups";
 import type { Startup } from "../../lib/supabase";
 
 type Mode = "connecting" | "realtime" | "polling";
-
-function sortStartups(list: Startup[]): Startup[] {
-  return [...list].sort((a, b) =>
-    (b.found_date ?? "").localeCompare(a.found_date ?? "")
-  );
-}
 
 /**
  * Single initial load (from server props), then live updates.
@@ -18,10 +13,10 @@ function sortStartups(list: Startup[]): Startup[] {
  * falls back to lightweight polling so the dashboard still stays fresh.
  */
 export function useLiveStartups(initial: Startup[]) {
-  const [startups, setStartups] = useState<Startup[]>(initial);
+  const [startups, setStartups] = useState<Startup[]>(() => sortStartups(initial));
   const [mode, setMode] = useState<Mode>("connecting");
   const mapRef = useRef<Map<string, Startup>>(
-    new Map(initial.map((s) => [s.slug, s]))
+    new Map(sortStartups(initial).map((s) => [s.slug, s]))
   );
 
   function commit() {
