@@ -84,7 +84,7 @@ export default async function StartupDetail({
               )}
               {s.website && (
                 <a
-                  href={s.website}
+                  href={s.website.startsWith("http://") || s.website.startsWith("https://") || s.website.startsWith("//") ? s.website : `https://${s.website}`}
                   target="_blank"
                   rel="noreferrer"
                   style={{
@@ -150,7 +150,7 @@ export default async function StartupDetail({
               {s.signal_urls.map((u, i) => (
                 <a
                   key={i}
-                  href={u}
+                  href={u.startsWith("http://") || u.startsWith("https://") || u.startsWith("//") ? u : `https://${u}`}
                   target="_blank"
                   rel="noreferrer"
                   style={{

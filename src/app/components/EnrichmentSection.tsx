@@ -246,7 +246,7 @@ export default function EnrichmentSection({ startup }: Props) {
                       </span>
                       {f.linkedin && (
                         <a
-                          href={f.linkedin}
+                          href={f.linkedin.startsWith("http://") || f.linkedin.startsWith("https://") || f.linkedin.startsWith("//") ? f.linkedin : `https://${f.linkedin}`}
                           target="_blank"
                           rel="noreferrer"
                           style={{

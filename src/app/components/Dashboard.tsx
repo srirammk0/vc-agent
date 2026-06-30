@@ -331,7 +331,7 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
                       {/* Website */}
                       {s.website && (
                         <a
-                          href={s.website}
+                          href={s.website.startsWith("http://") || s.website.startsWith("https://") || s.website.startsWith("//") ? s.website : `https://${s.website}`}
                           target="_blank"
                           rel="noreferrer"
                           style={{

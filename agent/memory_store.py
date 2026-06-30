@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import os
 from datetime import datetime, timezone
 
 from supermemory import Supermemory
@@ -248,7 +249,20 @@ async def known_startups_brief() -> str:
     return "\n".join(lines) or "None yet."
 
 
+def _sb_client():
+    try:
+        from supabase import create_client
+        url = os.environ.get("SUPABASE_URL", "")
+        key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_KEY") or ""
+        if url and key:
+            return create_client(url, key)
+    except Exception:
+        pass
+    return None
+
+
 async def update_startup_status(slug: str, status: str) -> str:
+    found = False
     docs = await asyncio.wait_for(
         asyncio.to_thread(
             get_client().documents.list, container_tags=["vc:startups"]
@@ -266,8 +280,31 @@ async def update_startup_status(slug: str, status: str) -> str:
                 ),
                 timeout=_SM_TIMEOUT,
             )
-            return f"Updated {slug} to {status}"
-    return f"Startup {slug} not found."
+            found = True
+            break
+
+    if not found:
+        return f"Startup {slug} not found in memory."
+
+    # Mirror immediately to Supabase so the dashboard reflects the change without
+    # waiting for the next scheduled sync.
+    try:
+        sb = _sb_client()
+        if sb:
+            updated_at = datetime.now(timezone.utc).isoformat()
+            await asyncio.wait_for(
+                asyncio.to_thread(
+                    lambda: sb.table("startups")
+                    .update({"status": status, "updated_at": updated_at})
+                    .eq("slug", slug)
+                    .execute()
+                ),
+                timeout=10.0,
+            )
+    except Exception as e:
+        print(f"Supabase status mirror failed for {slug}:", e)
+
+    return f"Updated {slug} to {status}"
 
 
 async def write_preference(pattern: str, pattern_type: str):

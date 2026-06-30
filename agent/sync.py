@@ -67,8 +67,13 @@ def sync():
         }
 
         if slug in existing_slugs:
-            # Preserve dashboard-owned fields (status, enrichment_*, updated_at).
-            sb.table("startups").update(content_fields).eq("slug", slug).execute()
+            # Sync agent-owned content AND status. Dashboard UI writes status directly
+            # to Supabase; the agent also writes directly on status change (memory_store),
+            # so both paths converge here on the next sync as well.
+            sb.table("startups").update({
+                **content_fields,
+                "status": meta.get("status", "new"),
+            }).eq("slug", slug).execute()
         else:
             inserted_at = _now()
             sb.table("startups").insert({
