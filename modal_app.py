@@ -36,36 +36,6 @@ def run_agent(payload: dict) -> dict:
     return json.loads(result.stdout)
 
 
-def send_sms(content: str):
-    import urllib.request
-    import json
-    import os
-    num = os.environ.get("ALERT_PHONE_NUMBER", "")
-    if not num:
-        return
-    headers = {
-        "sb-api-key-id": os.environ.get("SENDBLUE_API_KEY", ""),
-        "sb-api-secret-key": os.environ.get("SENDBLUE_API_SECRET", ""),
-        "Content-Type": "application/json",
-    }
-    try:
-        req = urllib.request.Request(
-            "https://api.sendblue.co/api/send-message",
-            data=json.dumps({
-                "number": num,
-                "content": content,
-                "from_number": os.environ.get("SENDBLUE_FROM_NUMBER", "")
-            }).encode("utf-8"),
-            headers=headers,
-            method="POST"
-        )
-        urllib.request.urlopen(req)
-    except Exception as e:
-        print("Failed to send SendBlue SMS", e)
-        if hasattr(e, "read"):
-            print("Response body:", e.read().decode("utf-8"))
-
-
 def _e164(phone: str | None) -> str | None:
     if not phone:
         return None
@@ -78,6 +48,88 @@ def _e164(phone: str | None) -> str | None:
     if len(digits) == 11 and digits.startswith("1"):
         return f"+{digits}"
     return f"+{digits}" if digits else None
+
+
+def _phone_digits(phone: str | None) -> str:
+    return "".join(c for c in (phone or "") if c.isdigit())
+
+
+def _parse_phone_list(raw: str) -> list[str]:
+    if not raw.strip():
+        return []
+    return [part.strip() for part in raw.split(",") if part.strip()]
+
+
+def allowed_phone_numbers() -> list[str]:
+    """Numbers allowed to text the agent. Falls back to ALERT_PHONE_NUMBER."""
+    import os
+
+    allowed = _parse_phone_list(os.environ.get("ALLOWED_PHONE_NUMBERS", ""))
+    if allowed:
+        return allowed
+    alert = os.environ.get("ALERT_PHONE_NUMBER", "").strip()
+    return [alert] if alert else []
+
+
+def notify_phone_numbers() -> list[str]:
+    """Numbers that receive scheduled scout/brief texts. Falls back to ALERT_PHONE_NUMBER."""
+    import os
+
+    notify = _parse_phone_list(os.environ.get("NOTIFY_PHONE_NUMBERS", ""))
+    if notify:
+        return notify
+    alert = os.environ.get("ALERT_PHONE_NUMBER", "").strip()
+    return [alert] if alert else []
+
+
+def is_authorized_sender(sender: str | None) -> bool:
+    allowed = allowed_phone_numbers()
+    if not allowed:
+        return True
+    sender_digits = _phone_digits(sender)
+    if not sender_digits:
+        return False
+    for num in allowed:
+        digits = _phone_digits(num)
+        if digits and sender_digits.endswith(digits[-10:]):
+            return True
+    return False
+
+
+def send_sms(content: str, to: str | None = None):
+    import urllib.request
+    import json
+    import os
+
+    recipients = [_e164(to)] if to else [_e164(n) for n in notify_phone_numbers()]
+    recipients = [r for r in recipients if r]
+    if not recipients:
+        return
+
+    headers = {
+        "sb-api-key-id": os.environ.get("SENDBLUE_API_KEY", ""),
+        "sb-api-secret-key": os.environ.get("SENDBLUE_API_SECRET", ""),
+        "Content-Type": "application/json",
+    }
+    from_number = os.environ.get("SENDBLUE_FROM_NUMBER", "")
+
+    for num in recipients:
+        try:
+            req = urllib.request.Request(
+                "https://api.sendblue.co/api/send-message",
+                data=json.dumps({
+                    "number": num,
+                    "content": content,
+                    "from_number": from_number,
+                }).encode("utf-8"),
+                headers=headers,
+                method="POST",
+            )
+            urllib.request.urlopen(req)
+        except Exception as e:
+            print(f"Failed to send SendBlue SMS to {num}", e)
+            if hasattr(e, "read"):
+                print("Response body:", e.read().decode("utf-8"))
 
 
 def send_typing(number: str, state: str = "start"):
@@ -286,6 +338,33 @@ def enrich_startup_job(slug: str, name: str):
     return {"status": "enriched", "slug": slug}
 
 
+# --- Dashboard feedback: distill approve/pass reasons into Supermemory ---
+@app.function(
+    image=image,
+    secrets=[modal.Secret.from_name("vc-scout-secrets")],
+    timeout=300,
+)
+@modal.fastapi_endpoint(method="POST")
+def submit_feedback(payload: dict):
+    slug = payload.get("slug")
+    name = payload.get("name", "")
+    status = payload.get("status", "new")
+    message = payload.get("message", "")
+
+    if not slug or not (message or "").strip():
+        return {"error": "slug and message required"}
+
+    result = run_agent({
+        "mode": "feedback",
+        "slug": slug,
+        "name": name,
+        "status": status,
+        "message": message,
+    })
+    sync_on_demand.spawn()
+    return result
+
+
 # --- Background task: SendBlue reply ---
 @app.function(
     image=image,
@@ -309,12 +388,13 @@ def chat_reply_background(message: str, sender: str, message_handle: str = None)
             "message_handle": message_handle,
         })
         reply = result.get("reply", "")
-        if reply:
-            send_sms(reply)
+        if reply and recipient:
+            send_sms(reply, to=recipient)
         sync_on_demand.spawn()
     except Exception as e:
         print("chat_reply_background failed:", e)
-        send_sms("something broke on my end - try again in a min")
+        if recipient:
+            send_sms("something broke on my end - try again in a min", to=recipient)
     finally:
         _stop_typing_loop(recipient, stop_event, typing_thread)
 
@@ -336,13 +416,9 @@ async def sendblue_webhook(request: dict):
     if not message:
         return {"ok": True, "action": "ignored", "reason": "empty"}
 
-    import os
-    owner_raw = os.environ.get("ALERT_PHONE_NUMBER", "")
-    owner = "".join(filter(str.isdigit, owner_raw))
     sender_raw = body.get("from_number") or body.get("number") or ""
-    sender = "".join(filter(str.isdigit, sender_raw))
-    
-    if owner and sender and not sender.endswith(owner[-10:]):
+
+    if not is_authorized_sender(sender_raw):
         return {"ok": True, "action": "ignored", "reason": "unauthorized"}
 
     message_handle = body.get("message_handle")

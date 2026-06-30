@@ -130,6 +130,25 @@ news_agent = Agent(
     system_prompt=CORE_RULES + "\n\n" + NEWS_DIGEST_RULES,
 )
 
+FEEDBACK_RULES = """You process dashboard feedback for a VC scout's dealflow.
+
+Your job:
+- Distill the user's reason into a concise, reusable learning pattern.
+- Save it with write_preference. type must be "approved" (seek) for approve reasons, "passed" (avoid) for pass reasons.
+- If the dashboard status is approved or passed, call update_startup_status with the slug, that status, and reason set to your distilled one-liner.
+- If status is new, only call write_preference unless they clearly want a status change.
+
+Rules:
+- Never touch Supabase. Supermemory only.
+- Do not call search tools or update_thesis.
+- Finish all tool calls before replying.
+- Reply with one short lowercase confirmation of what you saved."""
+
+feedback_agent = Agent(
+    model,
+    system_prompt=FEEDBACK_RULES,
+)
+
 
 @hooks.on.before_run
 def start_typing_indicator(ctx: RunContext[AgentDeps]):
@@ -543,6 +562,15 @@ register_tools(
     exa=False,
     linkup_tools=True,
 )
+register_tools(
+    feedback_agent,
+    dealflow=True,
+    thesis_update=False,
+    tapback=False,
+    market_brief=False,
+    exa=False,
+    linkup_tools=False,
+)
 
 
 # --- MAIN LOGIC ENTRANCES ---
@@ -664,6 +692,30 @@ async def run_text_handler(message: str, slug: str = None, sender: str = None, m
         raise
 
 
+async def run_feedback(slug: str, name: str, status: str, message: str) -> dict:
+    feedback = (message or "").strip()
+    if not feedback:
+        return {"error": "feedback required"}
+
+    if status not in ("new", "approved", "passed"):
+        status = "new"
+
+    prompt = (
+        f"Dashboard feedback for {name} (slug: {slug}).\n"
+        f"Dashboard status: {status}\n"
+        f"User feedback: {feedback}\n\n"
+        "Distill this into memory. Call the required tools before you reply."
+    )
+
+    try:
+        res = await agent_run_with_retry(feedback_agent, prompt)
+        return {"ok": True, "reply": res.output}
+    except Exception as e:
+        if llm._is_rate_limit_error(e):
+            return {"error": RATE_LIMIT_REPLY}
+        raise
+
+
 async def run_agent(payload: dict) -> dict:
     mode = payload.get("mode", "text")
 
@@ -671,6 +723,13 @@ async def run_agent(payload: dict) -> dict:
         return await run_scout()
     elif mode == "news_digest":
         return await run_news_digest()
+    elif mode == "feedback":
+        return await run_feedback(
+            payload.get("slug", ""),
+            payload.get("name", ""),
+            payload.get("status", "new"),
+            payload.get("message", ""),
+        )
     elif mode == "text":
         return await run_text_handler(
             payload.get("message"),
