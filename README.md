@@ -1,6 +1,6 @@
 # VC Research Agent (V5)
 
-Automated pre-seed startup scout. A fully autonomous Python agent (Pydantic AI + Cerebras `gpt-oss-120b` / DeepSeek V4) discovers and scores early-stage AI companies, persists state and memory to **Supabase**, and surfaces results on a Next.js dashboard. Orchestrated by **Modal** with warm containers and 20-minute timeouts.
+Automated pre-seed startup scout. A fully autonomous Python agent (Pydantic AI + Anthropic Claude 3.5 Sonnet) discovers and scores early-stage AI companies, persists state and memory to **Supabase**, and surfaces results on a Next.js dashboard. Orchestrated by **Modal** with warm containers and 20-minute timeouts.
 
 **Live:** [startup-scout-agent.vercel.app](https://startup-scout-agent.vercel.app)
 
@@ -60,7 +60,7 @@ See the complete schema definition in `scripts/seed-supabase.py`.
 Create a secret named `vc-scout-secrets` in your Modal dashboard or via CLI:
 ```bash
 modal secret create vc-scout-secrets \
-  CEREBRAS_API_KEY=your_key \
+  ANTHROPIC_API_KEY=your_key \
   EXA_API_KEY=your_key \
   SUPABASE_URL=your_supabase_url \
   SUPABASE_SERVICE_ROLE_KEY=your_service_role_key \
