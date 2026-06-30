@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useEnrichmentPoll } from "../hooks/useEnrichmentPoll";
-import { hasEnrichmentData, showEnrichButton } from "../../lib/enrichment";
+import { showEnrichButton } from "../../lib/enrichment";
 import type { Founder } from "../../lib/supabase";
 
 type Status = "new" | "approved" | "passed";
@@ -16,6 +16,12 @@ type Props = {
   companyDescription: string | null;
   founders: Founder[] | null;
 };
+
+const MENU_ITEMS: { value: Status; label: string; accent: string }[] = [
+  { value: "approved", label: "Mark approved", accent: "var(--success)" },
+  { value: "passed",   label: "Mark passed",   accent: "var(--danger)"  },
+  { value: "new",      label: "Mark new",       accent: "var(--label)"   },
+];
 
 export default function StartupActions({
   slug,
@@ -56,16 +62,6 @@ export default function StartupActions({
     team_size: null,
   });
 
-  const enriched = hasEnrichmentData({
-    company_description: companyDescription,
-    founders,
-    stage: null,
-    raised: null,
-    location: null,
-    founded: null,
-    team_size: null,
-  });
-
   async function setStatus(next: Status) {
     setMenuOpen(false);
     setBusy(next);
@@ -91,65 +87,58 @@ export default function StartupActions({
 
   const disabled = isPending || busy !== null;
 
-  const MENU: { value: Status; label: string; color: string; dot: string }[] = [
-    { value: "approved", label: "Mark approved", color: "var(--green)", dot: "#16a34a" },
-    { value: "passed", label: "Mark passed", color: "var(--red)", dot: "#ef4444" },
-    { value: "new", label: "Mark new", color: "var(--gray)", dot: "#94a3b8" },
-  ];
-
   return (
-    <div style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "flex-end" }}>
-      {enrichmentStatus === "running" && (
-        <span style={{ fontSize: 12, color: "var(--gray-light)" }}>enriching…</span>
-      )}
-      {status === "approved" && enriched && enrichmentStatus !== "running" && (
-        <span style={{ fontSize: 12, color: "var(--green)", fontWeight: 500 }}>enriched</span>
-      )}
-
+    <div style={{ display: "flex", gap: 7, alignItems: "center" }}>
       {enrichVisible && (
         <button
           onClick={enrich}
           disabled={disabled}
           style={{
-            height: 34,
-            padding: "0 14px",
-            borderRadius: 9,
-            border: "0 solid transparent",
-            background: "var(--blue)",
+            height: 32,
+            padding: "0 13px",
+            borderRadius: 5,
+            border: "none",
+            background: "var(--accent)",
             color: "#fff",
-            fontSize: 13,
+            fontSize: 12.5,
+            fontWeight: 500,
             cursor: disabled ? "not-allowed" : "pointer",
-            opacity: disabled ? 0.6 : 1,
-            boxShadow: "0 3px 12px rgba(0,102,255,0.3)",
+            opacity: disabled ? 0.55 : 1,
+            boxShadow: "0 2px 8px rgba(0,122,255,0.25)",
+            transition: "opacity 0.15s ease, box-shadow 0.15s ease",
+            whiteSpace: "nowrap",
           }}
         >
-          {busy === "enrich" ? "enriching…" : "Enrich"}
+          {busy === "enrich" ? "Enriching…" : "Enrich"}
         </button>
       )}
 
+      {/* Three-dot menu */}
       <div ref={menuRef} style={{ position: "relative" }}>
         <button
           onClick={() => setMenuOpen((o) => !o)}
           disabled={disabled}
           aria-label="Change status"
           style={{
-            width: 34,
-            height: 34,
-            borderRadius: 9,
+            width: 32,
+            height: 32,
+            borderRadius: 5,
             border: "1px solid var(--border)",
-            background: menuOpen ? "#eff6ff" : "#fff",
-            color: "var(--gray)",
+            background: menuOpen ? "rgba(0,122,255,0.06)" : "rgba(255,255,255,0.7)",
+            color: menuOpen ? "var(--accent)" : "var(--label)",
             cursor: disabled ? "not-allowed" : "pointer",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            opacity: disabled ? 0.6 : 1,
+            opacity: disabled ? 0.5 : 1,
+            transition: "background 0.15s ease, color 0.15s ease",
+            flexShrink: 0,
           }}
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-            <circle cx="12" cy="5" r="1.6" />
-            <circle cx="12" cy="12" r="1.6" />
-            <circle cx="12" cy="19" r="1.6" />
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <circle cx="12" cy="5"  r="1.8" />
+            <circle cx="12" cy="12" r="1.8" />
+            <circle cx="12" cy="19" r="1.8" />
           </svg>
         </button>
 
@@ -159,40 +148,46 @@ export default function StartupActions({
             style={{
               position: "absolute",
               right: 0,
-              top: 40,
-              width: 184,
-              background: "#fff",
-              border: "1px solid var(--border, #ECE8DF)",
-              borderRadius: 12,
-              boxShadow: "0 12px 28px rgba(15, 23, 42, 0.1)",
-              padding: 6,
-              zIndex: 30,
+              top: 38,
+              width: 176,
+              background: "var(--card-bg)",
+              border: "1px solid var(--border)",
+              borderRadius: 8,
+              boxShadow: "0 8px 24px rgba(0,0,0,0.1), 0 2px 6px rgba(0,0,0,0.06)",
+              padding: 5,
+              zIndex: 200,
             }}
           >
             <div
               style={{
-                fontSize: 11,
-                color: "var(--gray-light)",
-                padding: "6px 10px 4px",
+                fontSize: 10.5,
+                color: "var(--muted)",
+                padding: "5px 10px 3px",
                 textTransform: "uppercase",
-                letterSpacing: "0.06em",
+                letterSpacing: "0.08em",
+                fontWeight: 500,
               }}
             >
               Change status
             </div>
-            {MENU.filter((m) => m.value !== status).map((m) => (
+            {MENU_ITEMS.filter((m) => m.value !== status).map((m) => (
               <button
                 key={m.value}
                 className="menu-item"
                 onClick={() => setStatus(m.value)}
-                style={{ color: m.color }}
+                style={{
+                  color: m.accent,
+                  fontSize: 13,
+                  fontWeight: 400,
+                }}
               >
                 <span
                   style={{
-                    width: 8,
-                    height: 8,
+                    width: 7,
+                    height: 7,
                     borderRadius: 999,
-                    background: m.dot,
+                    background: m.accent,
+                    flexShrink: 0,
                   }}
                 />
                 {m.label}

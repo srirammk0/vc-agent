@@ -101,6 +101,74 @@ async def save_startup(
     )
 
 
+async def save_startups_batch(
+    items: list[dict],
+) -> tuple[list[str], list[str]]:
+    """Save many startups in parallel. Returns (saved_slugs, errors)."""
+
+    async def _save_one(item: dict) -> tuple[str, str | None]:
+        slug = item["slug"]
+        try:
+            await save_startup(
+                slug=slug,
+                name=item["name"],
+                website=item.get("website", ""),
+                one_liner=item["one_liner"],
+                assessment=item["assessment"],
+                signal_urls=item.get("signal_urls") or [],
+            )
+            return slug, None
+        except Exception as e:
+            return slug, str(e)
+
+    results = await asyncio.gather(*[_save_one(item) for item in items])
+    saved = [slug for slug, err in results if err is None]
+    errors = [f"{slug}: {err}" for slug, err in results if err is not None]
+    return saved, errors
+
+
+async def update_startup_statuses_batch(
+    updates: list[dict],
+) -> tuple[list[str], list[str]]:
+    """Update many startup statuses in parallel. Returns (updated_slugs, errors)."""
+
+    async def _update_one(update: dict) -> tuple[str, str | None]:
+        slug = update["slug"]
+        try:
+            msg = await update_startup_status(slug, update["status"])
+            if "not found" in msg.lower():
+                return slug, msg
+            if update.get("reason"):
+                pattern_type = "approved" if update["status"] == "approved" else "passed"
+                await write_preference(
+                    f"{update['status'].capitalize()} {slug}: {update['reason']}",
+                    pattern_type,
+                )
+            return slug, None
+        except Exception as e:
+            return slug, str(e)
+
+    results = await asyncio.gather(*[_update_one(u) for u in updates])
+    updated = [slug for slug, err in results if err is None]
+    errors = [f"{slug}: {err}" for slug, err in results if err is not None]
+    return updated, errors
+
+
+async def write_preferences_batch(items: list[dict]) -> tuple[int, list[str]]:
+    """Write many preferences in parallel. Returns (saved_count, errors)."""
+
+    async def _write_one(item: dict) -> str | None:
+        try:
+            await write_preference(item["pattern"], item.get("type", "approved"))
+            return None
+        except Exception as e:
+            return str(e)
+
+    results = await asyncio.gather(*[_write_one(item) for item in items])
+    errors = [err for err in results if err is not None]
+    return len(items) - len(errors), errors
+
+
 async def list_startups() -> list[dict]:
     """Return lightweight records of every startup already in memory."""
     docs = await asyncio.to_thread(

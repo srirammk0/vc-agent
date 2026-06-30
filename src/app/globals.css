@@ -1,28 +1,32 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Aeonik Pro", -apple-system, BlinkMacSystemFont, "Segoe UI",
-    Roboto, Helvetica, Arial, sans-serif;
+  --font-sans: -apple-system, "SF Pro Display", "SF Pro", system-ui,
+    "Helvetica Neue", Arial, sans-serif;
 }
 
 :root {
-  --black: #0f172a;
-  --pure-black: #000000;
-  --blue: #0066ff;
-  --blue-deep: #0052cc;
-  --green: #16a34a;
-  --green-soft: #ecfdf3;
-  --red: #ef4444;
-  --red-soft: #fef2f2;
-  --gray: #64748b;
-  --gray-light: #94a3b8;
-  --border: #e2e8f0;
-  --border-med: #cbd5e1;
-  --surface: #ffffff;
-  --page: #f8fafc;
-  --cream: #ffffff;
-  --cream-deep: #f1f5f9;
-  --amber: #f59e0b;
+  /* Core palette */
+  --accent: #007aff;
+  --accent-deep: #0062cc;
+  --success: #34c759;
+  --danger: #ff3b30;
+  --warning: #ff9500;
+
+  /* Text */
+  --heading: #061f00;
+  --body: #171717;
+  --label: #6b6760;
+  --muted: #ababab;
+
+  /* Surfaces */
+  --page-bg: #f1ece4;
+  --card-bg: #ffffff;
+  --surface: #f2f2f7;
+
+  /* Borders */
+  --border: rgba(0, 0, 0, 0.07);
+  --border-med: rgba(0, 0, 0, 0.12);
 }
 
 * {
@@ -37,11 +41,14 @@ body {
 
 body {
   font-family: var(--font-sans);
-  background: linear-gradient(180deg, #ffffff 0%, var(--page) 240px, var(--page) 100%);
-  color: var(--black);
+  background: var(--page-bg);
+  color: var(--body);
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
 }
+
+/* ── Keyframes ─────────────────────────────────────── */
 
 @keyframes fadeUp {
   from {
@@ -55,12 +62,8 @@ body {
 }
 
 @keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 @keyframes scaleIn {
@@ -75,37 +78,22 @@ body {
 }
 
 @keyframes indeterminate {
-  0% {
-    left: -40%;
-    width: 40%;
-  }
-  50% {
-    width: 55%;
-  }
-  100% {
-    left: 100%;
-    width: 40%;
-  }
+  0%   { left: -40%; width: 40%; }
+  50%  { width: 55%; }
+  100% { left: 100%; width: 40%; }
 }
 
 @keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.45;
-  }
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.45; }
 }
 
 @keyframes shimmer {
-  0% {
-    background-position: -400px 0;
-  }
-  100% {
-    background-position: 400px 0;
-  }
+  0%   { background-position: -400px 0; }
+  100% { background-position:  400px 0; }
 }
+
+/* ── Animation classes ─────────────────────────────── */
 
 .animate-fade-up {
   animation: fadeUp 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -116,27 +104,28 @@ body {
 }
 
 .animate-scale-in {
-  animation: scaleIn 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: scaleIn 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .row-enter {
   animation: fadeUp 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+/* ── Skeleton ──────────────────────────────────────── */
+
 .skeleton {
-  background: linear-gradient(
-    90deg,
-    #f1f5f9 25%,
-    #f8fafc 37%,
-    #f1f5f9 63%
-  );
+  background: linear-gradient(90deg, #ebebeb 25%, #f5f5f5 37%, #ebebeb 63%);
   background-size: 800px 100%;
   animation: shimmer 1.4s infinite linear;
 }
 
+/* ── Live dot ──────────────────────────────────────── */
+
 .live-dot {
   animation: pulse 1.6s ease-in-out infinite;
 }
+
+/* ── Base transitions ──────────────────────────────── */
 
 button {
   font-family: inherit;
@@ -152,89 +141,156 @@ a {
   transition: color 0.15s ease, opacity 0.15s ease;
 }
 
-/* Liquid-glass search input */
+/* ── Glass search input ────────────────────────────── */
+
 .glass-input {
-  background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(14px) saturate(180%);
-  -webkit-backdrop-filter: blur(14px) saturate(180%);
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(12px) saturate(160%);
+  -webkit-backdrop-filter: blur(12px) saturate(160%);
   border: 1px solid var(--border);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04),
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04),
     inset 0 1px 0 rgba(255, 255, 255, 0.9);
   transition: box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease;
 }
 
 .glass-input:focus-within {
   background: #fff;
-  border-color: rgba(0, 102, 255, 0.45);
-  box-shadow: 0 4px 18px rgba(15, 23, 42, 0.06),
-    0 0 0 3px rgba(0, 102, 255, 0.12);
+  border-color: rgba(0, 122, 255, 0.4);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.06),
+    0 0 0 3px rgba(0, 122, 255, 0.1);
 }
 
-/* Login CTA: deepen blue + nudge arrow + lift on hover */
-.login-btn {
-  display: inline-flex;
+/* ── Login input ───────────────────────────────────── */
+
+.login-input {
+  height: 50px;
+  padding: 0 16px;
+  width: 100%;
+  border-radius: 8px;
+  border: 1.5px solid var(--border-med);
+  background: #fff;
+  font-size: 15px;
+  font-family: inherit;
+  color: var(--body);
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  box-sizing: border-box;
+}
+
+.login-input:focus {
+  border-color: rgba(0, 122, 255, 0.5);
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
+}
+
+.login-input-error {
+  border-color: var(--danger) !important;
+  background: rgba(255, 59, 48, 0.03);
+}
+
+/* ── Expanding-pill sign-in button ─────────────────── */
+
+.expand-btn {
+  display: block;
+  position: relative;
+  width: 100%;
+  height: 40px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  cursor: pointer;
+  overflow: hidden;
+  transition: transform 0.08s ease;
+  box-shadow: 0 4px 14px rgba(0, 122, 255, 0.3);
+}
+
+.expand-btn:active:not(:disabled) {
+  transform: scale(0.99);
+}
+
+.expand-btn:disabled {
+  cursor: not-allowed;
+}
+
+/* "Sign in" label — sits above pill, fades on hover */
+.expand-btn-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  background: var(--blue);
+  font-size: 14.5px;
+  font-weight: 600;
   color: #fff;
-  box-shadow: 0 4px 14px rgba(0, 102, 255, 0.3);
-  transition: background 0.22s ease, box-shadow 0.22s ease,
-    transform 0.22s ease;
+  letter-spacing: -0.1px;
+  pointer-events: none;
+  z-index: 2;
+  transition: opacity 0.18s ease;
 }
 
-.login-btn:hover:not(:disabled) {
-  background: var(--blue-deep);
-  box-shadow: 0 10px 24px rgba(0, 102, 255, 0.42);
-  transform: translateY(-2px);
+.expand-btn:hover:not(:disabled) .expand-btn-label {
+  opacity: 0;
 }
 
-.login-btn:active:not(:disabled) {
-  transform: translateY(0);
-  box-shadow: 0 4px 14px rgba(0, 102, 255, 0.3);
+/* Arrow pill — anchored right, expands leftward on hover */
+.expand-btn-pill {
+  position: absolute;
+  right: 6px;
+  top: 5px;
+  bottom: 5px;
+  width: 34px;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  pointer-events: none;
+  z-index: 1;
+  transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.login-btn .arrow {
-  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+.expand-btn:hover:not(:disabled) .expand-btn-pill {
+  width: calc(100% - 12px);
 }
 
-.login-btn:hover:not(:disabled) .arrow {
-  transform: translateX(4px);
-}
+/* ── Segmented tabs ────────────────────────────────── */
 
-/* Segmented tabs */
-.seg {
+.seg-tabs {
   display: inline-flex;
   gap: 2px;
-  padding: 4px;
-  border-radius: 12px;
-  background: #fff;
+  padding: 3px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.7);
   border: 1px solid var(--border);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 
-.seg button {
+.seg-tabs button {
   border: none;
   background: transparent;
-  border-radius: 9px;
-  padding: 7px 16px;
+  border-radius: 5px;
+  padding: 6px 14px;
   font-size: 13px;
-  color: var(--gray);
+  color: var(--label);
   cursor: pointer;
+  font-weight: 400;
+  letter-spacing: 0.01em;
 }
 
-.seg button:hover {
-  color: var(--black);
+.seg-tabs button:hover {
+  color: var(--body);
 }
 
-.seg button[data-active="true"] {
-  background: #eff6ff;
-  color: var(--blue);
-  box-shadow: none;
+.seg-tabs button[data-active="true"] {
+  background: #fff;
+  color: var(--accent);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
   font-weight: 500;
 }
 
-/* Kebab menu */
+/* ── Context menu ──────────────────────────────────── */
+
 .menu-pop {
   animation: scaleIn 0.14s cubic-bezier(0.22, 1, 0.36, 1) both;
   transform-origin: top right;
@@ -250,11 +306,28 @@ a {
   background: transparent;
   padding: 9px 12px;
   font-size: 13px;
-  border-radius: 8px;
+  border-radius: 5px;
   cursor: pointer;
-  color: var(--black);
+  color: var(--body);
 }
 
 .menu-item:hover {
-  background: #f1f5f9;
+  background: var(--surface);
+}
+
+/* Back navigation link */
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--label);
+  text-decoration: none;
+  margin-bottom: 16px;
+  transition: color 0.15s ease;
+}
+
+.back-link:hover {
+  color: var(--heading);
 }

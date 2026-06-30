@@ -5,7 +5,9 @@ from dataclasses import dataclass
 import threading
 import time
 import urllib.request
+from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext, ToolDefinition
+from pydantic_ai.usage import UsageLimits
 
 from tools.exa import exa
 import memory_store as sm
@@ -15,15 +17,37 @@ import llm
 # Scout queries vary a lot, so keep a short reuse window; page content itself
 # is served from Exa's crawl cache via max_age_hours.
 _EXA_DEEP_TTL_SECONDS = 6 * 3600
+_USAGE_LIMITS = UsageLimits(request_limit=100)
 
 model = llm.model
 
 RATE_LIMIT_REPLY = (
-    "cerebras is getting hammered rn - give it a min and text again"
+    "models are getting hammered rn - give it a min and text again"
 )
 
 
+class StartupSave(BaseModel):
+    slug: str
+    name: str
+    website: str = ""
+    one_liner: str
+    assessment: str
+    signal_urls: list[str] = Field(default_factory=list)
+
+
+class StatusUpdate(BaseModel):
+    slug: str
+    status: str
+    reason: str = ""
+
+
+class PreferenceWrite(BaseModel):
+    pattern: str
+    type: str = "approved"
+
+
 async def agent_run_with_retry(agent: Agent, prompt: str, **kwargs):
+    kwargs.setdefault("usage_limits", _USAGE_LIMITS)
     return await llm.run_with_retry(agent, prompt, **kwargs)
 
 
@@ -59,8 +83,14 @@ Critical rules:
 - Never touch Supabase. Your only memory system is Supermemory. Read and write everything through your memory tools.
 - You are self-improving. After every scout sweep you must write patterns (write_preference) and reflections (write_reflection).
 - Make qualitative, evidence-backed judgments about startups. There is no numeric scoring; write a clear assessment instead.
-- Use exa_deep_search for web research and supermemory_search to recall your own memory.
-- Never re-research a startup you already know. Before deep-diving a candidate, check the known-startups list and skip any you've already saved, unless the boss explicitly asks you to revisit it. Spend your time finding NEW companies."""
+- Use exa_deep_search / exa_deep_search_many for web research and supermemory_search to recall your own memory.
+- Never re-research a startup you already know. Before deep-diving a candidate, check the known-startups list and skip any you've already saved, unless the boss explicitly asks you to revisit it. Spend your time finding NEW companies.
+
+Task completion (non-negotiable):
+- Finish the full task before you reply. If the boss asks for N startups, research and save N new genuine finds (or clearly explain why fewer exist).
+- Never stop partway, never say "more are on the way", and never tease unfinished work in your reply.
+- When handling multiple items, use batch tools in one call: save_startups, exa_deep_search_many, update_startup_statuses, write_preferences.
+- Do all required tool calls first, then send your final text reply."""
 
 
 text_agent = Agent(
@@ -165,11 +195,13 @@ async def text_handler_prompt(ctx: RunContext) -> str:
     preferences = await sm.load_preferences()
     return f"""You process inbound texts from the boss for the VC workflow.
 
-You have tools to search the web (exa_deep_search), recall your memory (supermemory_search), save startups (save_startup), approve/pass them (update_startup_status), record learnings (write_preference, write_reflection), and update the thesis (update_thesis). You can also react to texts using send_tapback_reaction.
+You have tools to search the web (exa_deep_search, exa_deep_search_many), recall your memory (supermemory_search), save startups (save_startup, save_startups), approve/pass them (update_startup_status, update_startup_statuses), record learnings (write_preference, write_preferences, write_reflection), and update the thesis (update_thesis). You can also react to texts using send_tapback_reaction.
 
-If asked to "find new startups" or run a "scout sweep", search broadly, reflect on what holds up against the thesis, do targeted follow-up research, and save the genuine finds with save_startup.
+Prefer batch tools whenever you have multiple searches, saves, status changes, or preferences to write.
 
-To approve or pass a startup, use update_startup_status with status 'approved' or 'passed' and a short reason. If the boss wants to change investment criteria, use update_thesis.
+If asked to "find new startups" or run a "scout sweep", search broadly, reflect on what holds up against the thesis, do targeted follow-up research, and save ALL genuine finds with save_startups in one call before replying.
+
+To approve or pass startups, use update_startup_statuses when changing more than one. If the boss wants to change investment criteria, use update_thesis.
 
 Your core thesis is:
 {thesis}
@@ -185,7 +217,7 @@ Patterns you've learned (seek/avoid):
 async def scout_prompt(ctx: RunContext) -> str:
     return f"""You are running an autonomous scouting sweep for pre-seed AI startups.
 
-Work through the sweep in disciplined turns: search broadly, reflect critically, do targeted deep research to confirm a thesis, then save genuine finds and record your learnings. Be specific about the signals that make a startup interesting or not.
+Work through the sweep in disciplined turns: search broadly, reflect critically, do targeted deep research to confirm a thesis, then save ALL genuine finds with save_startups (one batch call) and record your learnings. Be specific about the signals that make a startup interesting or not. Do not finish a turn until the work for that turn is fully done.
 
 {STYLE_RULES}
 """
@@ -196,35 +228,49 @@ def make_non_strict(ctx: RunContext, tool_def: ToolDefinition) -> ToolDefinition
     return tool_def
 
 
+async def _exa_deep_search_one(query: str) -> str:
+    cache_key = cache.make_key("exa:deep", query)
+    cached = await cache.cache_get(cache_key, _EXA_DEEP_TTL_SECONDS)
+    if cached is not None:
+        return cached
+    try:
+        res = await asyncio.to_thread(
+            exa.search,
+            query,
+            num_results=3,
+            contents={
+                "text": {"max_characters": 2000},
+                "max_age_hours": 168,
+            },
+        )
+        results = []
+        for r in getattr(res, "results", []):
+            content = r.text if hasattr(r, "text") and r.text else "No content"
+            results.append(f"Title: {r.title}\nURL: {r.url}\nContent: {content}\n---")
+        output = "\n".join(results) if results else "No results found."
+    except Exception as e:
+        return f"Exa search failed: {e}"
+
+    if results:
+        await cache.cache_set(cache_key, output)
+    return output
+
+
 def register_tools(agent: Agent):
     @agent.tool(prepare=make_non_strict)
     async def exa_deep_search(ctx: RunContext, query: str) -> str:
-        """Search the web for a query and immediately return the deep text content of the top results for ultra-fast research."""
-        cache_key = cache.make_key("exa:deep", query)
-        cached = await cache.cache_get(cache_key, _EXA_DEEP_TTL_SECONDS)
-        if cached is not None:
-            return cached
-        try:
-            res = await asyncio.to_thread(
-                exa.search,
-                query,
-                num_results=3,
-                contents={
-                    "text": {"max_characters": 2000},
-                    "max_age_hours": 168,
-                },
-            )
-            results = []
-            for r in getattr(res, "results", []):
-                content = r.text if hasattr(r, "text") and r.text else "No content"
-                results.append(f"Title: {r.title}\nURL: {r.url}\nContent: {content}\n---")
-            output = "\n".join(results) if results else "No results found."
-        except Exception as e:
-            return f"Exa search failed: {e}"
+        """Search the web for one query and return deep text content of the top results."""
+        return await _exa_deep_search_one(query)
 
-        if results:
-            await cache.cache_set(cache_key, output)
-        return output
+    @agent.tool(prepare=make_non_strict)
+    async def exa_deep_search_many(ctx: RunContext, queries: list[str]) -> str:
+        """Run multiple web searches in parallel. Pass every query in one call instead of searching one at a time."""
+        if not queries:
+            return "No queries provided."
+        parts = await asyncio.gather(*[_exa_deep_search_one(q) for q in queries])
+        return "\n\n".join(
+            f"=== Query: {query} ===\n{result}" for query, result in zip(queries, parts)
+        )
 
     @agent.tool(prepare=make_non_strict)
     async def supermemory_search(ctx: RunContext, query: str, container_tag: str = "vc:startups") -> str:
@@ -237,25 +283,83 @@ def register_tools(agent: Agent):
         return await sm.known_startups_summary()
 
     @agent.tool(prepare=make_non_strict)
-    async def save_startup(ctx: RunContext, slug: str, name: str, website: str, one_liner: str, assessment: str, signal_urls: list[str]) -> str:
-        """Save a newly discovered startup to memory with a qualitative assessment. slug must be the kebab-case startup name."""
-        await sm.save_startup(slug, name, website, one_liner, assessment, signal_urls)
+    async def save_startup(
+        ctx: RunContext,
+        slug: str,
+        name: str,
+        website: str,
+        one_liner: str,
+        assessment: str,
+        signal_urls: list[str],
+    ) -> str:
+        """Save a single startup. Prefer save_startups when saving multiple."""
+        saved, errors = await sm.save_startups_batch([{
+            "slug": slug,
+            "name": name,
+            "website": website,
+            "one_liner": one_liner,
+            "assessment": assessment,
+            "signal_urls": signal_urls,
+        }])
+        if errors:
+            return f"Failed to save {slug}: {errors[0]}"
         return f"Saved {name} ({slug}) to memory."
 
     @agent.tool(prepare=make_non_strict)
+    async def save_startups(ctx: RunContext, startups: list[StartupSave]) -> str:
+        """Save many startups to memory in parallel. Use this whenever you have more than one startup to save."""
+        if not startups:
+            return "No startups provided."
+        items = [s.model_dump() for s in startups]
+        saved, errors = await sm.save_startups_batch(items)
+        lines = [f"Saved {len(saved)} startup(s): {', '.join(saved) or 'none'}"]
+        if errors:
+            lines.append(f"Errors ({len(errors)}): {'; '.join(errors)}")
+        return "\n".join(lines)
+
+    @agent.tool(prepare=make_non_strict)
     async def update_startup_status(ctx: RunContext, slug: str, status: str, reason: str = "") -> str:
-        """Approve or pass a startup. status must be 'approved' or 'passed'. Provide a short reason; it is recorded as a learning pattern."""
-        result = await sm.update_startup_status(slug, status)
-        if reason:
-            pattern_type = "approved" if status == "approved" else "passed"
-            await sm.write_preference(f"{status.capitalize()} {slug}: {reason}", pattern_type)
-        return result
+        """Update one startup's status. Prefer update_startup_statuses for multiple."""
+        updated, errors = await sm.update_startup_statuses_batch([{
+            "slug": slug,
+            "status": status,
+            "reason": reason,
+        }])
+        if errors:
+            return errors[0]
+        return f"Updated {slug} to {status}"
+
+    @agent.tool(prepare=make_non_strict)
+    async def update_startup_statuses(ctx: RunContext, updates: list[StatusUpdate]) -> str:
+        """Approve or pass many startups in parallel. status must be 'approved', 'passed', or 'new'."""
+        if not updates:
+            return "No updates provided."
+        items = [u.model_dump() for u in updates]
+        updated, errors = await sm.update_startup_statuses_batch(items)
+        lines = [f"Updated {len(updated)} startup(s): {', '.join(updated) or 'none'}"]
+        if errors:
+            lines.append(f"Errors ({len(errors)}): {'; '.join(errors)}")
+        return "\n".join(lines)
 
     @agent.tool(prepare=make_non_strict)
     async def write_preference(ctx: RunContext, pattern: str, type: str = "approved") -> str:
-        """Save an explicit pattern to seek or avoid in future scouting. type is 'approved' (seek) or 'passed' (avoid)."""
-        await sm.write_preference(pattern, type)
+        """Save one seek/avoid pattern. Prefer write_preferences for multiple."""
+        count, errors = await sm.write_preferences_batch([{"pattern": pattern, "type": type}])
+        if errors:
+            return f"Failed to save preference: {errors[0]}"
         return f"Saved {type} preference."
+
+    @agent.tool(prepare=make_non_strict)
+    async def write_preferences(ctx: RunContext, preferences: list[PreferenceWrite]) -> str:
+        """Save many seek/avoid patterns in parallel. type is 'approved' (seek) or 'passed' (avoid)."""
+        if not preferences:
+            return "No preferences provided."
+        items = [p.model_dump() for p in preferences]
+        count, errors = await sm.write_preferences_batch(items)
+        lines = [f"Saved {count} preference(s)."]
+        if errors:
+            lines.append(f"Errors ({len(errors)}): {'; '.join(errors)}")
+        return "\n".join(lines)
 
     @agent.tool(prepare=make_non_strict)
     async def write_reflection(ctx: RunContext, reflection: str) -> str:
@@ -328,27 +432,27 @@ async def run_scout() -> dict:
 
         r1 = await agent_run_with_retry(
             scout_agent,
-            f"Execute a scout sweep. Use exa_deep_search with 5+ diverse queries to find pre-seed AI startups.\n\nThesis:\n{thesis}\n\nRemember these patterns:\n{preferences}\n\nYou ALREADY KNOW these startups - do NOT research or save them again, find NEW ones:\n{known}",
+            f"Execute a scout sweep. Use exa_deep_search_many with 5+ diverse queries in ONE call to find pre-seed AI startups.\n\nThesis:\n{thesis}\n\nRemember these patterns:\n{preferences}\n\nYou ALREADY KNOW these startups - do NOT research or save them again, find NEW ones:\n{known}",
             deps=deps,
         )
 
         r2 = await agent_run_with_retry(
             scout_agent,
-            "Reflect on what you found. Which 3-5 are genuinely interesting and why? Which should we skip and why? Be specific about signals.",
+            "Reflect on what you found. Which candidates are genuinely interesting and why? Which should we skip and why? Be specific about signals. Do not save yet.",
             message_history=r1.all_messages(),
             deps=deps,
         )
 
         r3 = await agent_run_with_retry(
             scout_agent,
-            "For the top candidates you identified: do 1-2 more targeted exa_deep_search calls to confirm your thesis. Write a qualitative assessment for each and call save_startup for any that hold up.",
+            "For every top candidate you identified: run targeted exa_deep_search_many calls to confirm your thesis, write a qualitative assessment for each, then call save_startups ONCE with ALL startups that hold up. Do not reply until save_startups has been called.",
             message_history=r2.all_messages(),
             deps=deps,
         )
 
         r4 = await agent_run_with_retry(
             scout_agent,
-            "What patterns did you notice this sweep? Write 1-2 specific patterns to write_preference (what to seek or avoid) and a reflection to write_reflection. Be precise.",
+            "What patterns did you notice this sweep? Call write_preferences with all new patterns and write_reflection with your sweep notes. Do not reply until both tools have been called.",
             message_history=r3.all_messages(),
             deps=deps,
         )

@@ -10,7 +10,7 @@ from pydantic_ai.providers.google import GoogleProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 
 CEREBRAS_MODEL = "gpt-oss-120b"
-GEMINI_FALLBACK_MODEL = "gemini-3.1-flash-lite"
+GEMINI_MODEL = "gemini-3.1-flash-lite"
 
 
 def _is_rate_limit_error(exc: BaseException) -> bool:
@@ -38,16 +38,16 @@ def _cerebras_model() -> OpenAIChatModel:
 
 def _gemini_model() -> GoogleModel:
     return GoogleModel(
-        GEMINI_FALLBACK_MODEL,
+        GEMINI_MODEL,
         provider=GoogleProvider(api_key=os.environ.get("GOOGLE_API_KEY")),
     )
 
 
 def build_model() -> FallbackModel:
-    """Cerebras primary; gemini-3.1-flash-lite when Cerebras returns 429."""
+    """Gemini primary; Cerebras when Gemini returns 429."""
     return FallbackModel(
-        _cerebras_model(),
         _gemini_model(),
+        _cerebras_model(),
         fallback_on=_is_rate_limit_error,
     )
 

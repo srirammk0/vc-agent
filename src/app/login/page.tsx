@@ -10,12 +10,11 @@ export default function LoginPage() {
     <main
       style={{
         minHeight: "100vh",
-        background: "var(--page)",
+        background: "var(--page-bg)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        padding: 16,
-        color: "var(--black)",
+        padding: 20,
       }}
     >
       <form
@@ -23,85 +22,77 @@ export default function LoginPage() {
         className="animate-scale-in"
         style={{
           width: "100%",
-          maxWidth: 360,
+          maxWidth: 390,
+          borderRadius: 10,
+          padding: "60px 38px 56px",
+          background: "var(--card-bg)",
           border: "1px solid var(--border)",
-          borderRadius: 16,
-          padding: 32,
-          background: "var(--cream)",
-          boxShadow: "0 8px 24px rgba(15, 23, 42, 0.08)",
+          boxShadow:
+            "0 4px 24px rgba(0,0,0,0.07), 0 1px 0 rgba(255,255,255,0.9) inset",
           display: "flex",
           flexDirection: "column",
-          gap: 18,
+          gap: 22,
         }}
       >
-        <div>
-          <div
+        {/* Title */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+          <h1
             style={{
-              fontSize: 12,
-              letterSpacing: "0.16em",
-              textTransform: "uppercase",
-              color: "var(--gray-light)",
-              marginBottom: 6,
+              fontSize: 22,
+              fontWeight: 600,
+              color: "var(--heading)",
+              margin: 0,
+              letterSpacing: "-0.3px",
+              lineHeight: 1.25,
             }}
           >
-            VC Scout
-          </div>
-          <h1 style={{ fontSize: 24, lineHeight: "30px", margin: 0 }}>
             Dealflow Agent
           </h1>
-          <p style={{ fontSize: 13, color: "var(--gray)", margin: "6px 0 0" }}>
+          <p style={{ fontSize: 13.5, color: "var(--label)", margin: 0, lineHeight: 1.4 }}>
             Enter the password to continue.
           </p>
         </div>
 
-        <input
-          type="password"
-          name="password"
-          placeholder="Password"
-          autoFocus
-          style={{
-            height: 46,
-            padding: "12px 16px",
-            borderRadius: 10,
-            border: state?.error ? "2px solid var(--red)" : "1px solid var(--border)",
-            background: "#fff",
-            fontSize: 14,
-            outline: "none",
-          }}
-        />
+        {/* Input */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <input
+            type="password"
+            name="password"
+            placeholder="Password"
+            autoFocus
+            className={state?.error ? "login-input login-input-error" : "login-input"}
+          />
+          {state?.error && (
+            <p style={{ fontSize: 12, color: "var(--danger)", margin: 0 }}>
+              {state.error}
+            </p>
+          )}
+        </div>
 
-        {state?.error && (
-          <p style={{ fontSize: 12, color: "var(--red)", margin: 0 }}>{state.error}</p>
-        )}
-
+        {/* Submit */}
         <button
           type="submit"
           disabled={pending}
-          className="login-btn"
-          style={{
-            height: 46,
-            borderRadius: 10,
-            border: "0 solid transparent",
-            fontSize: 14,
-            cursor: pending ? "not-allowed" : "pointer",
-            opacity: pending ? 0.7 : 1,
-          }}
+          className="expand-btn"
+          style={{ opacity: pending ? 0.65 : 1 }}
         >
-          {pending ? "Signing in…" : "Sign in"}
-          <svg
-            className="arrow"
-            width="17"
-            height="17"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M5 12h14" />
-            <path d="m12 5 7 7-7 7" />
-          </svg>
+          <span className="expand-btn-label">
+            {pending ? "Signing in…" : "Sign in"}
+          </span>
+          <span className="expand-btn-pill">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="m9 18 6-6-6-6" />
+            </svg>
+          </span>
         </button>
       </form>
     </main>

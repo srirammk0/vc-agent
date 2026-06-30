@@ -22,22 +22,19 @@ type EnrichmentFields = Pick<
 >;
 
 const META_FIELDS: { key: keyof EnrichmentFields; label: string }[] = [
-  { key: "stage", label: "Stage" },
-  { key: "raised", label: "Raised" },
-  { key: "location", label: "Location" },
-  { key: "founded", label: "Founded" },
-  { key: "team_size", label: "Team" },
+  { key: "stage",     label: "Stage"    },
+  { key: "raised",    label: "Raised"   },
+  { key: "location",  label: "Location" },
+  { key: "founded",   label: "Founded"  },
+  { key: "team_size", label: "Team"     },
 ];
 
 export default function EnrichmentSection({ startup }: Props) {
   const router = useRouter();
   const [data, setData] = useState(startup);
 
-  useEffect(() => {
-    setData(startup);
-  }, [startup]);
+  useEffect(() => { setData(startup); }, [startup]);
 
-  // Live updates via realtime when configured.
   useEffect(() => {
     const client = getBrowserClient();
     if (!client) return;
@@ -45,27 +42,16 @@ export default function EnrichmentSection({ startup }: Props) {
       .channel(`startup-${startup.slug}`)
       .on(
         "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "startups",
-          filter: `slug=eq.${startup.slug}`,
-        },
-        (payload) => {
-          setData((prev) => ({ ...prev, ...(payload.new as Partial<Startup>) }));
-        }
+        { event: "UPDATE", schema: "public", table: "startups", filter: `slug=eq.${startup.slug}` },
+        (payload) => { setData((prev) => ({ ...prev, ...(payload.new as Partial<Startup>) })); }
       )
       .subscribe();
-    return () => {
-      client.removeChannel(channel);
-    };
+    return () => { client.removeChannel(channel); };
   }, [startup.slug]);
 
-  // Polling fallback while enrichment is running (no realtime configured).
   useEffect(() => {
     if (getBrowserClient()) return;
     if (data.enrichment_status !== "running") return;
-
     const poll = async () => {
       try {
         const res = await fetch(`/api/startup/${data.slug}`);
@@ -75,11 +61,8 @@ export default function EnrichmentSection({ startup }: Props) {
           setData((prev) => ({ ...prev, ...json }));
           router.refresh();
         }
-      } catch {
-        // ignore transient network errors
-      }
+      } catch { /* ignore */ }
     };
-
     const id = setInterval(poll, 2000);
     return () => clearInterval(id);
   }, [data.slug, data.enrichment_status, router]);
@@ -87,60 +70,114 @@ export default function EnrichmentSection({ startup }: Props) {
   const founders = (data.founders ?? []) as Founder[];
   const enriched = hasEnrichmentData(data);
   const metaItems = META_FIELDS.filter(({ key }) => data[key]);
+  const isRunning = data.enrichment_status === "running";
 
   return (
     <div
       style={{
         border: "1px solid var(--border)",
-        borderRadius: 14,
-        padding: 24,
-        marginBottom: 24,
-        background: "#fff",
-        boxShadow: "0 1px 3px rgba(15, 23, 42, 0.05)",
+        borderRadius: 10,
+        padding: "20px 22px",
+        marginBottom: 14,
+        background: "var(--card-bg)",
+        boxShadow: "0 1px 4px rgba(0,0,0,0.05), 0 0 0 1px rgba(255,255,255,0.6) inset",
       }}
     >
-      <h2 style={{ fontSize: 21, lineHeight: "35px", margin: "0 0 12px" }}>
-        Enrichment
-      </h2>
+      {/* Section header */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+        <h2
+          style={{
+            fontSize: 12,
+            fontWeight: 600,
+            color: "var(--label)",
+            margin: 0,
+            letterSpacing: "0.07em",
+            textTransform: "uppercase",
+          }}
+        >
+          Enrichment
+        </h2>
+        {isRunning && (
+          <span
+            style={{
+              fontSize: 11,
+              color: "var(--accent)",
+              fontWeight: 500,
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+            }}
+          >
+            <span
+              className="live-dot"
+              style={{ width: 5, height: 5, borderRadius: 999, background: "var(--accent)", flexShrink: 0 }}
+            />
+            enriching…
+          </span>
+        )}
+        {enriched && !isRunning && (
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              fontSize: 11,
+              fontWeight: 500,
+              color: "var(--success)",
+              background: "rgba(52,199,89,0.08)",
+              border: "1px solid rgba(52,199,89,0.2)",
+              borderRadius: 999,
+              padding: "2px 8px",
+            }}
+          >
+            <span style={{ width: 4, height: 4, borderRadius: 999, background: "var(--success)", flexShrink: 0 }} />
+            enriched
+          </span>
+        )}
+      </div>
 
-      {data.enrichment_status === "running" ? (
-        <p style={{ fontSize: 13, color: "var(--gray)" }}>enriching...</p>
+      {isRunning ? (
+        <p style={{ fontSize: 13, color: "var(--label)", margin: 0 }}>
+          Fetching company and founder data…
+        </p>
       ) : !enriched ? (
-        <p style={{ fontSize: 13, color: "var(--gray)" }}>
-          Not yet enriched. Click Enrich above to fetch company and founder data.
+        <p style={{ fontSize: 13, color: "var(--muted)", margin: 0 }}>
+          Not yet enriched. Click Enrich to fetch company and founder data.
         </p>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+          {/* Meta chips */}
           {metaItems.length > 0 && (
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))",
-                gap: 12,
+                gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))",
+                gap: 8,
               }}
             >
               {metaItems.map(({ key, label }) => (
                 <div
                   key={key}
                   style={{
-                    background: "#f1f5f9",
-                    borderRadius: 10,
-                    padding: "12px 14px",
+                    background: "var(--surface)",
+                    borderRadius: 6,
+                    padding: "10px 12px",
+                    border: "1px solid var(--border)",
                   }}
                 >
                   <div
                     style={{
-                      fontSize: 11,
-                      color: "var(--gray-light)",
+                      fontSize: 10.5,
+                      color: "var(--muted)",
                       textTransform: "uppercase",
-                      letterSpacing: "0.04em",
-                      marginBottom: 4,
+                      letterSpacing: "0.06em",
+                      marginBottom: 3,
                       fontWeight: 500,
                     }}
                   >
                     {label}
                   </div>
-                  <div style={{ fontSize: 14, color: "var(--black)" }}>
+                  <div style={{ fontSize: 13, color: "var(--body)", fontWeight: 500 }}>
                     {data[key] as string}
                   </div>
                 </div>
@@ -148,67 +185,65 @@ export default function EnrichmentSection({ startup }: Props) {
             </div>
           )}
 
+          {/* Company overview */}
           {data.company_description && (
             <div>
-              <h3
+              <p
                 style={{
-                  fontSize: 13,
-                  color: "var(--gray-light)",
+                  fontSize: 10.5,
+                  color: "var(--muted)",
                   textTransform: "uppercase",
-                  letterSpacing: "0.04em",
-                  margin: "0 0 8px",
+                  letterSpacing: "0.06em",
+                  margin: "0 0 6px",
+                  fontWeight: 500,
                 }}
               >
                 Overview
-              </h3>
-              <p
-                style={{
-                  fontSize: 14,
-                  lineHeight: "22px",
-                  color: "var(--black)",
-                  margin: 0,
-                }}
-              >
+              </p>
+              <p style={{ fontSize: 13.5, lineHeight: "21px", color: "var(--body)", margin: 0 }}>
                 {data.company_description}
               </p>
             </div>
           )}
 
+          {/* Founders */}
           {founders.length > 0 && (
             <div>
-              <h3
+              <p
                 style={{
-                  fontSize: 13,
-                  color: "var(--gray-light)",
+                  fontSize: 10.5,
+                  color: "var(--muted)",
                   textTransform: "uppercase",
-                  letterSpacing: "0.04em",
-                  margin: "0 0 12px",
+                  letterSpacing: "0.06em",
+                  margin: "0 0 10px",
+                  fontWeight: 500,
                 }}
               >
                 Founders
-              </h3>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {founders.map((f, i) => (
                   <div
                     key={i}
                     style={{
                       border: "1px solid var(--border)",
-                      borderRadius: 12,
-                      padding: 16,
-                      background: "#f8fafc",
+                      borderRadius: 8,
+                      padding: "14px 16px",
+                      background: "var(--surface)",
                     }}
                   >
                     <div
                       style={{
                         display: "flex",
                         justifyContent: "space-between",
-                        alignItems: "flex-start",
+                        alignItems: "center",
                         gap: 12,
+                        marginBottom: f.background ? 6 : 0,
                       }}
                     >
-                      <div style={{ fontSize: 15, color: "var(--black)" }}>
+                      <span style={{ fontSize: 14, fontWeight: 600, color: "var(--heading)" }}>
                         {f.name || "Unknown"}
-                      </div>
+                      </span>
                       {f.linkedin && (
                         <a
                           href={f.linkedin}
@@ -216,24 +251,18 @@ export default function EnrichmentSection({ startup }: Props) {
                           rel="noreferrer"
                           style={{
                             fontSize: 12,
-                            color: "var(--blue)",
+                            color: "var(--accent)",
                             textDecoration: "none",
                             whiteSpace: "nowrap",
+                            opacity: 0.8,
                           }}
                         >
-                          linkedin →
+                          LinkedIn →
                         </a>
                       )}
                     </div>
                     {f.background && (
-                      <p
-                        style={{
-                          fontSize: 13,
-                          lineHeight: "20px",
-                          color: "var(--gray)",
-                          margin: "8px 0 0",
-                        }}
-                      >
+                      <p style={{ fontSize: 13, lineHeight: "20px", color: "var(--label)", margin: 0 }}>
                         {f.background}
                       </p>
                     )}

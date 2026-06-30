@@ -57,13 +57,14 @@ export default function CommandPalette({ startups }: { startups: Startup[] }) {
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(0,0,0,0.35)",
-        backdropFilter: "blur(2px)",
-        zIndex: 100,
+        background: "rgba(6,31,0,0.18)",
+        backdropFilter: "blur(3px)",
+        WebkitBackdropFilter: "blur(3px)",
+        zIndex: 300,
         display: "flex",
         alignItems: "flex-start",
         justifyContent: "center",
-        paddingTop: "12vh",
+        paddingTop: "13vh",
       }}
       className="animate-fade-in"
     >
@@ -72,54 +73,83 @@ export default function CommandPalette({ startups }: { startups: Startup[] }) {
         className="animate-scale-in"
         style={{
           width: "100%",
-          maxWidth: 560,
-          background: "#fff",
-          borderRadius: 16,
-          boxShadow: "0px 20px 40px rgba(0,0,0,0.2)",
+          maxWidth: 540,
+          background: "var(--card-bg)",
+          borderRadius: 12,
+          boxShadow: "0 20px 50px rgba(0,0,0,0.16), 0 0 0 1px rgba(0,0,0,0.06)",
           overflow: "hidden",
           border: "1px solid var(--border)",
+          margin: "0 20px",
         }}
       >
-        <input
-          ref={inputRef}
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setActive(0);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "ArrowDown") {
-              e.preventDefault();
-              setActive((a) => Math.min(a + 1, results.length - 1));
-            } else if (e.key === "ArrowUp") {
-              e.preventDefault();
-              setActive((a) => Math.max(a - 1, 0));
-            } else if (e.key === "Enter" && results[active]) {
-              go(results[active].slug);
-            }
-          }}
-          placeholder="Search startups..."
+        {/* Search input */}
+        <div
           style={{
-            width: "100%",
-            border: "none",
-            outline: "none",
-            padding: "18px 20px",
-            fontSize: 16,
-            color: "var(--black)",
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "0 16px",
             borderBottom: "1px solid var(--border)",
           }}
-        />
-        <div style={{ maxHeight: 360, overflowY: "auto", padding: 8 }}>
+        >
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="var(--muted)"
+            strokeWidth="2.2"
+          >
+            <circle cx="11" cy="11" r="7" />
+            <path d="m21 21-4.3-4.3" />
+          </svg>
+          <input
+            ref={inputRef}
+            value={query}
+            onChange={(e) => { setQuery(e.target.value); setActive(0); }}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowDown") { e.preventDefault(); setActive((a) => Math.min(a + 1, results.length - 1)); }
+              else if (e.key === "ArrowUp") { e.preventDefault(); setActive((a) => Math.max(a - 1, 0)); }
+              else if (e.key === "Enter" && results[active]) go(results[active].slug);
+            }}
+            placeholder="Search startups…"
+            style={{
+              flex: 1,
+              border: "none",
+              outline: "none",
+              padding: "17px 0",
+              fontSize: 15,
+              color: "var(--heading)",
+              background: "transparent",
+            }}
+          />
+          <kbd
+            style={{
+              fontSize: 10.5,
+              color: "var(--muted)",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              padding: "2px 6px",
+              background: "var(--surface)",
+              fontFamily: "inherit",
+            }}
+          >
+            esc
+          </kbd>
+        </div>
+
+        {/* Results */}
+        <div style={{ maxHeight: 340, overflowY: "auto", padding: 6 }}>
           {results.length === 0 ? (
             <div
               style={{
-                padding: "24px 16px",
-                color: "var(--gray-light)",
-                fontSize: 14,
+                padding: "28px 16px",
+                color: "var(--muted)",
+                fontSize: 13.5,
                 textAlign: "center",
               }}
             >
-              No matches.
+              No matches found.
             </div>
           ) : (
             results.map((s, i) => (
@@ -134,22 +164,33 @@ export default function CommandPalette({ startups }: { startups: Startup[] }) {
                   width: "100%",
                   textAlign: "left",
                   border: "none",
-                  borderRadius: 10,
+                  borderRadius: 7,
                   padding: "10px 12px",
-                  background: i === active ? "#eff6ff" : "transparent",
+                  background: i === active ? "rgba(0,122,255,0.06)" : "transparent",
                   cursor: "pointer",
+                  transition: "background 0.1s ease",
                 }}
               >
-                <span style={{ fontSize: 14, color: "var(--black)" }}>{s.name}</span>
+                <span
+                  style={{
+                    fontSize: 13.5,
+                    fontWeight: 500,
+                    color: i === active ? "var(--accent)" : "var(--heading)",
+                    transition: "color 0.1s ease",
+                  }}
+                >
+                  {s.name}
+                </span>
                 {s.one_liner && (
                   <span
                     style={{
                       fontSize: 12,
-                      color: "var(--gray-light)",
+                      color: "var(--label)",
                       overflow: "hidden",
                       textOverflow: "ellipsis",
                       whiteSpace: "nowrap",
                       maxWidth: "100%",
+                      marginTop: 1,
                     }}
                   >
                     {s.one_liner}
