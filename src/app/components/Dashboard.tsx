@@ -183,7 +183,7 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
         </div>
 
         {/* Tabs */}
-        <div className="seg-tabs" style={{ marginBottom: 16 }}>
+        <div className="dash-tabs" style={{ marginBottom: 16 }}>
           {TABS.map((t) => {
             const badge = TAB_COUNT_BADGE[t.id];
             const count =
