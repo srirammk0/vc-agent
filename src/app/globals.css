@@ -267,6 +267,9 @@ a {
 }
 
 .seg-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   border: none;
   background: transparent;
   border-radius: 5px;
@@ -276,6 +279,19 @@ a {
   cursor: pointer;
   font-weight: 400;
   letter-spacing: 0.01em;
+}
+
+.tab-count {
+  font-size: 11px;
+  font-weight: 600;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
 }
 
 .seg-tabs button:hover {

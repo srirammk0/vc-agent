@@ -19,6 +19,13 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "passed", label: "Passed" },
 ];
 
+const TAB_COUNT_BADGE: Record<Tab, { bg: string; color: string }> = {
+  all: { bg: "rgba(0, 0, 0, 0.1)", color: "var(--heading)" },
+  new: { bg: "var(--accent)", color: "#fff" },
+  approved: { bg: "var(--success)", color: "#fff" },
+  passed: { bg: "var(--danger)", color: "#fff" },
+};
+
 function truncate(text: string | null, n: number): string {
   if (!text) return "";
   return text.length > n ? text.slice(0, n).trimEnd() + "…" : text;
@@ -200,28 +207,33 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
           <SearchBar query={query} setQuery={setQuery} isMac={isMac} />
         </div>
 
-        {/* Stat cards */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))",
-            gap: 10,
-            marginBottom: 20,
-          }}
-        >
-          <StatCard label="Total" value={counts.total} />
-          <StatCard label="New" value={counts.new} accent="var(--accent)" tint="rgba(0,122,255,0.05)" />
-          <StatCard label="Approved" value={counts.approved} accent="var(--success)" tint="rgba(52,199,89,0.06)" />
-          <StatCard label="Passed" value={counts.passed} accent="var(--danger)" tint="rgba(255,59,48,0.05)" />
-        </div>
-
         {/* Tabs */}
         <div className="seg-tabs" style={{ marginBottom: 16 }}>
-          {TABS.map((t) => (
-            <button key={t.id} data-active={t.id === tab} onClick={() => setTab(t.id)}>
-              {t.label}
-            </button>
-          ))}
+          {TABS.map((t) => {
+            const badge = TAB_COUNT_BADGE[t.id];
+            const count =
+              t.id === "all"
+                ? counts.total
+                : counts[t.id as "new" | "approved" | "passed"];
+            return (
+              <button
+                key={t.id}
+                data-active={t.id === tab}
+                onClick={() => setTab(t.id)}
+              >
+                {t.label}
+                <span
+                  className="tab-count"
+                  style={{
+                    background: badge.bg,
+                    color: badge.color,
+                  }}
+                >
+                  {count}
+                </span>
+              </button>
+            );
+          })}
         </div>
 
         {/* Cards */}
@@ -471,55 +483,6 @@ function SearchBar({
       >
         {isMac ? "⌘K" : "Ctrl K"}
       </kbd>
-    </div>
-  );
-}
-
-function StatCard({
-  label,
-  value,
-  accent = "var(--heading)",
-  tint = "var(--card-bg)",
-}: {
-  label: string;
-  value: number;
-  accent?: string;
-  tint?: string;
-}) {
-  return (
-    <div
-      className="animate-fade-up"
-      style={{
-        border: "1px solid var(--border)",
-        borderRadius: 10,
-        padding: "14px 16px",
-        background: tint,
-        boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
-      }}
-    >
-      <div
-        style={{
-          fontSize: 10.5,
-          color: "var(--label)",
-          marginBottom: 6,
-          fontWeight: 500,
-          letterSpacing: "0.06em",
-          textTransform: "uppercase",
-        }}
-      >
-        {label}
-      </div>
-      <div
-        style={{
-          fontSize: 24,
-          color: accent,
-          lineHeight: 1,
-          fontWeight: 600,
-          letterSpacing: "-0.03em",
-        }}
-      >
-        {value}
-      </div>
     </div>
   );
 }
