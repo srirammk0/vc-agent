@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS startups (
     status TEXT DEFAULT 'new',
     signal_urls JSONB DEFAULT '[]',
     found_date TEXT,
+    created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now(),
     -- Enrichment (populated by the enrichment job, not the agent)
     enrichment_status TEXT DEFAULT 'pending',
@@ -61,7 +62,8 @@ GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO postgres, servi
 -- Indexes for fast dashboard queries (filter by status, sort by recency)
 CREATE INDEX IF NOT EXISTS idx_startups_status ON startups (status);
 CREATE INDEX IF NOT EXISTS idx_startups_found_date ON startups (found_date DESC);
-CREATE INDEX IF NOT EXISTS idx_startups_status_found ON startups (status, found_date DESC);
+CREATE INDEX IF NOT EXISTS idx_startups_created_at ON startups (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_startups_status_created ON startups (status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_startups_enrichment_status ON startups (enrichment_status);
 CREATE INDEX IF NOT EXISTS idx_cache_created_at ON cache (created_at);
 

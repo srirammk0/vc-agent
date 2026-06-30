@@ -5,10 +5,7 @@ import { sortStartups } from "../../../lib/sortStartups";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const { data, error } = await supabase
-    .from("startups")
-    .select("*")
-    .order("found_date", { ascending: false });
+  const { data, error } = await supabase.from("startups").select("*");
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

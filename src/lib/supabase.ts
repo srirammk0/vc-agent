@@ -21,6 +21,7 @@ export type Startup = {
   status: "new" | "approved" | "passed";
   signal_urls: string[] | null;
   found_date: string | null;
+  created_at: string | null;
   updated_at: string | null;
   enrichment_status: "pending" | "running" | "complete";
   company_description: string | null;

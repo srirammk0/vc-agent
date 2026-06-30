@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { Startup } from "../../lib/supabase";
 import { hasEnrichmentData } from "../../lib/enrichment";
+import { sortStartups } from "../../lib/sortStartups";
 import { useLiveStartups } from "../hooks/useLiveStartups";
 import StatusBadge from "./StatusBadge";
 import StartupActions from "./StartupActions";
@@ -116,7 +117,7 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return startups
+    const rows = startups
       .filter((s) => (tab === "all" ? true : s.status === tab))
       .filter((s) =>
         q
@@ -125,6 +126,7 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
             (s.assessment ?? "").toLowerCase().includes(q)
           : true
       );
+    return sortStartups(rows);
   }, [startups, tab, query]);
 
   return (

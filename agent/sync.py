@@ -64,17 +64,18 @@ def sync():
             "one_liner": meta.get("one_liner", "") or _extract_field(content, "One-liner"),
             "assessment": _extract_assessment(content),
             "signal_urls": _extract_signal_urls(content),
-            "updated_at": getattr(doc, "updated_at", None) or _now(),
         }
 
         if slug in existing_slugs:
-            # Preserve dashboard-owned fields (status, enrichment_*).
+            # Preserve dashboard-owned fields (status, enrichment_*, updated_at).
             sb.table("startups").update(content_fields).eq("slug", slug).execute()
         else:
+            inserted_at = _now()
             sb.table("startups").insert({
                 "slug": slug,
                 "status": meta.get("status", "new"),
                 "found_date": meta.get("found_date"),
+                "updated_at": inserted_at,
                 **content_fields,
             }).execute()
 

@@ -38,7 +38,7 @@ export async function PATCH(
 
   const { error } = await supabase
     .from("startups")
-    .update({ status })
+    .update({ status, updated_at: new Date().toISOString() })
     .eq("slug", slug);
 
   if (error) {
