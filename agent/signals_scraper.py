@@ -590,26 +590,30 @@ async def gemini_filter(candidates: list[dict]) -> list[dict]:
             for j, c in enumerate(batch)
         )
 
-        prompt = f"""You are a strict VC signal filter for a pre-seed/seed AI startup fund.
+        prompt = f"""You are an EXTREMELY STRICT VC signal filter for a pre-seed/seed AI startup fund. Your job is to filter out the noise and ONLY pass through high-conviction, early-stage AI startup opportunities.
 
-Review each signal below and decide whether it represents a GENUINE early-stage AI startup opportunity.
+Review each signal below and decide whether it represents a GENUINE, MEANINGFUL early-stage AI startup or a tangible opportunity that leads to one.
 
-APPROVE only if:
-- A specific, NAMED startup or product is launching, raising pre-seed/seed, or showcasing an MVP
-- The startup is building something with AI/ML as a core technology
-- It appears to be early-stage (pre-seed, seed, or just launched)
+APPROVE ONLY if ALL of the following are true:
+- A specific, NAMED startup or product is launching, raising pre-seed/seed, or showcasing a real MVP (not just a weekend project).
+- The startup is building a commercial business with AI/ML as a core enabling technology (it must fit the thesis of an AI startup).
+- It is undeniably early-stage (pre-seed, seed, stealth, or just launched).
 
-REJECT if:
-- It's a news article, thought leadership, or advice post
-- It's an established/big company (Series A+, well-known brands)
-- It's a generic AI model release without a startup behind it
-- It's vague with no specific product or company name
-- It's not US-based or geography is unclear but hints at non-US
+REJECT if ANY of the following apply (BE RUTHLESS):
+- It is a news article, thought leadership, blog post, or advice.
+- It is an established or large company (Series A+, well-known brands, big tech).
+- It is just a generic open-source AI model release, research paper, or tool without a real startup/commercial entity behind it.
+- It is a dev tool, GitHub repo, or project without clear intent to become a venture-backed startup.
+- It is an agency, consultancy, or dev shop.
+- It is vague with no specific product or company name.
+- It is not US-based or geography is unclear but hints at non-US.
+
+When in doubt, REJECT. We only want highly qualified signals.
 
 For each item, respond with a JSON array of objects with these exact fields:
 - "index": the item index number
 - "approved": true or false
-- "reasoning": brief 1-sentence explanation
+- "reasoning": brief 1-sentence explanation of why it was approved or rejected
 
 Items to review:
 {items_text}

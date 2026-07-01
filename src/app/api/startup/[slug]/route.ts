@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "../../../../lib/supabase";
+import { updateSupermemoryStartupStatus } from "../../../../lib/supermemory";
 
 export async function GET(
   _req: NextRequest,
@@ -43,6 +44,15 @@ export async function PATCH(
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  // Also mirror into Supermemory so the agent's actual memory picks up the
+  // change — without this, the agent never learns about a quick status change,
+  // and the next periodic sync silently reverts it back to the old status.
+  try {
+    await updateSupermemoryStartupStatus(slug, status);
+  } catch (e) {
+    console.error("Supermemory status mirror failed:", e);
   }
 
   return NextResponse.json({ ok: true });

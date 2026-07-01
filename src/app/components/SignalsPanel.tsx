@@ -24,6 +24,14 @@ export default function SignalsPanel({ signals }: { signals: Signal[] }) {
     traction: true,
   });
 
+  const [page, setPage] = useState<Record<Category, number>>({
+    social: 1,
+    developer: 1,
+    ai_infra: 1,
+    accelerator: 1,
+    traction: 1,
+  });
+
   const [busy, setBusy] = useState<string | null>(null);
 
   const byCategory = useMemo(() => {
@@ -73,6 +81,11 @@ export default function SignalsPanel({ signals }: { signals: Signal[] }) {
       {CATEGORIES.map((cat, i) => {
         const catSignals = byCategory[cat.id];
         const isExpanded = expanded[cat.id];
+        
+        const ITEMS_PER_PAGE = 5;
+        const totalPages = Math.max(1, Math.ceil(catSignals.length / ITEMS_PER_PAGE));
+        const currentPage = page[cat.id] || 1;
+        const paginatedSignals = catSignals.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
         return (
           <div
@@ -145,8 +158,9 @@ export default function SignalsPanel({ signals }: { signals: Signal[] }) {
               }}
             >
               <div style={{ minHeight: 0, overflow: "hidden" }}>
-                <div style={{ padding: "12px", display: "flex", flexDirection: "column", gap: 8 }}>
-                {catSignals.map((s) => (
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {
+                  paginatedSignals.map((s) => (
                     <div
                       key={s.id}
                       className="signal-card"
@@ -301,6 +315,33 @@ export default function SignalsPanel({ signals }: { signals: Signal[] }) {
                     </div>
                   ))
                 }
+                {totalPages > 1 && (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12, borderTop: "1px solid var(--border-med)", paddingTop: 12 }}>
+                    <button
+                      disabled={currentPage === 1}
+                      onClick={() => setPage(p => ({ ...p, [cat.id]: currentPage - 1 }))}
+                      style={{
+                        background: "transparent", border: "1px solid var(--border)", borderRadius: "6px",
+                        padding: "6px 12px", fontSize: "12px", fontWeight: 500, color: "var(--label)",
+                        cursor: currentPage === 1 ? "not-allowed" : "pointer", opacity: currentPage === 1 ? 0.4 : 1
+                      }}
+                    >
+                      Previous
+                    </button>
+                    <span style={{ fontSize: 13, color: "var(--muted)" }}>Page {currentPage} of {totalPages}</span>
+                    <button
+                      disabled={currentPage === totalPages}
+                      onClick={() => setPage(p => ({ ...p, [cat.id]: currentPage + 1 }))}
+                      style={{
+                        background: "transparent", border: "1px solid var(--border)", borderRadius: "6px",
+                        padding: "6px 12px", fontSize: "12px", fontWeight: 500, color: "var(--label)",
+                        cursor: currentPage === totalPages ? "not-allowed" : "pointer", opacity: currentPage === totalPages ? 0.4 : 1
+                      }}
+                    >
+                      Next
+                    </button>
+                  </div>
+                )}
                 </div>
               </div>
             </div>
