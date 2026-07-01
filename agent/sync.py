@@ -69,12 +69,10 @@ def sync():
         }
 
         if slug in existing_slugs:
-            # Sync agent-owned content AND status. Dashboard UI writes status directly
-            # to Supabase; the agent also writes directly on status change (memory_store),
-            # so both paths converge here on the next sync as well.
+            # Sync agent-owned content ONLY. Dashboard UI and agent both write status directly
+            # to Supabase on change, so we never clobber an existing dashboard status here.
             sb.table("startups").update({
                 **content_fields,
-                "status": meta.get("status", "new"),
             }).eq("slug", slug).execute()
         else:
             inserted_at = _now()

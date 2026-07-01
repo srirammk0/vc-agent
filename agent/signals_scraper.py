@@ -676,6 +676,14 @@ def write_to_supabase(signals: list[dict]):
         print(f"  Auto-archived {len(res.data) if res.data else 0} signals older than 3 days.")
     except Exception as e:
         print(f"  Failed to auto-archive old signals: {e}")
+
+    existing_status = {}
+    try:
+        res = sb.table("signals").select("source_url, status").execute()
+        existing_status = {row["source_url"]: row["status"] for row in (res.data or [])}
+    except Exception as e:
+        print(f"  Failed to fetch existing signals status: {e}")
+
     for sig in signals:
         try:
             sb.table("signals").upsert(
@@ -690,7 +698,7 @@ def write_to_supabase(signals: list[dict]):
                     "favicon_url": sig.get("favicon_url", ""),
                     "ai_features": sig.get("ai_features", []),
                     "gemini_reasoning": sig.get("gemini_reasoning", ""),
-                    "status": "new",
+                    "status": existing_status.get(sig["source_url"], "new"),
                 },
                 on_conflict="source_url",
             ).execute()
