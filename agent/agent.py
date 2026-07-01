@@ -297,6 +297,12 @@ async def text_handler_prompt(ctx: RunContext) -> str:
     market_brief = await sm.load_latest_market_brief()
     return f"""You handle inbound texts from your boss (a pre-seed VC) and execute their requests fully before replying.
 
+Standing rule — always save what you find: any time your research (exa_deep_search_many, supermemory_search,
+etc.) surfaces a genuine early-stage startup that isn't already in your known list below and it fits the
+thesis, call save_startups for it — even if the boss only asked a casual question like "what do you think
+of X" rather than explicitly requesting a sweep. Don't just describe a candidate in your reply and let it
+evaporate; if it's worth mentioning, it's worth saving.
+
 Other autonomous processes you run alongside — context only, you do not re-run these:
 
 Latest scout sweep notes (from the autonomous scouting agent, runs every 4h):
@@ -362,17 +368,15 @@ Patterns you've learned (seek/avoid):
 async def scout_prompt(ctx: RunContext) -> str:
     thesis = await sm.load_thesis()
     preferences = await sm.load_preferences()
-    return f"""You are running an autonomous scouting sweep for pre-seed AI startups.
+    return f"""You are running an autonomous scouting sweep for pre-seed AI startups. You have the exact
+same research tools and abilities as the SMS agent handling "find me startups" / "run a sweep"
+requests from the boss — search decisively, don't second-guess yourself across multiple passes.
 
-Each turn follows a strict discipline:
-1. Search broadly — exa_deep_search_many with 5+ diverse queries in ONE call
-2. Filter critically — does each candidate pass the thesis hard filters? Does it hit your seek patterns? Avoid your pass patterns?
-3. Confirm with depth — targeted exa_deep_search_many on top candidates to validate claims
-4. Press filter — from your research results, skip any startup that already has significant coverage on major outlets (TechCrunch, Bloomberg, Forbes, etc.). Use your judgment — a single mention is fine, a funding round announcement is not.
-5. Save — save_startups in ONE batch call with qualitative assessments
-6. Learn — write_preferences for new patterns, write_reflection for sweep notes
-
-Do not reply until all five steps are complete for the turn.
+1. Search broadly — exa_deep_search_many with 5+ diverse queries in ONE call.
+2. Skip anything that fails the thesis hard filters, or that already has obvious major press coverage
+   (a passing mention is fine, a funding round announcement is not) — use your judgment, don't over-filter.
+3. Save every survivor — call save_startups ONCE in a single batch with a qualitative assessment for each.
+   Do not reply until save_startups has been called.
 
 Investment thesis (hard filters — non-negotiable):
 {thesis}
@@ -764,35 +768,22 @@ async def run_scout() -> dict:
 
         r1 = await agent_run_with_retry(
             scout_agent,
-            f"Execute a scout sweep. Use exa_deep_search_many with 5+ diverse queries in ONE call to find pre-seed AI startups.\n\nThesis:\n{thesis}\n\nRemember these patterns:\n{preferences}\n\nYou ALREADY KNOW these startups - do NOT research or save them again, find NEW ones:\n{known}",
+            f"Execute a scout sweep. Use exa_deep_search_many with 5+ diverse queries in ONE call to find pre-seed AI startups. "
+            f"Skip anything with obvious major press coverage or that fails the thesis hard filters. "
+            f"Call save_startups in ONE batch call for every survivor, with a qualitative assessment for each. "
+            f"Do not reply until save_startups has been called.\n\n"
+            f"Thesis:\n{thesis}\n\nRemember these patterns:\n{preferences}\n\nYou ALREADY KNOW these startups - do NOT research or save them again, find NEW ones:\n{known}",
             deps=deps,
         )
 
         r2 = await agent_run_with_retry(
             scout_agent,
-            "Reflect on what you found. Which candidates are genuinely interesting and why? Which should we skip and why? Be specific about signals. Do not save yet.",
+            "What patterns did you notice this sweep? Call write_preferences with all new patterns and write_reflection with your sweep notes. Do not reply until both tools have been called.",
             message_history=r1.all_messages(),
             deps=deps,
         )
 
-        r3 = await agent_run_with_retry(
-            scout_agent,
-            "For every top candidate: run targeted exa_deep_search_many to confirm your thesis. "
-            "Filter out anything with major press coverage based on what you already found. "
-            "Write a qualitative assessment for each survivor and call save_startups ONCE. "
-            "Do not reply until save_startups has been called.",
-            message_history=r2.all_messages(),
-            deps=deps,
-        )
-
-        r4 = await agent_run_with_retry(
-            scout_agent,
-            "What patterns did you notice this sweep? Call write_preferences with all new patterns and write_reflection with your sweep notes. Do not reply until both tools have been called.",
-            message_history=r3.all_messages(),
-            deps=deps,
-        )
-
-        return {"reply": r4.output}
+        return {"reply": r2.output}
     except Exception as e:
         if llm._is_rate_limit_error(e):
             return {"reply": RATE_LIMIT_REPLY}
