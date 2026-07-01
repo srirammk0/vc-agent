@@ -21,6 +21,7 @@ image = (
         "crawl4ai",
         "google-genai",
     )
+    .run_commands("python -m playwright install --with-deps chromium")
     .add_local_dir("./agent", remote_path="/root/agent")
 )
 
