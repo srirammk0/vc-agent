@@ -7,7 +7,7 @@ import time
 import urllib.request
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext, ToolDefinition
-from pydantic_ai.messages import ModelMessagesTypeAdapter
+from pydantic_ai.messages import ModelMessagesTypeAdapter, ModelResponse, TextPart
 from pydantic_ai.usage import UsageLimits
 
 from tools.exa import exa
@@ -56,6 +56,23 @@ async def _save_history(sender: str, messages: list) -> None:
         await cache.cache_set(_convo_key(sender), data)
     except Exception as e:
         print("failed to save conversation history:", e)
+
+
+async def append_alert_to_history(message: str, recipients: list[str]) -> dict:
+    """Append a scheduled-job alert (e.g. the scout sweep SMS) to a recipient's
+    conversation history as if the text_agent had just said it, so a follow-up
+    text from the boss has that context without re-fetching it from Supermemory."""
+    if not message or not recipients:
+        return {"appended": []}
+    appended = []
+    for recipient in recipients:
+        if not recipient:
+            continue
+        history = await _load_history(recipient)
+        history.append(ModelResponse(parts=[TextPart(content=message)]))
+        await _save_history(recipient, history)
+        appended.append(recipient)
+    return {"appended": appended}
 
 
 class StartupSave(BaseModel):
@@ -276,9 +293,23 @@ async def text_handler_prompt(ctx: RunContext) -> str:
     thesis = await sm.load_thesis()
     preferences = await sm.load_preferences()
     known = await sm.known_startups_summary()
+    scout_notes = await sm.load_recent_reflection("scout")
+    market_brief = await sm.load_latest_market_brief()
     return f"""You handle inbound texts from your boss (a pre-seed VC) and execute their requests fully before replying.
 
+Other autonomous processes you run alongside — context only, you do not re-run these:
+
+Latest scout sweep notes (from the autonomous scouting agent, runs every 4h):
+{scout_notes}
+
+Latest weekly market-intel brief (from the news digest agent, runs Monday mornings):
+{market_brief}
+
 Common requests and exactly how to handle them:
+
+"what did the scout find" / "what's new from scouting" / "what was in this week's brief" / "what's been happening"
+→ answer directly from the scout sweep notes / market brief above, no tool call needed
+→ only call supermemory_search (container_tag vc:reflections or vc:market-intel) if the boss wants more detail than what's summarized above
 
 "approve X" / "pass on X" / "mark X as [status]"
 → call list_known_startups if you don't already have the slug
@@ -428,6 +459,7 @@ def register_tools(
     market_brief: bool = False,
     exa: bool = True,
     linkup_tools: bool = False,
+    reflection_source: str = "scout",
 ):
     _T = "[tool timed out — skip this step and continue]"
 
@@ -620,7 +652,7 @@ def register_tools(
     async def write_reflection(ctx: RunContext, reflection: str) -> str:
         """Write a post-run self-improvement note about how the sweep went and what to do differently."""
         try:
-            await sm.write_reflection(reflection)
+            await sm.write_reflection(reflection, source=reflection_source)
             return "Saved reflection."
         except asyncio.TimeoutError:
             return _T
@@ -686,8 +718,8 @@ def register_tools(
                 return f"Failed to send reaction: {e}"
 
 
-register_tools(text_agent, linkup_tools=True)
-register_tools(scout_agent, linkup_tools=True)
+register_tools(text_agent, linkup_tools=True, reflection_source="text")
+register_tools(scout_agent, linkup_tools=True, reflection_source="scout")
 register_tools(
     news_agent,
     dealflow=False,
@@ -696,6 +728,7 @@ register_tools(
     market_brief=True,
     exa=False,
     linkup_tools=True,
+    reflection_source="news",
 )
 register_tools(
     feedback_agent,
@@ -705,6 +738,7 @@ register_tools(
     market_brief=False,
     exa=False,
     linkup_tools=False,
+    reflection_source="feedback",
 )
 
 
@@ -889,6 +923,11 @@ async def run_agent(payload: dict) -> dict:
             payload.get("slug"),
             payload.get("sender"),
             payload.get("message_handle"),
+        )
+    elif mode == "append_alert":
+        return await append_alert_to_history(
+            payload.get("message", ""),
+            payload.get("recipients", []),
         )
 
     return {"error": "unknown mode"}

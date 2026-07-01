@@ -10,16 +10,15 @@ app = modal.App("vc-scout")
 image = (
     modal.Image.debian_slim()
     .pip_install(
-        "pydantic-ai[anthropic,google]",
+        "pydantic-ai[anthropic]",
         "exa-py",
         "httpx",
         "logfire[pydantic-ai]",
         "python-dotenv",
         "fastapi",
         "supabase",
-        "supermemory",
+        "supermemory==3.12.1",
         "crawl4ai",
-        "google-genai",
     )
     .run_commands("python -m playwright install --with-deps chromium")
     .add_local_dir("./agent", remote_path="/root/agent")
@@ -212,7 +211,9 @@ def _stop_typing_loop(
 def scout_scheduled():
     res = run_agent({"mode": "scout"})
     reply = res.get("reply", "Sweep finished with no report.")
-    send_sms(f"Scheduled sweep complete.\n\nAgent Report:\n{reply}")
+    alert = f"Scheduled sweep complete.\n\nAgent Report:\n{reply}"
+    send_sms(alert)
+    run_agent({"mode": "append_alert", "message": alert, "recipients": notify_phone_numbers()})
     sync_on_demand.spawn()
     return res
 
@@ -228,7 +229,9 @@ def scout_scheduled():
 def news_digest_scheduled():
     res = run_agent({"mode": "news_digest"})
     reply = res.get("reply", "Brief finished with no summary.")
-    send_sms(f"Weekly market brief.\n\n{reply}")
+    alert = f"Weekly market brief.\n\n{reply}"
+    send_sms(alert)
+    run_agent({"mode": "append_alert", "message": alert, "recipients": notify_phone_numbers()})
     return res
 
 
@@ -246,7 +249,7 @@ def sync_scheduled():
     sync()
 
 
-# --- Signals Scraper: runs every 30 minutes ---
+# --- Signals Scraper (frequent sources): runs every 30 minutes ---
 @app.function(
     image=image,
     secrets=[modal.Secret.from_name("vc-scout-secrets")],
@@ -257,8 +260,26 @@ def signals_scheduled():
     import sys
     import asyncio
     sys.path.insert(0, "/root/agent")
-    from signals_scraper import scrape_and_filter
-    asyncio.run(scrape_and_filter())
+    from signals_scraper import scrape_and_filter_frequent
+    asyncio.run(scrape_and_filter_frequent())
+
+
+# --- Signals Scraper (accelerator/portfolio directories): runs weekly ---
+# YC Launches, South Park Commons, Neo, and Founders Inc don't change on a 30-min
+# cycle — re-scraping them that often is wasted crawling, so they get their own
+# slower cron instead of running inside signals_scheduled.
+@app.function(
+    image=image,
+    secrets=[modal.Secret.from_name("vc-scout-secrets")],
+    schedule=modal.Cron("0 9 * * 1"),
+    timeout=900,
+)
+def signals_directories_scheduled():
+    import sys
+    import asyncio
+    sys.path.insert(0, "/root/agent")
+    from signals_scraper import scrape_and_filter_directories
+    asyncio.run(scrape_and_filter_directories())
 
 
 @app.function(

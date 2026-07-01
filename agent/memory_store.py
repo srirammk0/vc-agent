@@ -123,7 +123,6 @@ async def save_startup(
                     "found_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
                     "one_liner": one_liner,
                 },
-                dreaming="dynamic",
             )
         ),
         timeout=_SM_TIMEOUT,
@@ -395,7 +394,6 @@ async def write_preference(pattern: str, pattern_type: str):
                 container_tag="vc:preferences",
                 custom_id=f"{pattern_type}-{h}",
                 metadata={"type": pattern_type},
-                dreaming="dynamic",
             )
         ),
         timeout=_SM_TIMEOUT,
@@ -450,19 +448,68 @@ async def delete_preferences_batch(pattern_ids: list[str]) -> tuple[list[str], l
     return deleted, errors
 
 
-async def write_reflection(reflection: str):
+async def write_reflection(reflection: str, source: str = "scout"):
     date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     await asyncio.wait_for(
         asyncio.to_thread(
             lambda: get_client().add(
                 content=reflection,
                 container_tag="vc:reflections",
-                custom_id=f"reflection-{date}",
-                dreaming="dynamic",
+                custom_id=f"reflection-{source}-{date}",
+                metadata={"source": source, "date": date},
             )
         ),
         timeout=_SM_TIMEOUT,
     )
+
+
+async def load_recent_reflection(source: str) -> str:
+    """Latest reflection written by a given source (e.g. 'scout', 'news') — used to give
+    the SMS agent visibility into what other autonomous processes have been doing."""
+    try:
+        docs = await asyncio.wait_for(
+            asyncio.to_thread(
+                get_client().documents.list,
+                container_tags=["vc:reflections"],
+                include_content=True,
+            ),
+            timeout=_SM_TIMEOUT,
+        )
+        matches = [
+            d for d in getattr(docs, "memories", [])
+            if (d.metadata or {}).get("source") == source
+        ]
+        if not matches:
+            return "No reflections yet."
+        matches.sort(key=lambda d: (d.metadata or {}).get("date", ""), reverse=True)
+        content = (getattr(matches[0], "content", "") or "").strip()
+        return truncate_text(content, 1200) or "No reflections yet."
+    except Exception as e:
+        print(f"Failed to load {source} reflection from Supermemory:", e)
+        return "No reflections yet."
+
+
+async def load_latest_market_brief() -> str:
+    """Most recent weekly market-intel brief — used to give the SMS agent visibility
+    into what the news digest agent found."""
+    try:
+        docs = await asyncio.wait_for(
+            asyncio.to_thread(
+                get_client().documents.list,
+                container_tags=["vc:market-intel"],
+                include_content=True,
+            ),
+            timeout=_SM_TIMEOUT,
+        )
+        memories = getattr(docs, "memories", [])
+        if not memories:
+            return "No market brief yet."
+        memories.sort(key=lambda d: (d.metadata or {}).get("date", ""), reverse=True)
+        content = (getattr(memories[0], "content", "") or "").strip()
+        return truncate_text(content, 2000) or "No market brief yet."
+    except Exception as e:
+        print("Failed to load market brief from Supermemory:", e)
+        return "No market brief yet."
 
 
 async def write_market_brief(brief: str, headline: str = "") -> str:
@@ -477,7 +524,6 @@ async def write_market_brief(brief: str, headline: str = "") -> str:
                 container_tag="vc:market-intel",
                 custom_id=f"brief-{date}",
                 metadata={"date": date, "type": "weekly_brief"},
-                dreaming="dynamic",
             )
         ),
         timeout=_SM_TIMEOUT,
@@ -492,7 +538,6 @@ async def update_thesis(new_content: str):
                 content=new_content,
                 container_tag="vc:thesis",
                 custom_id="thesis",
-                dreaming="instant",
             )
         ),
         timeout=_SM_TIMEOUT,

@@ -1,7 +1,7 @@
 """
 Signal scraper pipeline — crawls multiple sources for early-stage AI startup signals,
-deduplicates / scores / filters with regex heuristics, then runs a final Gemini 3.1
-Flash Lite structured-output pass to approve only genuine opportunities.
+deduplicates / scores / filters with regex heuristics, then runs a final Gemma 4
+(self-hosted on Modal) structured-output pass to approve only genuine opportunities.
 
 Writes approved signals to the Supabase `signals` table.
 """
@@ -16,6 +16,8 @@ from datetime import datetime, timezone, timedelta
 
 import httpx
 from supabase import create_client
+
+import cache
 
 # ---------------------------------------------------------------------------
 # Config
@@ -103,14 +105,25 @@ CATEGORY_MAP = {
     "GitHub": "developer",
     "Show HN": "developer",
     "Hugging Face": "developer",
-    "OpenRouter": "developer",
-    "OpenRouter Apps": "developer",
     "YC Launches": "accelerator",
     "South Park Commons": "accelerator",
     "Founders Inc": "accelerator",
     "Neo": "accelerator",
     "Work at a Startup": "traction",
 }
+
+# Minimum HN points for a Show HN submission to count as real traction (soft boost, not a hard cutoff).
+MIN_HN_POINTS_STRONG = 20
+MIN_HN_POINTS_WEAK = 8
+
+HN_NOISE_PATTERNS = [
+    r"\bside\s+project\b", r"\bweekend\s+project\b", r"\bfor\s+fun\b",
+    r"\bmy\s+first\b", r"\btoy\b", r"\blearning\s+project\b",
+    r"\bjust\s+for\s+practice\b", r"\bpractice\s+project\b", r"\bhobby\s+project\b",
+]
+
+# YC batch codes considered "2025+" (Winter/Summer 25 onward).
+MIN_YC_BATCH_YEAR = 25
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -336,59 +349,6 @@ async def crawl_github(crawler, run_config) -> list[dict]:
     return signals
 
 
-async def fetch_openrouter() -> list[dict]:
-    signals = []
-    async with httpx.AsyncClient() as c:
-        try:
-            r = await c.get("https://openrouter.ai/api/v1/models", timeout=15.0)
-            if r.status_code != 200:
-                return signals
-            for m in r.json().get("data", []):
-                mid = m.get("id", "")
-                creator = mid.split("/")[0] if "/" in mid else "independent"
-                if creator in GIANT_CREATORS:
-                    continue
-                desc = m.get("description", "")
-                signals.append({
-                    "author": creator.capitalize(), "platform": "OpenRouter",
-                    "url": f"https://openrouter.ai/{mid}" if "/" in mid else "https://openrouter.ai/",
-                    "body": f"Model: {m.get('name', mid)} — {desc[:200]}",
-                    "time": "Today", "score_boost": 3,
-                })
-        except Exception:
-            pass
-    return signals
-
-
-async def crawl_openrouter_apps(crawler, run_config) -> list[dict]:
-    res = await crawler.arun(url="https://openrouter.ai/apps", config=run_config)
-    signals = []
-    if not res.success:
-        return signals
-    md = res.markdown or ""
-    pat = r"\[(?:\d+\.)?\!\[Favicon for ([^\]]+)\]\(([^\)]+)\)\s*([^\n]+?)\s*\]\(https://openrouter\.ai/apps/([a-zA-Z0-9_\-\.]+)\)"
-    matches = list(re.finditer(pat, md))
-    for m in matches[15:]:
-        domain = m.group(1).strip()
-        text = m.group(3).strip()
-        slug = m.group(4).strip()
-        words = text.split()
-        title = ""
-        for n in range(len(words) // 2, 0, -1):
-            if words[:n] == words[n:2 * n]:
-                title = " ".join(words[:n])
-                break
-        else:
-            title = " ".join(words[:3])
-        signals.append({
-            "author": title, "platform": "OpenRouter Apps",
-            "url": f"https://openrouter.ai/apps/{slug}",
-            "body": f"OpenRouter App: {title} (domain: {domain}) — {text[:200]}",
-            "time": "Today", "score_boost": 3,
-        })
-    return signals
-
-
 async def crawl_yc(crawler, run_config) -> list[dict]:
     from crawl4ai import CrawlerRunConfig, CacheMode
     yc_cfg = CrawlerRunConfig(
@@ -444,20 +404,134 @@ async def crawl_directory(crawler, run_config, url: str, platform: str) -> list[
     return signals
 
 
+MIN_FOUNDED_YEAR = 2025
+_FINC_YEAR_TTL_SECONDS = 7 * 24 * 3600  # only runs weekly, cache just avoids same-day re-fetches
+
+
+async def _finc_company_founded_year(client: "httpx.AsyncClient", slug: str) -> int | None:
+    cache_key = cache.make_key("finc:founded", slug)
+    cached = await cache.cache_get(cache_key, _FINC_YEAR_TTL_SECONDS)
+    if cached is not None:
+        return cached.get("year")
+    year = None
+    try:
+        r = await client.get(f"https://www.f.inc/portfolio/{slug}/", timeout=15.0)
+        if r.status_code == 200:
+            m = re.search(r">FOUNDED</h3>.{0,300}?<p[^>]*>(\d{4})</p>", r.text, re.DOTALL)
+            if m:
+                year = int(m.group(1))
+    except Exception:
+        pass
+    await cache.cache_set(cache_key, {"year": year})
+    return year
+
+
+async def crawl_founders_inc(crawler, run_config) -> list[dict]:
+    """F.inc portfolio is a client-rendered Framer site — the listing needs the headless
+    browser for slugs, but each company's own sub-page is static and has a FOUNDED year."""
+    from crawl4ai import CrawlerRunConfig, CacheMode
+    cfg = CrawlerRunConfig(
+        cache_mode=CacheMode.BYPASS,
+        js_code="window.scrollTo(0, document.body.scrollHeight);",
+        delay_before_return_html=3.0,
+    )
+    res = await crawler.arun(url="https://www.f.inc/portfolio", config=cfg)
+    if not res.success:
+        return []
+    html = res.html or ""
+    companies = {}
+    pat = r'href="\./portfolio/([a-zA-Z0-9_\-]+)/"(?:(?!</a>).)*?<h2[^>]*>([^<]{1,60})</h2>'
+    for m in re.finditer(pat, html, re.DOTALL):
+        slug, name = m.group(1).strip(), m.group(2).strip()
+        if slug and name:
+            companies.setdefault(slug, name)
+
+    if not companies:
+        return []
+
+    signals = []
+    sem = asyncio.Semaphore(10)
+
+    async with httpx.AsyncClient() as client:
+        async def check(slug: str, name: str):
+            async with sem:
+                year = await _finc_company_founded_year(client, slug)
+            # Fail open: keep if founded 2025+ or the year couldn't be parsed.
+            if year is not None and year < MIN_FOUNDED_YEAR:
+                return None
+            return {
+                "author": name, "platform": "Founders Inc",
+                "url": f"https://www.f.inc/portfolio/{slug}/",
+                "body": f"Founders Inc portfolio company: {name}"
+                        + (f" (founded {year})" if year else ""),
+                "time": "Current", "score_boost": 3,
+            }
+
+        results = await asyncio.gather(*(check(s, n) for s, n in companies.items()))
+        signals = [r for r in results if r]
+    return signals
+
+
+async def crawl_south_park_commons() -> list[dict]:
+    """SPC's company listing is server-rendered — name/slug/founded year are embedded
+    as inline JSON in the plain HTML, no headless browser needed."""
+    signals = []
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.get(
+                "https://www.southparkcommons.com/companies/",
+                timeout=20.0,
+                headers={"User-Agent": "Mozilla/5.0"},
+            )
+        if r.status_code != 200:
+            return signals
+        pat = r'"name":"([^"]+)","slug":"([^"]+)".{0,300}?"founded":"(\d{4})"'
+        for m in re.finditer(pat, r.text, re.DOTALL):
+            name, slug, founded = m.group(1), m.group(2), int(m.group(3))
+            if founded < MIN_FOUNDED_YEAR:
+                continue
+            signals.append({
+                "author": name, "platform": "South Park Commons",
+                "url": f"https://www.southparkcommons.com/companies/{slug}",
+                "body": f"South Park Commons portfolio company: {name} (founded {founded})",
+                "time": "Current", "score_boost": 3,
+            })
+    except Exception:
+        pass
+    return signals
+
+
 async def crawl_show_hn(crawler, run_config) -> list[dict]:
     res = await crawler.arun(url="https://news.ycombinator.com/show", config=run_config)
     signals = []
     if not res.success:
         return signals
     md = res.markdown or ""
-    for m in re.finditer(r"\[([^\]]+)\]\((https?://[^\)]+)\)", md):
-        title = m.group(1).strip()
-        url = m.group(2)
-        combined = title.lower()
-        if any(re.search(p, combined) for p in GITHUB_AI_KEYWORDS):
+    lines = md.split("\n")
+    for idx, line in enumerate(lines):
+        for m in re.finditer(r"\[([^\]]+)\]\((https?://[^\)]+)\)", line):
+            title = m.group(1).strip()
+            url = m.group(2)
+            combined = title.lower()
+            if not any(re.search(p, combined) for p in GITHUB_AI_KEYWORDS):
+                continue
+            if "github.com" in url.lower():
+                continue
+            if any(re.search(p, combined) for p in HN_NOISE_PATTERNS):
+                continue
+
+            points = 0
+            for si in range(idx, min(idx + 4, len(lines))):
+                pm = re.search(r"(\d+)\s+points?\b", lines[si])
+                if pm:
+                    points = int(pm.group(1))
+                    break
+
+            boost = 3 if points >= MIN_HN_POINTS_STRONG else 1 if points >= MIN_HN_POINTS_WEAK else 0
             signals.append({
                 "author": "Show HN", "platform": "Show HN", "url": url,
-                "body": f"Show HN: {title}", "time": "Today", "score_boost": 0,
+                "body": f"Show HN: {title} ({points} points)", "time": "Today",
+                "score_boost": boost,
             })
     return signals
 
@@ -491,14 +565,28 @@ async def crawl_hiring(crawler, run_config) -> list[dict]:
     if not res.success:
         return signals
     md = res.markdown or ""
-    for m in re.finditer(r"\[([^\]]{3,60})\]\((https://www\.workatastartup\.com/companies/[^\)]+)\)", md):
-        name = m.group(1).strip()
-        url = m.group(2)
-        signals.append({
-            "author": name, "platform": "Work at a Startup", "url": url,
-            "body": f"Hiring AI talent: {name} (YC-backed startup actively hiring)",
-            "time": "Current", "score_boost": 2,
-        })
+    lines = md.split("\n")
+    for idx, line in enumerate(lines):
+        for m in re.finditer(r"\[([^\]]{3,60})\]\((https://www\.workatastartup\.com/companies/[^\)]+)\)", line):
+            name = m.group(1).strip()
+            url = m.group(2)
+
+            # Best-effort: keep only W25/S25+ batches. If no batch code is found nearby
+            # (unverified whether this page renders one per card), fail open and keep it.
+            batch_year = None
+            for si in range(max(0, idx - 2), min(idx + 3, len(lines))):
+                bm = re.search(r"\b[WS](\d{2})\b", lines[si])
+                if bm:
+                    batch_year = int(bm.group(1))
+                    break
+            if batch_year is not None and batch_year < MIN_YC_BATCH_YEAR:
+                continue
+
+            signals.append({
+                "author": name, "platform": "Work at a Startup", "url": url,
+                "body": f"Hiring AI talent: {name} (YC-backed startup actively hiring)",
+                "time": "Current", "score_boost": 2,
+            })
     return signals[:40]
 
 # ---------------------------------------------------------------------------
@@ -536,7 +624,7 @@ def score_and_filter(posts: list[dict], today: datetime) -> list[dict]:
             score += 2
 
         matched_ai = [k for k, p in AI_KEYWORDS.items() if re.search(p, body_lower)]
-        is_directory = platform in ["YC Launches", "GitHub", "OpenRouter", "OpenRouter Apps",
+        is_directory = platform in ["YC Launches", "GitHub",
                                     "South Park Commons", "Founders Inc", "Neo",
                                     "Show HN", "Hugging Face", "Work at a Startup"]
         if not matched_ai and not is_directory:
@@ -570,13 +658,53 @@ def score_and_filter(posts: list[dict], today: datetime) -> list[dict]:
     return results
 
 # ---------------------------------------------------------------------------
-# Gemini Filter
+# Gemma Filter (self-hosted SGLang server on Modal)
 # ---------------------------------------------------------------------------
 
-async def gemini_filter(candidates: list[dict]) -> list[dict]:
-    api_key = os.environ.get("GEMINI_API_KEY", "")
-    if not api_key or not candidates:
+GEMMA_MODEL_ID = "google/gemma-4-E4B-it"
+
+# Enforced via response_format json_schema below — the model is constrained to emit
+# exactly this shape, not just asked nicely to produce JSON in the prompt.
+_DECISIONS_SCHEMA = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "decisions",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "decisions": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "index": {"type": "integer"},
+                            "approved": {"type": "boolean"},
+                            "reasoning": {"type": "string"},
+                        },
+                        "required": ["index", "approved", "reasoning"],
+                    },
+                }
+            },
+            "required": ["decisions"],
+        },
+    },
+}
+
+
+async def gemma_filter(candidates: list[dict]) -> list[dict]:
+    """Runs the strict VC-signal filter against a self-hosted Gemma 4 SGLang server
+    on Modal, behind Modal's tunnel proxy auth (Modal-Key/Modal-Secret headers —
+    distinct from any app-level auth)."""
+    url = os.environ.get("MODAL_GEMMA_URL", "")
+    proxy_key = os.environ.get("MODAL_PROXY_KEY", "")
+    proxy_secret = os.environ.get("MODAL_PROXY_SECRET", "")
+    if not url or not candidates:
         return candidates
+
+    headers = {"Content-Type": "application/json"}
+    if proxy_key and proxy_secret:
+        headers["Modal-Key"] = proxy_key
+        headers["Modal-Secret"] = proxy_secret
 
     approved = []
     batch_size = 25
@@ -610,38 +738,32 @@ REJECT if ANY of the following apply (BE RUTHLESS):
 
 When in doubt, REJECT. We only want highly qualified signals.
 
-For each item, respond with a JSON array of objects with these exact fields:
-- "index": the item index number
-- "approved": true or false
-- "reasoning": brief 1-sentence explanation of why it was approved or rejected
+Decide on every item below and return one decision object per item, with "index" matching the item's bracketed number.
 
 Items to review:
-{items_text}
-
-Respond with ONLY a JSON array, no markdown formatting."""
+{items_text}"""
 
         try:
             async with httpx.AsyncClient() as client:
                 resp = await client.post(
-                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key={api_key}",
+                    f"{url}/v1/chat/completions",
                     json={
-                        "contents": [{"parts": [{"text": prompt}]}],
-                        "generationConfig": {
-                            "responseMimeType": "application/json",
-                            "temperature": 0.1,
-                            "maxOutputTokens": 4096,
-                        },
+                        "model": GEMMA_MODEL_ID,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "temperature": 0.1,
+                        "max_tokens": 4096,
+                        "response_format": _DECISIONS_SCHEMA,
                     },
-                    timeout=30.0,
+                    headers=headers,
+                    timeout=60.0,
                 )
                 if resp.status_code != 200:
-                    print(f"  Gemini API error: {resp.status_code}")
+                    print(f"  Gemma API error: {resp.status_code}")
                     approved.extend(batch)
                     continue
 
-                data = resp.json()
-                text = data["candidates"][0]["content"]["parts"][0]["text"]
-                decisions = json.loads(text)
+                content = resp.json()["choices"][0]["message"]["content"]
+                decisions = json.loads(content).get("decisions", [])
 
                 for dec in decisions:
                     idx = dec.get("index", -1)
@@ -650,10 +772,10 @@ Respond with ONLY a JSON array, no markdown formatting."""
                         approved.append(batch[idx])
 
                 approve_count = sum(1 for d in decisions if d.get("approved"))
-                print(f"  Gemini batch {i // batch_size + 1}: {approve_count}/{len(batch)} approved")
+                print(f"  Gemma batch {i // batch_size + 1}: {approve_count}/{len(batch)} approved")
 
         except Exception as e:
-            print(f"  Gemini filter error: {e}")
+            print(f"  Gemma filter error: {e}")
             approved.extend(batch)
 
     return approved
@@ -710,11 +832,23 @@ def write_to_supabase(signals: list[dict]):
 # Main
 # ---------------------------------------------------------------------------
 
-async def scrape_and_filter():
+async def _score_filter_and_write(all_raw: list[dict]) -> list[dict]:
+    print(f"Total raw signals: {len(all_raw)}")
+    today = datetime.now()
+    scored = score_and_filter(all_raw, today)
+    print(f"After regex filter: {len(scored)} candidates")
+    approved = await gemma_filter(scored)
+    print(f"After Gemma filter: {len(approved)} approved signals")
+    write_to_supabase(approved)
+    return approved
+
+
+async def scrape_and_filter_frequent():
+    """Fast-moving sources — social posts, trending repos, launches, hiring. Runs every 30 min."""
     from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
 
     start = time.time()
-    print("Signal scraper starting...")
+    print("Signal scraper (frequent) starting...")
 
     browser_config = BrowserConfig(headless=True, verbose=False)
     run_config = CrawlerRunConfig(cache_mode=CacheMode.BYPASS, word_count_threshold=5)
@@ -723,12 +857,6 @@ async def scrape_and_filter():
     async with AsyncWebCrawler(config=browser_config) as crawler:
         social_task = crawl_social(crawler, run_config)
         github_task = crawl_github(crawler, run_config)
-        openrouter_task = fetch_openrouter()
-        apps_task = crawl_openrouter_apps(crawler, run_config)
-        yc_task = crawl_yc(crawler, run_config)
-        spc_task = crawl_directory(crawler, run_config, "https://www.southparkcommons.com/companies", "South Park Commons")
-        finc_task = crawl_directory(crawler, run_config, "https://www.f.inc/portfolio", "Founders Inc")
-        neo_task = crawl_directory(crawler, run_config, "https://neo.com/startups", "Neo")
         show_hn_task = crawl_show_hn(crawler, run_config)
         hf_task = crawl_huggingface(crawler, run_config)
         hiring_task = crawl_hiring(crawler, run_config)
@@ -738,13 +866,10 @@ async def scrape_and_filter():
         print(f"  Social: {len(social)} posts")
 
         rest = await asyncio.gather(
-            github_task, openrouter_task, apps_task, yc_task,
-            spc_task, finc_task, neo_task,
-            show_hn_task, hf_task, hiring_task,
+            github_task, show_hn_task, hf_task, hiring_task,
             return_exceptions=True,
         )
-        labels = ["GitHub", "OpenRouter", "OpenRouter Apps", "YC Launches",
-                   "SPC", "F.inc", "Neo", "Show HN", "HuggingFace", "Hiring"]
+        labels = ["GitHub", "Show HN", "HuggingFace", "Hiring"]
         for label, result in zip(labels, rest):
             if isinstance(result, Exception):
                 print(f"  {label}: ERROR - {result}")
@@ -752,13 +877,42 @@ async def scrape_and_filter():
                 print(f"  {label}: {len(result)} signals")
                 all_raw.extend(result)
 
-    print(f"Total raw signals: {len(all_raw)}")
-    today = datetime.now()
-    scored = score_and_filter(all_raw, today)
-    print(f"After regex filter: {len(scored)} candidates")
-    approved = await gemini_filter(scored)
-    print(f"After Gemini filter: {len(approved)} approved signals")
-    write_to_supabase(approved)
+    approved = await _score_filter_and_write(all_raw)
     elapsed = time.time() - start
-    print(f"Pipeline completed in {elapsed:.1f}s")
+    print(f"Frequent pipeline completed in {elapsed:.1f}s")
+    return approved
+
+
+async def scrape_and_filter_directories():
+    """Slow-moving accelerator/portfolio directories. Runs weekly."""
+    from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
+
+    start = time.time()
+    print("Signal scraper (directories) starting...")
+
+    browser_config = BrowserConfig(headless=True, verbose=False)
+    run_config = CrawlerRunConfig(cache_mode=CacheMode.BYPASS, word_count_threshold=5)
+    all_raw: list[dict] = []
+
+    async with AsyncWebCrawler(config=browser_config) as crawler:
+        yc_task = crawl_yc(crawler, run_config)
+        spc_task = crawl_south_park_commons()
+        finc_task = crawl_founders_inc(crawler, run_config)
+        neo_task = crawl_directory(crawler, run_config, "https://neo.com/startups", "Neo")
+
+        rest = await asyncio.gather(
+            yc_task, spc_task, finc_task, neo_task,
+            return_exceptions=True,
+        )
+        labels = ["YC Launches", "SPC", "F.inc", "Neo"]
+        for label, result in zip(labels, rest):
+            if isinstance(result, Exception):
+                print(f"  {label}: ERROR - {result}")
+            else:
+                print(f"  {label}: {len(result)} signals")
+                all_raw.extend(result)
+
+    approved = await _score_filter_and_write(all_raw)
+    elapsed = time.time() - start
+    print(f"Directories pipeline completed in {elapsed:.1f}s")
     return approved

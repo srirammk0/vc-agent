@@ -62,12 +62,17 @@ Create a secret named `vc-scout-secrets` in your Modal dashboard or via CLI:
 modal secret create vc-scout-secrets \
   ANTHROPIC_API_KEY=your_key \
   EXA_API_KEY=your_key \
+  LINKUP_API_KEY=your_key \
+  SUPERMEMORY_API_KEY=your_key \
   SUPABASE_URL=your_supabase_url \
   SUPABASE_SERVICE_ROLE_KEY=your_service_role_key \
   SENDBLUE_API_KEY=your_sendblue_key \
   SENDBLUE_API_SECRET=your_sendblue_secret \
   ALERT_PHONE_NUMBER=your_number_E164 \
-  SENDBLUE_FROM_NUMBER=your_sendblue_number
+  SENDBLUE_FROM_NUMBER=your_sendblue_number \
+  MODAL_GEMMA_URL=your_gemma_sglang_endpoint \
+  MODAL_PROXY_KEY=your_modal_token_id \
+  MODAL_PROXY_SECRET=your_modal_token_secret
 ```
 
 #### Vercel / Next.js (`.env.local`)
