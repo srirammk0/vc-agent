@@ -669,6 +669,13 @@ def write_to_supabase(signals: list[dict]):
         print("  Supabase not configured, skipping write.")
         return
     sb = create_client(url, key)
+
+    try:
+        three_days_ago = (datetime.now(timezone.utc) - timedelta(days=3)).isoformat()
+        res = sb.table("signals").update({"status": "dismissed"}).eq("status", "new").lt("scraped_at", three_days_ago).execute()
+        print(f"  Auto-archived {len(res.data) if res.data else 0} signals older than 3 days.")
+    except Exception as e:
+        print(f"  Failed to auto-archive old signals: {e}")
     for sig in signals:
         try:
             sb.table("signals").upsert(
