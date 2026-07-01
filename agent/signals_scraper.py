@@ -738,7 +738,7 @@ REJECT if ANY of the following apply (BE RUTHLESS):
 
 When in doubt, REJECT. We only want highly qualified signals.
 
-Decide on every item below and return one decision object per item, with "index" matching the item's bracketed number.
+Decide on every item below and return one decision object per item, with "index" matching the item's bracketed number. Keep "reasoning" under 15 words — you must cover every item in the budget you have.
 
 Items to review:
 {items_text}"""
@@ -751,7 +751,7 @@ Items to review:
                         "model": GEMMA_MODEL_ID,
                         "messages": [{"role": "user", "content": prompt}],
                         "temperature": 0.1,
-                        "max_tokens": 4096,
+                        "max_tokens": 8192,
                         "response_format": _DECISIONS_SCHEMA,
                     },
                     headers=headers,
