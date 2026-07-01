@@ -255,29 +255,6 @@ async def known_startups_summary() -> str:
     )
 
 
-async def known_startups_brief() -> str:
-    """Name + website list for SMS context."""
-    try:
-        startups = await list_startups()
-    except Exception:
-        return "None yet."
-    if not startups:
-        return "None yet."
-
-    lines = []
-    for s in startups:
-        name = (s.get("name") or s.get("slug") or "").strip()
-        if not name:
-            continue
-        website = (s.get("website") or "").strip()
-        if website:
-            website = website.removeprefix("https://").removeprefix("http://").rstrip("/")
-            lines.append(f"- {name} ({website})")
-        else:
-            lines.append(f"- {name}")
-    return "\n".join(lines) or "None yet."
-
-
 async def _find_doc(container_tag: str, custom_id: str):
     """Look up a document by custom_id within a container. Returns the doc or None."""
     docs = await asyncio.wait_for(

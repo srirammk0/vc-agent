@@ -18,18 +18,6 @@ except ImportError:
 LINKUP_BASE = "https://api.linkup.so/v1"
 SEARCH_TTL_SECONDS = 6 * 3600
 FETCH_TTL_SECONDS = 24 * 3600
-PRESS_TTL_SECONDS = 24 * 3600
-
-PRESS_DOMAINS = [
-    "techcrunch.com",
-    "forbes.com",
-    "venturebeat.com",
-    "businessinsider.com",
-    "reuters.com",
-    "bloomberg.com",
-    "crunchbase.com",
-    "wsj.com",
-]
 
 
 def _api_key() -> str:
@@ -38,11 +26,6 @@ def _api_key() -> str:
 
 def week_ago_date() -> str:
     return (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d")
-
-
-def press_lookback_date() -> str:
-    """Align with thesis hard filter: no recent press."""
-    return (datetime.now(timezone.utc) - timedelta(days=540)).strftime("%Y-%m-%d")
 
 
 def _cache_key(namespace: str, payload: dict) -> str | None:
@@ -191,45 +174,3 @@ async def fetch(url: str, *, render_js: bool = True) -> str:
     if cache_key:
         await _cache_set(cache_key, output)
     return output
-
-
-async def check_press_coverage(startup_name: str) -> str:
-    body = {
-        "q": f'"{startup_name}" startup funding launch product',
-        "depth": "fast",
-        "outputType": "searchResults",
-        "includeDomains": PRESS_DOMAINS,
-        "fromDate": press_lookback_date(),
-        "maxResults": 5,
-    }
-    cache_key = _cache_key("linkup:press", {"name": startup_name, **body})
-    cached = await _cache_get(cache_key, PRESS_TTL_SECONDS)
-    if cached is not None:
-        return cached
-
-    data = await _post("/search", body)
-    if isinstance(data, str):
-        return data
-
-    results = data.get("results") or data.get("searchResults") or []
-    if not results:
-        output = f"{startup_name}: no press found on major outlets (passes press filter)."
-    else:
-        hits = []
-        for r in results[:5]:
-            hits.append(f"- {r.get('name', 'Article')} — {r.get('url', '')}")
-        output = (
-            f"{startup_name}: PRESS FOUND ({len(results)} hit(s)) — fails hard filter:\n"
-            + "\n".join(hits)
-        )
-
-    if cache_key and not output.startswith("Linkup"):
-        await _cache_set(cache_key, output)
-    return output
-
-
-async def check_press_coverage_many(startup_names: list[str]) -> str:
-    if not startup_names:
-        return "No startup names provided."
-    parts = await asyncio.gather(*[check_press_coverage(name) for name in startup_names])
-    return "\n\n".join(parts)

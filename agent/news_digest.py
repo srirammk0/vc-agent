@@ -109,14 +109,6 @@ def monitored_sources_text() -> str:
     return "\n".join(lines)
 
 
-def digest_searches_prompt() -> str:
-    lines = []
-    for spec in DIGEST_LINKUP_SEARCHES:
-        domains = spec.get("include_domains") or "any"
-        lines.append(f"- q: {spec['q']} | domains: {domains}")
-    return "\n".join(lines)
-
-
 NEWS_DIGEST_RULES = """You run a weekly market-intel brief for a pre-seed AI scout.
 
 Your job:
@@ -125,9 +117,9 @@ Your job:
 3. Save a structured weekly brief and any useful seek/avoid patterns.
 
 Search tools:
-- Use linkup_search_many for news, fund blogs, and investor writing (NOT exa_deep_search).
+- Use linkup_search_many for news, fund blogs, and investor writing. You do not have exa_deep_search_many
+  for this job — Linkup covers all three buckets.
 - Use linkup_fetch only when you need the full markdown body of a specific URL from your results.
-- Use exa only if Linkup returns nothing useful for a topic (rare).
 
 Output rules for links (required):
 - Every important item in write_market_brief MUST include the source URL from your Linkup results (format: title — https://...).

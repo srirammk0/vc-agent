@@ -12,11 +12,9 @@ import asyncio
 
 from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
-# from pydantic_ai.models.fallback import FallbackModel
 from pydantic_ai.providers.anthropic import AnthropicProvider
 
 SONNET_MODEL = "claude-sonnet-5"
-# HAIKU_MODEL = "claude-haiku-4-5"
 
 
 def _cache_base() -> dict:
@@ -31,9 +29,6 @@ def _settings(max_tokens: int) -> AnthropicModelSettings:
     return AnthropicModelSettings(max_tokens=max_tokens, **_cache_base())
 
 
-# Research settings (used by research agents, mapped to Sonnet 5)
-RESEARCH_SETTINGS = _settings(4000)
-
 # Sonnet 5 — all agents
 FINALIZE_SMS_SETTINGS = _settings(3000)
 FINALIZE_SCOUT_SETTINGS = _settings(4000)
@@ -41,14 +36,6 @@ FINALIZE_NEWS_SETTINGS = _settings(4000)
 FINALIZE_FEEDBACK_SETTINGS = _settings(1500)
 
 ENRICH_SETTINGS = _settings(3000)
-SUMMARY_SETTINGS = _settings(1500)
-
-# Back-compat aliases
-SMS_SETTINGS = FINALIZE_SMS_SETTINGS
-SCOUT_SETTINGS = FINALIZE_SCOUT_SETTINGS
-NEWS_SETTINGS = FINALIZE_NEWS_SETTINGS
-FAST_SETTINGS = FINALIZE_FEEDBACK_SETTINGS
-CACHE_SETTINGS = FINALIZE_SMS_SETTINGS
 
 
 def _is_rate_limit_error(exc: BaseException) -> bool:
@@ -82,15 +69,8 @@ def build_finalize_model() -> AnthropicModel:
     return _anthropic_model(SONNET_MODEL)
 
 
-# def build_research_model() -> AnthropicModel:
-#     """Haiku — search, diligence, research turns."""
-#     return _anthropic_model(HAIKU_MODEL)
-
-
 finalize_model = build_finalize_model()
-research_model = finalize_model
 
-# Back-compat
 model = finalize_model
 fast_model = finalize_model
 

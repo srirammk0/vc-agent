@@ -3,7 +3,6 @@ import json
 import subprocess
 import threading
 import time
-from pathlib import Path
 
 app = modal.App("vc-scout")
 

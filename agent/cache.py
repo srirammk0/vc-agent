@@ -15,7 +15,6 @@ Requires a table:
 """
 
 import os
-import json
 import hashlib
 import asyncio
 from datetime import datetime, timezone
@@ -111,11 +110,3 @@ async def cache_delete(key: str) -> None:
         )
     except Exception:
         pass
-
-
-def cache_get_sync(key: str, ttl_seconds: int) -> Optional[Any]:
-    return _get_sync(key, ttl_seconds)
-
-
-def cache_set_sync(key: str, value: Any) -> None:
-    _set_sync(key, value)
