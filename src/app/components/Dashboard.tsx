@@ -108,6 +108,8 @@ export default function Dashboard({ initial, initialSignals }: { initial: Startu
   const [booting, setBooting] = useState(true);
   const [isMac, setIsMac] = useState(true);
   const [clearing, setClearing] = useState(false);
+  const [selectedSlugs, setSelectedSlugs] = useState<Set<string>>(new Set());
+  const [batchBusy, setBatchBusy] = useState<string | null>(null);
 
   async function clearAllSignals() {
     if (!confirm("Are you sure you want to clear all active signals?")) return;
@@ -120,6 +122,30 @@ export default function Dashboard({ initial, initialSignals }: { initial: Startu
     }
     setClearing(false);
   }
+
+  async function handleBatchStatus(status: "new" | "approved" | "passed") {
+    if (selectedSlugs.size === 0) return;
+    setBatchBusy(status);
+    try {
+      await fetch("/api/startups", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          slugs: Array.from(selectedSlugs),
+          status,
+        }),
+      });
+      setSelectedSlugs(new Set());
+      await refreshStartups();
+    } catch (e) {
+      console.error("Batch update failed:", e);
+    }
+    setBatchBusy(null);
+  }
+
+  useEffect(() => {
+    setSelectedSlugs(new Set());
+  }, [tab]);
 
   useEffect(() => {
     setIsMac(
@@ -292,7 +318,7 @@ export default function Dashboard({ initial, initialSignals }: { initial: Startu
               );
             })}
           </div>
-          {tab === "signals" && (
+          {tab === "signals" ? (
             <button
               onClick={clearAllSignals}
               disabled={clearing || counts.signals === 0}
@@ -311,7 +337,45 @@ export default function Dashboard({ initial, initialSignals }: { initial: Startu
             >
               {clearing ? "Clearing..." : "Clear All"}
             </button>
-          )}
+          ) : filtered.length > 0 ? (
+            <button
+              onClick={() => {
+                if (selectedSlugs.size === filtered.length) {
+                  setSelectedSlugs(new Set());
+                } else {
+                  setSelectedSlugs(new Set(filtered.map((s) => s.slug)));
+                }
+              }}
+              style={{
+                background: "transparent",
+                border: "1px solid var(--border-med)",
+                borderRadius: "6px",
+                padding: "6px 12px",
+                fontSize: "12.5px",
+                fontWeight: 500,
+                color: "var(--label)",
+                cursor: "pointer",
+                marginBottom: 6,
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={filtered.length > 0 && selectedSlugs.size === filtered.length}
+                readOnly
+                style={{
+                  width: 13,
+                  height: 13,
+                  cursor: "pointer",
+                  accentColor: "var(--accent)",
+                  margin: 0,
+                }}
+              />
+              {selectedSlugs.size === filtered.length ? "Deselect All" : "Select All"}
+            </button>
+          ) : null}
         </div>
 
         {/* Cards */}
@@ -338,6 +402,7 @@ export default function Dashboard({ initial, initialSignals }: { initial: Startu
               const isPassed = s.status === "passed";
               const enriched = hasEnrichmentData(s);
               const isEnriching = s.enrichment_status === "running";
+              const isSelected = selectedSlugs.has(s.slug);
 
               return (
                 <div
@@ -346,14 +411,16 @@ export default function Dashboard({ initial, initialSignals }: { initial: Startu
                   className="row-enter"
                   style={{
                     animationDelay: `${Math.min(i * 22, 280)}ms`,
-                    border: "1px solid var(--border)",
+                    border: isSelected ? "1.5px solid var(--accent)" : "1px solid var(--border)",
                     borderRadius: 10,
-                    background: isPassed ? "rgba(255,255,255,0.45)" : "var(--card-bg)",
-                    boxShadow: isPassed
+                    background: isPassed ? "rgba(255,255,255,0.45)" : isSelected ? "rgba(0,122,255,0.04)" : "var(--card-bg)",
+                    boxShadow: isSelected
+                      ? "0 0 0 3px rgba(0,122,255,0.12)"
+                      : isPassed
                       ? "none"
                       : "0 1px 4px rgba(0,0,0,0.05), 0 0 0 1px rgba(255,255,255,0.6) inset",
-                    opacity: isPassed ? 0.62 : 1,
-                    transition: "opacity 0.2s ease",
+                    opacity: isPassed && !isSelected ? 0.62 : 1,
+                    transition: "all 0.18s ease",
                     padding: "18px 20px",
                     position: "relative",
                   }}
@@ -367,6 +434,26 @@ export default function Dashboard({ initial, initialSignals }: { initial: Startu
                       gap: 12,
                     }}
                   >
+                    <div style={{ paddingTop: 2, flexShrink: 0 }}>
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          const next = new Set(selectedSlugs);
+                          if (e.target.checked) next.add(s.slug);
+                          else next.delete(s.slug);
+                          setSelectedSlugs(next);
+                        }}
+                        style={{
+                          width: 16,
+                          height: 16,
+                          cursor: "pointer",
+                          accentColor: "var(--accent)",
+                          margin: 0,
+                        }}
+                      />
+                    </div>
                     <div style={{ minWidth: 0, flex: 1 }}>
                       {/* Name + badges */}
                       <div
@@ -499,6 +586,144 @@ export default function Dashboard({ initial, initialSignals }: { initial: Startu
           </div>
         )}
       </div>
+
+      {/* Floating Bulk Action Bar */}
+      {selectedSlugs.size > 0 && (
+        <div
+          className="animate-fade-in"
+          style={{
+            position: "fixed",
+            bottom: 28,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 500,
+            display: "flex",
+            alignItems: "center",
+            gap: 14,
+            padding: "10px 18px",
+            background: "var(--card-bg)",
+            backdropFilter: "blur(20px)",
+            WebkitBackdropFilter: "blur(20px)",
+            border: "1px solid var(--border)",
+            borderRadius: 14,
+            boxShadow: "0 14px 40px rgba(0,0,0,0.18), 0 0 0 1px rgba(255,255,255,0.4) inset",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span
+              style={{
+                background: "var(--accent)",
+                color: "#fff",
+                fontSize: 12,
+                fontWeight: 600,
+                padding: "2px 8px",
+                borderRadius: 999,
+              }}
+            >
+              {selectedSlugs.size}
+            </span>
+            <span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--heading)" }}>
+              selected
+            </span>
+          </div>
+
+          <div style={{ width: 1, height: 20, background: "var(--border-med)" }} />
+
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button
+              onClick={() => handleBatchStatus("approved")}
+              disabled={batchBusy !== null}
+              style={{
+                height: 32,
+                padding: "0 14px",
+                borderRadius: 6,
+                border: "1px solid rgba(52,199,89,0.3)",
+                background: "rgba(52,199,89,0.12)",
+                color: "var(--success)",
+                fontSize: 12.5,
+                fontWeight: 600,
+                cursor: batchBusy !== null ? "not-allowed" : "pointer",
+                opacity: batchBusy !== null ? 0.6 : 1,
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                transition: "all 0.15s ease",
+              }}
+            >
+              <span style={{ width: 6, height: 6, borderRadius: 999, background: "var(--success)" }} />
+              {batchBusy === "approved" ? "Approving…" : "Mark approved"}
+            </button>
+
+            <button
+              onClick={() => handleBatchStatus("passed")}
+              disabled={batchBusy !== null}
+              style={{
+                height: 32,
+                padding: "0 14px",
+                borderRadius: 6,
+                border: "1px solid rgba(255,59,48,0.3)",
+                background: "rgba(255,59,48,0.12)",
+                color: "var(--danger)",
+                fontSize: 12.5,
+                fontWeight: 600,
+                cursor: batchBusy !== null ? "not-allowed" : "pointer",
+                opacity: batchBusy !== null ? 0.6 : 1,
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                transition: "all 0.15s ease",
+              }}
+            >
+              <span style={{ width: 6, height: 6, borderRadius: 999, background: "var(--danger)" }} />
+              {batchBusy === "passed" ? "Passing…" : "Mark passed"}
+            </button>
+
+            <button
+              onClick={() => handleBatchStatus("new")}
+              disabled={batchBusy !== null}
+              style={{
+                height: 32,
+                padding: "0 14px",
+                borderRadius: 6,
+                border: "1px solid var(--border)",
+                background: "rgba(0,0,0,0.05)",
+                color: "var(--label)",
+                fontSize: 12.5,
+                fontWeight: 500,
+                cursor: batchBusy !== null ? "not-allowed" : "pointer",
+                opacity: batchBusy !== null ? 0.6 : 1,
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                transition: "all 0.15s ease",
+              }}
+            >
+              <span style={{ width: 6, height: 6, borderRadius: 999, background: "var(--label)" }} />
+              {batchBusy === "new" ? "Resetting…" : "Mark new"}
+            </button>
+          </div>
+
+          <div style={{ width: 1, height: 20, background: "var(--border-med)" }} />
+
+          <button
+            onClick={() => setSelectedSlugs(new Set())}
+            disabled={batchBusy !== null}
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "var(--muted)",
+              fontSize: 13,
+              fontWeight: 500,
+              cursor: batchBusy !== null ? "not-allowed" : "pointer",
+              padding: "4px 8px",
+              borderRadius: 6,
+            }}
+            title="Clear selection"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
     </main>
   );
 }
