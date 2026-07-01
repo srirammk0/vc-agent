@@ -107,6 +107,18 @@ async def agent_run_with_retry(agent: Agent, prompt: str, **kwargs):
     return await llm.run_with_retry(agent, prompt, **kwargs)
 
 
+def _tool_call_result(result, tool_name: str) -> str | None:
+    """Return the ToolReturnPart content for the last call to tool_name in this run,
+    or None if it was never called. Used to verify save_startups actually ran (and
+    actually saved something) instead of trusting the model said it would."""
+    content = None
+    for msg in result.all_messages():
+        for part in getattr(msg, "parts", []):
+            if type(part).__name__ == "ToolReturnPart" and part.tool_name == tool_name:
+                content = str(part.content)
+    return content
+
+
 @dataclass
 class AgentDeps:
     phone_number: str
@@ -775,6 +787,22 @@ async def run_scout() -> dict:
             f"Thesis:\n{thesis}\n\nRemember these patterns:\n{preferences}\n\nYou ALREADY KNOW these startups - do NOT research or save them again, find NEW ones:\n{known}",
             deps=deps,
         )
+
+        # Verify save_startups actually ran (and actually saved something) instead of
+        # trusting the model followed the "do not reply until called" instruction — give
+        # it exactly one corrective nudge if it searched but never persisted anything.
+        save_result = _tool_call_result(r1, "save_startups")
+        if save_result is None or save_result.startswith("Saved 0"):
+            print(f"scout sweep: save_startups {'not called' if save_result is None else 'saved nothing'} on first pass, retrying once")
+            r1 = await agent_run_with_retry(
+                scout_agent,
+                "You haven't called save_startups yet (or it saved nothing). Look back at your search "
+                "results above. If ANY candidate passes the thesis hard filters, call save_startups now "
+                "with a qualitative assessment for each one — don't skip this. If genuinely nothing "
+                "survived, say so explicitly in your reply instead of silently moving on.",
+                message_history=r1.all_messages(),
+                deps=deps,
+            )
 
         r2 = await agent_run_with_retry(
             scout_agent,
