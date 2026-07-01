@@ -347,33 +347,37 @@ export default function Dashboard({ initial, initialSignals }: { initial: Startu
                 }
               }}
               style={{
-                background: "transparent",
-                border: "1px solid var(--border-med)",
-                borderRadius: "6px",
-                padding: "6px 12px",
+                background: selectedSlugs.size > 0 ? "rgba(0, 122, 255, 0.08)" : "rgba(255, 255, 255, 0.7)",
+                border: selectedSlugs.size > 0 ? "1px solid rgba(0, 122, 255, 0.28)" : "1px solid var(--border-med)",
+                borderRadius: "8px",
+                padding: "5px 12px",
                 fontSize: "12.5px",
-                fontWeight: 500,
-                color: "var(--label)",
+                fontWeight: selectedSlugs.size > 0 ? 600 : 500,
+                color: selectedSlugs.size > 0 ? "var(--accent)" : "var(--label)",
                 cursor: "pointer",
                 marginBottom: 6,
                 display: "flex",
                 alignItems: "center",
-                gap: 6,
+                gap: 8,
+                transition: "all 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
+                boxShadow: selectedSlugs.size > 0 ? "0 2px 8px rgba(0, 122, 255, 0.12)" : "0 1px 2px rgba(0, 0, 0, 0.03)",
               }}
             >
-              <input
-                type="checkbox"
+              <CleanCheckbox
                 checked={filtered.length > 0 && selectedSlugs.size === filtered.length}
-                readOnly
-                style={{
-                  width: 13,
-                  height: 13,
-                  cursor: "pointer",
-                  accentColor: "var(--accent)",
-                  margin: 0,
+                onChange={() => {
+                  if (selectedSlugs.size === filtered.length) {
+                    setSelectedSlugs(new Set());
+                  } else {
+                    setSelectedSlugs(new Set(filtered.map((s) => s.slug)));
+                  }
                 }}
               />
-              {selectedSlugs.size === filtered.length ? "Deselect All" : "Select All"}
+              {selectedSlugs.size === filtered.length
+                ? "Deselect All"
+                : selectedSlugs.size > 0
+                ? `Select All (${filtered.length})`
+                : "Select All"}
             </button>
           ) : null}
         </div>
@@ -412,15 +416,16 @@ export default function Dashboard({ initial, initialSignals }: { initial: Startu
                   style={{
                     animationDelay: `${Math.min(i * 22, 280)}ms`,
                     border: isSelected ? "1.5px solid var(--accent)" : "1px solid var(--border)",
-                    borderRadius: 10,
-                    background: isPassed ? "rgba(255,255,255,0.45)" : isSelected ? "rgba(0,122,255,0.04)" : "var(--card-bg)",
+                    borderRadius: 12,
+                    background: isPassed ? "rgba(255,255,255,0.45)" : isSelected ? "rgba(0, 122, 255, 0.035)" : "var(--card-bg)",
                     boxShadow: isSelected
-                      ? "0 0 0 3px rgba(0,122,255,0.12)"
+                      ? "0 4px 20px rgba(0, 122, 255, 0.12), 0 0 0 1px rgba(0, 122, 255, 0.18) inset"
                       : isPassed
                       ? "none"
                       : "0 1px 4px rgba(0,0,0,0.05), 0 0 0 1px rgba(255,255,255,0.6) inset",
                     opacity: isPassed && !isSelected ? 0.62 : 1,
-                    transition: "all 0.18s ease",
+                    transform: isSelected ? "translateY(-1px)" : "translateY(0)",
+                    transition: "all 0.25s cubic-bezier(0.16, 1, 0.3, 1)",
                     padding: "18px 20px",
                     position: "relative",
                   }}
@@ -435,22 +440,13 @@ export default function Dashboard({ initial, initialSignals }: { initial: Startu
                     }}
                   >
                     <div style={{ paddingTop: 2, flexShrink: 0 }}>
-                      <input
-                        type="checkbox"
+                      <CleanCheckbox
                         checked={isSelected}
-                        onChange={(e) => {
-                          e.stopPropagation();
+                        onChange={() => {
                           const next = new Set(selectedSlugs);
-                          if (e.target.checked) next.add(s.slug);
-                          else next.delete(s.slug);
+                          if (isSelected) next.delete(s.slug);
+                          else next.add(s.slug);
                           setSelectedSlugs(next);
-                        }}
-                        style={{
-                          width: 16,
-                          height: 16,
-                          cursor: "pointer",
-                          accentColor: "var(--accent)",
-                          margin: 0,
                         }}
                       />
                     </div>
@@ -587,26 +583,26 @@ export default function Dashboard({ initial, initialSignals }: { initial: Startu
         )}
       </div>
 
-      {/* Floating Bulk Action Bar */}
+      {/* Floating Bulk Action Bar (Sleek HUD) */}
       {selectedSlugs.size > 0 && (
         <div
-          className="animate-fade-in"
+          className="animate-float-up"
           style={{
             position: "fixed",
-            bottom: 28,
+            bottom: 32,
             left: "50%",
             transform: "translateX(-50%)",
             zIndex: 500,
             display: "flex",
             alignItems: "center",
-            gap: 14,
+            gap: 16,
             padding: "10px 18px",
-            background: "var(--card-bg)",
-            backdropFilter: "blur(20px)",
-            WebkitBackdropFilter: "blur(20px)",
-            border: "1px solid var(--border)",
-            borderRadius: 14,
-            boxShadow: "0 14px 40px rgba(0,0,0,0.18), 0 0 0 1px rgba(255,255,255,0.4) inset",
+            background: "rgba(23, 23, 23, 0.88)",
+            backdropFilter: "blur(24px) saturate(180%)",
+            WebkitBackdropFilter: "blur(24px) saturate(180%)",
+            border: "1px solid rgba(255, 255, 255, 0.14)",
+            borderRadius: 16,
+            boxShadow: "0 20px 50px rgba(0, 0, 0, 0.32), 0 0 0 1px rgba(255, 255, 255, 0.08) inset",
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -616,94 +612,73 @@ export default function Dashboard({ initial, initialSignals }: { initial: Startu
                 color: "#fff",
                 fontSize: 12,
                 fontWeight: 600,
-                padding: "2px 8px",
+                padding: "3px 9px",
                 borderRadius: 999,
+                boxShadow: "0 2px 8px rgba(0, 122, 255, 0.4)",
               }}
             >
               {selectedSlugs.size}
             </span>
-            <span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--heading)" }}>
+            <span style={{ fontSize: 13.5, fontWeight: 500, color: "rgba(255, 255, 255, 0.9)", letterSpacing: "-0.1px" }}>
               selected
             </span>
           </div>
 
-          <div style={{ width: 1, height: 20, background: "var(--border-med)" }} />
+          <div style={{ width: 1, height: 22, background: "rgba(255, 255, 255, 0.15)" }} />
 
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <button
+              className="hud-btn"
               onClick={() => handleBatchStatus("approved")}
               disabled={batchBusy !== null}
               style={{
-                height: 32,
-                padding: "0 14px",
-                borderRadius: 6,
-                border: "1px solid rgba(52,199,89,0.3)",
-                background: "rgba(52,199,89,0.12)",
-                color: "var(--success)",
-                fontSize: 12.5,
-                fontWeight: 600,
+                background: "rgba(52, 199, 89, 0.16)",
+                border: "1px solid rgba(52, 199, 89, 0.35)",
+                color: "#4cd964",
+                boxShadow: "0 2px 10px rgba(52, 199, 89, 0.18)",
+                opacity: batchBusy !== null ? 0.5 : 1,
                 cursor: batchBusy !== null ? "not-allowed" : "pointer",
-                opacity: batchBusy !== null ? 0.6 : 1,
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                transition: "all 0.15s ease",
               }}
             >
-              <span style={{ width: 6, height: 6, borderRadius: 999, background: "var(--success)" }} />
+              <span style={{ width: 6, height: 6, borderRadius: 999, background: "#4cd964", boxShadow: "0 0 8px #4cd964" }} />
               {batchBusy === "approved" ? "Approving…" : "Mark approved"}
             </button>
 
             <button
+              className="hud-btn"
               onClick={() => handleBatchStatus("passed")}
               disabled={batchBusy !== null}
               style={{
-                height: 32,
-                padding: "0 14px",
-                borderRadius: 6,
-                border: "1px solid rgba(255,59,48,0.3)",
-                background: "rgba(255,59,48,0.12)",
-                color: "var(--danger)",
-                fontSize: 12.5,
-                fontWeight: 600,
+                background: "rgba(255, 59, 48, 0.16)",
+                border: "1px solid rgba(255, 59, 48, 0.35)",
+                color: "#ff453a",
+                boxShadow: "0 2px 10px rgba(255, 59, 48, 0.18)",
+                opacity: batchBusy !== null ? 0.5 : 1,
                 cursor: batchBusy !== null ? "not-allowed" : "pointer",
-                opacity: batchBusy !== null ? 0.6 : 1,
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                transition: "all 0.15s ease",
               }}
             >
-              <span style={{ width: 6, height: 6, borderRadius: 999, background: "var(--danger)" }} />
+              <span style={{ width: 6, height: 6, borderRadius: 999, background: "#ff453a", boxShadow: "0 0 8px #ff453a" }} />
               {batchBusy === "passed" ? "Passing…" : "Mark passed"}
             </button>
 
             <button
+              className="hud-btn"
               onClick={() => handleBatchStatus("new")}
               disabled={batchBusy !== null}
               style={{
-                height: 32,
-                padding: "0 14px",
-                borderRadius: 6,
-                border: "1px solid var(--border)",
-                background: "rgba(0,0,0,0.05)",
-                color: "var(--label)",
-                fontSize: 12.5,
-                fontWeight: 500,
+                background: "rgba(255, 255, 255, 0.1)",
+                border: "1px solid rgba(255, 255, 255, 0.18)",
+                color: "rgba(255, 255, 255, 0.85)",
+                opacity: batchBusy !== null ? 0.5 : 1,
                 cursor: batchBusy !== null ? "not-allowed" : "pointer",
-                opacity: batchBusy !== null ? 0.6 : 1,
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                transition: "all 0.15s ease",
               }}
             >
-              <span style={{ width: 6, height: 6, borderRadius: 999, background: "var(--label)" }} />
+              <span style={{ width: 6, height: 6, borderRadius: 999, background: "rgba(255, 255, 255, 0.7)" }} />
               {batchBusy === "new" ? "Resetting…" : "Mark new"}
             </button>
           </div>
 
-          <div style={{ width: 1, height: 20, background: "var(--border-med)" }} />
+          <div style={{ width: 1, height: 22, background: "rgba(255, 255, 255, 0.15)" }} />
 
           <button
             onClick={() => setSelectedSlugs(new Set())}
@@ -711,12 +686,21 @@ export default function Dashboard({ initial, initialSignals }: { initial: Startu
             style={{
               background: "transparent",
               border: "none",
-              color: "var(--muted)",
+              color: "rgba(255, 255, 255, 0.55)",
               fontSize: 13,
               fontWeight: 500,
               cursor: batchBusy !== null ? "not-allowed" : "pointer",
-              padding: "4px 8px",
-              borderRadius: 6,
+              padding: "5px 10px",
+              borderRadius: 8,
+              transition: "all 0.15s ease",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = "#fff";
+              e.currentTarget.style.background = "rgba(255, 255, 255, 0.1)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = "rgba(255, 255, 255, 0.55)";
+              e.currentTarget.style.background = "transparent";
             }}
             title="Clear selection"
           >
@@ -725,6 +709,63 @@ export default function Dashboard({ initial, initialSignals }: { initial: Startu
         </div>
       )}
     </main>
+  );
+}
+
+function CleanCheckbox({
+  checked,
+  onChange,
+  disabled,
+}: {
+  checked: boolean;
+  onChange?: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div
+      role="checkbox"
+      aria-checked={checked}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (!disabled && onChange) onChange();
+      }}
+      style={{
+        width: 18,
+        height: 18,
+        borderRadius: 5,
+        border: checked ? "1px solid var(--accent)" : "1.5px solid var(--border-med)",
+        background: checked ? "var(--accent)" : "rgba(255, 255, 255, 0.9)",
+        boxShadow: checked
+          ? "0 2px 8px rgba(0, 122, 255, 0.35)"
+          : "0 1px 2px rgba(0, 0, 0, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.8)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.5 : 1,
+        transition: "all 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
+        flexShrink: 0,
+        userSelect: "none",
+      }}
+    >
+      {checked && (
+        <svg
+          className="animate-check"
+          width="11"
+          height="9"
+          viewBox="0 0 11 9"
+          fill="none"
+          style={{
+            stroke: "#ffffff",
+            strokeWidth: 2.2,
+            strokeLinecap: "round",
+            strokeLinejoin: "round",
+          }}
+        >
+          <path d="M1 4.5L4 7.5L10 1.5" />
+        </svg>
+      )}
+    </div>
   );
 }
 
