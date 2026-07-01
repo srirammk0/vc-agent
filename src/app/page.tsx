@@ -6,15 +6,20 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export default async function Home() {
-  const { data: startups, error: startupsError } = await supabase
-    .from("startups")
-    .select("*")
-    .order("created_at", { ascending: false });
-    
-  const { data: signals, error: signalsError } = await supabase
-    .from("signals")
-    .select("*")
-    .order("scraped_at", { ascending: false });
+  const [startupsRes, signalsRes] = await Promise.all([
+    supabase
+      .from("startups")
+      .select("*"),
+    supabase
+      .from("signals")
+      .select("*")
+      .order("scraped_at", { ascending: false })
+  ]);
+
+  const startups = startupsRes.data;
+  const signals = signalsRes.data;
+  const startupsError = startupsRes.error;
+  const signalsError = signalsRes.error;
 
   if (startupsError) {
     console.error(startupsError);

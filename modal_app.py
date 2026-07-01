@@ -355,6 +355,34 @@ def enrich_startup_job(slug: str, name: str):
     return {"status": "enriched", "slug": slug}
 
 
+# --- Dashboard quick status change (no reason given): write straight to Supermemory ---
+# No LLM involved — deterministic status flip. memory_store.update_startup_status
+# writes Supermemory (source of truth) and mirrors to Supabase itself, so the
+# dashboard's quick approve/pass/mark-new no longer bypasses Supermemory.
+@app.function(
+    image=image,
+    secrets=[modal.Secret.from_name("vc-scout-secrets")],
+    timeout=60,
+)
+@modal.fastapi_endpoint(method="POST")
+def update_status(payload: dict):
+    import sys
+    import asyncio
+    sys.path.insert(0, "/root/agent")
+    import memory_store
+
+    slug = payload.get("slug")
+    status = payload.get("status")
+
+    if not slug or status not in ("new", "approved", "passed"):
+        return {"error": "slug and valid status required"}
+
+    message = asyncio.run(memory_store.update_startup_status(slug, status))
+    if "not found" in message.lower():
+        return {"error": message}
+    return {"ok": True, "message": message}
+
+
 # --- Dashboard feedback: distill approve/pass reasons into Supermemory ---
 @app.function(
     image=image,

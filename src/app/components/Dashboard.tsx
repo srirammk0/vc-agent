@@ -107,6 +107,19 @@ export default function Dashboard({ initial, initialSignals }: { initial: Startu
   const [query, setQuery] = useState("");
   const [booting, setBooting] = useState(true);
   const [isMac, setIsMac] = useState(true);
+  const [clearing, setClearing] = useState(false);
+
+  async function clearAllSignals() {
+    if (!confirm("Are you sure you want to clear all active signals?")) return;
+    setClearing(true);
+    try {
+      await fetch("/api/signals", { method: "DELETE" });
+      await refreshSignals();
+    } catch (e) {
+      console.error(e);
+    }
+    setClearing(false);
+  }
 
   useEffect(() => {
     setIsMac(
@@ -142,9 +155,11 @@ export default function Dashboard({ initial, initialSignals }: { initial: Startu
     return sortStartups(rows);
   }, [startups, tab, query]);
 
+  const showLoader = booting || refreshingStartups || refreshingSignals;
+
   return (
     <main style={{ minHeight: "100vh", background: "var(--page-bg)", color: "var(--body)" }}>
-      {booting && <HeroLoader />}
+      {showLoader && <HeroLoader />}
       <CommandPalette startups={startups} />
 
       <div style={{ maxWidth: 860, margin: "0 auto", padding: "40px 24px 60px" }}>
@@ -236,36 +251,59 @@ export default function Dashboard({ initial, initialSignals }: { initial: Startu
         </div>
 
         {/* Tabs */}
-        <div className="dash-tabs" style={{ marginBottom: 16 }}>
-          {TABS.map((t) => {
-            const badge = TAB_COUNT_BADGE[t.id];
-            const count =
-              t.id === "all"
-                ? counts.total
-                : counts[t.id as "new" | "approved" | "passed" | "signals"];
-            return (
-              <div key={t.id} style={{ display: "flex", alignItems: "center" }}>
-                {t.id === "signals" && (
-                  <div className="tab-divider" />
-                )}
-                <button
-                  data-active={t.id === tab}
-                  onClick={() => setTab(t.id)}
-                >
-                  {t.label}
-                  <span
-                    className="tab-count"
-                    style={{
-                      background: badge.bg,
-                      color: badge.color,
-                    }}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid var(--border)", marginBottom: 16 }}>
+          <div className="dash-tabs" style={{ borderBottom: "none" }}>
+            {TABS.map((t) => {
+              const badge = TAB_COUNT_BADGE[t.id];
+              const count =
+                t.id === "all"
+                  ? counts.total
+                  : counts[t.id as "new" | "approved" | "passed" | "signals"];
+              return (
+                <div key={t.id} style={{ display: "flex", alignItems: "center" }}>
+                  {t.id === "signals" && (
+                    <div className="tab-divider" />
+                  )}
+                  <button
+                    data-active={t.id === tab}
+                    onClick={() => setTab(t.id)}
+                    style={{ paddingBottom: 12 }}
                   >
-                    {count}
-                  </span>
-                </button>
-              </div>
-            );
-          })}
+                    {t.label}
+                    <span
+                      className="tab-count"
+                      style={{
+                        background: badge.bg,
+                        color: badge.color,
+                      }}
+                    >
+                      {count}
+                    </span>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          {tab === "signals" && (
+            <button
+              onClick={clearAllSignals}
+              disabled={clearing || counts.signals === 0}
+              style={{
+                background: "transparent",
+                border: "1px solid var(--border-med)",
+                borderRadius: "6px",
+                padding: "6px 12px",
+                fontSize: "12.5px",
+                fontWeight: 500,
+                color: "var(--label)",
+                cursor: clearing || counts.signals === 0 ? "not-allowed" : "pointer",
+                opacity: clearing || counts.signals === 0 ? 0.4 : 1,
+                marginBottom: 6,
+              }}
+            >
+              {clearing ? "Clearing..." : "Clear All"}
+            </button>
+          )}
         </div>
 
         {/* Cards */}

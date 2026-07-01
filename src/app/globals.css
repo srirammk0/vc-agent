@@ -352,7 +352,7 @@ a {
 /* ── Signals ───────────────────────────────────────── */
 
 .signal-category-header:hover {
-  background: rgba(0, 0, 0, 0.03) !important;
+  background: rgba(0, 0, 0, 0.06) !important;
 }
 
 .tab-divider {
