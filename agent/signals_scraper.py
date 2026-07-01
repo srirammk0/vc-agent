@@ -619,7 +619,7 @@ Respond with ONLY a JSON array, no markdown formatting."""
         try:
             async with httpx.AsyncClient() as client:
                 resp = await client.post(
-                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key={api_key}",
+                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key={api_key}",
                     json={
                         "contents": [{"parts": [{"text": prompt}]}],
                         "generationConfig": {
