@@ -4,12 +4,11 @@ import { useState, useMemo } from "react";
 import type { Signal } from "../hooks/useLiveSignals";
 import { useRouter } from "next/navigation";
 
-type Category = "social" | "developer" | "ai_infra" | "accelerator" | "traction";
+type Category = "social" | "developer" | "accelerator" | "traction";
 
 const CATEGORIES: { id: Category; label: string }[] = [
   { id: "social", label: "Social & Founders" },
   { id: "developer", label: "Developer & Open Source" },
-  { id: "ai_infra", label: "AI Infrastructure" },
   { id: "accelerator", label: "Accelerators & Directories" },
   { id: "traction", label: "Traction & Hiring" },
 ];
@@ -19,7 +18,6 @@ export default function SignalsPanel({ signals }: { signals: Signal[] }) {
   const [expanded, setExpanded] = useState<Record<Category, boolean>>({
     social: true,
     developer: true,
-    ai_infra: true,
     accelerator: true,
     traction: true,
   });
@@ -27,7 +25,6 @@ export default function SignalsPanel({ signals }: { signals: Signal[] }) {
   const [page, setPage] = useState<Record<Category, number>>({
     social: 1,
     developer: 1,
-    ai_infra: 1,
     accelerator: 1,
     traction: 1,
   });
@@ -38,7 +35,6 @@ export default function SignalsPanel({ signals }: { signals: Signal[] }) {
     const acc: Record<Category, Signal[]> = {
       social: [],
       developer: [],
-      ai_infra: [],
       accelerator: [],
       traction: [],
     };
@@ -158,7 +154,7 @@ export default function SignalsPanel({ signals }: { signals: Signal[] }) {
               }}
             >
               <div style={{ minHeight: 0, overflow: "hidden" }}>
-                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 12, paddingTop: 12 }}>
                   {
                   paginatedSignals.map((s) => (
                     <div
