@@ -126,6 +126,14 @@ export default function Dashboard({ initial, initialSignals }: { initial: Startu
       typeof navigator !== "undefined" &&
         /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent)
     );
+
+    if (typeof window !== "undefined") {
+      if ("scrollRestoration" in window.history) {
+        window.history.scrollRestoration = "manual";
+      }
+      window.scrollTo(0, 0);
+    }
+
     const t = setTimeout(() => setBooting(false), 900);
     return () => clearTimeout(t);
   }, []);
