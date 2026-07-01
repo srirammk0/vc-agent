@@ -348,3 +348,16 @@ a {
 .back-link:hover {
   color: var(--heading);
 }
+
+/* ── Signals ───────────────────────────────────────── */
+
+.signal-category-header:hover {
+  background: rgba(0, 0, 0, 0.03) !important;
+}
+
+.tab-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border-med);
+  margin: 0 12px;
+}

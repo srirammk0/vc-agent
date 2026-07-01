@@ -9,14 +9,17 @@ import { useLiveStartups } from "../hooks/useLiveStartups";
 import StatusBadge from "./StatusBadge";
 import StartupActions from "./StartupActions";
 import CommandPalette from "./CommandPalette";
+import SignalsPanel from "./SignalsPanel";
+import { useLiveSignals, type Signal } from "../hooks/useLiveSignals";
 
-type Tab = "all" | "new" | "approved" | "passed";
+type Tab = "all" | "new" | "approved" | "passed" | "signals";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "all", label: "All" },
   { id: "new", label: "New" },
   { id: "approved", label: "Approved" },
   { id: "passed", label: "Passed" },
+  { id: "signals", label: "Signals" },
 ];
 
 const TAB_COUNT_BADGE: Record<Tab, { bg: string; color: string }> = {
@@ -24,6 +27,7 @@ const TAB_COUNT_BADGE: Record<Tab, { bg: string; color: string }> = {
   new: { bg: "var(--accent)", color: "#fff" },
   approved: { bg: "var(--success)", color: "#fff" },
   passed: { bg: "var(--danger)", color: "#fff" },
+  signals: { bg: "var(--warning)", color: "#fff" },
 };
 
 function truncate(text: string | null, n: number): string {
@@ -96,8 +100,9 @@ function HeroLoader() {
   );
 }
 
-export default function Dashboard({ initial }: { initial: Startup[] }) {
-  const { startups, refresh, refreshing } = useLiveStartups(initial);
+export default function Dashboard({ initial, initialSignals }: { initial: Startup[], initialSignals: Signal[] }) {
+  const { startups, refresh: refreshStartups, refreshing: refreshingStartups } = useLiveStartups(initial);
+  const { signals, refresh: refreshSignals, refreshing: refreshingSignals } = useLiveSignals(initialSignals);
   const [tab, setTab] = useState<Tab>("all");
   const [query, setQuery] = useState("");
   const [booting, setBooting] = useState(true);
@@ -118,8 +123,9 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
       new: startups.filter((s) => s.status === "new").length,
       approved: startups.filter((s) => s.status === "approved").length,
       passed: startups.filter((s) => s.status === "passed").length,
+      signals: signals.filter((s) => s.status === "new").length,
     }),
-    [startups]
+    [startups, signals]
   );
 
   const filtered = useMemo(() => {
@@ -181,7 +187,10 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <button
-              onClick={refresh}
+              onClick={() => {
+                refreshStartups();
+                refreshSignals();
+              }}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -206,7 +215,7 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
               }}
             >
               <svg
-                className={refreshing ? "animate-spin" : ""}
+                className={refreshingStartups || refreshingSignals ? "animate-spin" : ""}
                 width="15"
                 height="15"
                 viewBox="0 0 24 24"
@@ -233,30 +242,36 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
             const count =
               t.id === "all"
                 ? counts.total
-                : counts[t.id as "new" | "approved" | "passed"];
+                : counts[t.id as "new" | "approved" | "passed" | "signals"];
             return (
-              <button
-                key={t.id}
-                data-active={t.id === tab}
-                onClick={() => setTab(t.id)}
-              >
-                {t.label}
-                <span
-                  className="tab-count"
-                  style={{
-                    background: badge.bg,
-                    color: badge.color,
-                  }}
+              <div key={t.id} style={{ display: "flex", alignItems: "center" }}>
+                {t.id === "signals" && (
+                  <div className="tab-divider" />
+                )}
+                <button
+                  data-active={t.id === tab}
+                  onClick={() => setTab(t.id)}
                 >
-                  {count}
-                </span>
-              </button>
+                  {t.label}
+                  <span
+                    className="tab-count"
+                    style={{
+                      background: badge.bg,
+                      color: badge.color,
+                    }}
+                  >
+                    {count}
+                  </span>
+                </button>
+              </div>
             );
           })}
         </div>
 
         {/* Cards */}
-        {filtered.length === 0 ? (
+        {tab === "signals" ? (
+          <SignalsPanel signals={signals} />
+        ) : filtered.length === 0 ? (
           <div
             style={{
               border: "1px dashed var(--border-med)",

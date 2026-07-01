@@ -279,6 +279,20 @@ async def known_startups_brief() -> str:
     return "\n".join(lines) or "None yet."
 
 
+async def _find_doc(container_tag: str, custom_id: str):
+    """Look up a document by custom_id within a container. Returns the doc or None."""
+    docs = await asyncio.wait_for(
+        asyncio.to_thread(
+            get_client().documents.list, container_tags=[container_tag]
+        ),
+        timeout=_SM_TIMEOUT,
+    )
+    for doc in getattr(docs, "memories", []):
+        if getattr(doc, "custom_id", None) == custom_id:
+            return doc
+    return None
+
+
 def _sb_client():
     try:
         from supabase import create_client
@@ -292,29 +306,17 @@ def _sb_client():
 
 
 async def update_startup_status(slug: str, status: str) -> str:
-    found = False
-    docs = await asyncio.wait_for(
+    doc = await _find_doc("vc:startups", slug)
+    if doc is None:
+        return f"Startup {slug} not found in memory."
+
+    meta = {**(doc.metadata or {}), "status": status}
+    await asyncio.wait_for(
         asyncio.to_thread(
-            get_client().documents.list, container_tags=["vc:startups"]
+            lambda: get_client().documents.update(doc.id, metadata=meta)
         ),
         timeout=_SM_TIMEOUT,
     )
-    for doc in getattr(docs, "memories", []):
-        if getattr(doc, "custom_id", None) == slug:
-            meta = {**(doc.metadata or {}), "status": status}
-            await asyncio.wait_for(
-                asyncio.to_thread(
-                    lambda doc_id=doc.id, meta=meta: get_client().documents.update(
-                        doc_id, metadata=meta
-                    )
-                ),
-                timeout=_SM_TIMEOUT,
-            )
-            found = True
-            break
-
-    if not found:
-        return f"Startup {slug} not found in memory."
 
     # Mirror immediately to Supabase so the dashboard reflects the change without
     # waiting for the next scheduled sync.
@@ -337,6 +339,53 @@ async def update_startup_status(slug: str, status: str) -> str:
     return f"Updated {slug} to {status}"
 
 
+async def delete_startup(slug: str) -> str:
+    doc = await _find_doc("vc:startups", slug)
+    if doc is None:
+        return f"Startup {slug} not found in memory."
+
+    await asyncio.wait_for(
+        asyncio.to_thread(get_client().documents.delete, doc.id),
+        timeout=_SM_TIMEOUT,
+    )
+
+    # Mirror immediately to Supabase so the dashboard stops showing it without
+    # waiting for the next scheduled sync.
+    try:
+        sb = _sb_client()
+        if sb:
+            await asyncio.wait_for(
+                asyncio.to_thread(
+                    lambda: sb.table("startups").delete().eq("slug", slug).execute()
+                ),
+                timeout=10.0,
+            )
+    except Exception as e:
+        print(f"Supabase delete mirror failed for {slug}:", e)
+
+    return f"Deleted {slug}"
+
+
+async def delete_startups_batch(slugs: list[str]) -> tuple[list[str], list[str]]:
+    """Delete many startups in parallel. Returns (deleted_slugs, errors)."""
+
+    async def _delete_one(slug: str) -> tuple[str, str | None]:
+        try:
+            msg = await delete_startup(slug)
+            if "not found" in msg.lower():
+                return slug, msg
+            return slug, None
+        except Exception as e:
+            return slug, str(e)
+
+    results = await asyncio.gather(*[_delete_one(s) for s in slugs])
+    deleted = [slug for slug, err in results if err is None]
+    errors = [f"{slug}: {err}" for slug, err in results if err is not None]
+    if deleted:
+        await _bust_list_cache()
+    return deleted, errors
+
+
 async def write_preference(pattern: str, pattern_type: str):
     h = hashlib.md5(pattern.encode()).hexdigest()[:8]
     await asyncio.wait_for(
@@ -351,6 +400,54 @@ async def write_preference(pattern: str, pattern_type: str):
         ),
         timeout=_SM_TIMEOUT,
     )
+
+
+async def list_preferences() -> str:
+    """List all saved seek/avoid patterns with their IDs, so a bad one can be targeted for deletion."""
+    docs = await asyncio.wait_for(
+        asyncio.to_thread(
+            get_client().documents.list,
+            container_tags=["vc:preferences"],
+            include_content=True,
+        ),
+        timeout=_SM_TIMEOUT,
+    )
+    lines = []
+    for doc in getattr(docs, "memories", []):
+        pid = getattr(doc, "custom_id", None) or doc.id
+        meta = doc.metadata or {}
+        content = (getattr(doc, "content", "") or "").strip()
+        lines.append(f"- [{pid}] ({meta.get('type', '?')}) {content}")
+    return "\n".join(lines) if lines else "No preferences saved yet."
+
+
+async def delete_preference(pattern_id: str) -> str:
+    doc = await _find_doc("vc:preferences", pattern_id)
+    if doc is None:
+        return f"Preference {pattern_id} not found in memory."
+    await asyncio.wait_for(
+        asyncio.to_thread(get_client().documents.delete, doc.id),
+        timeout=_SM_TIMEOUT,
+    )
+    return f"Deleted preference {pattern_id}"
+
+
+async def delete_preferences_batch(pattern_ids: list[str]) -> tuple[list[str], list[str]]:
+    """Delete many preferences in parallel. Returns (deleted_ids, errors)."""
+
+    async def _delete_one(pid: str) -> tuple[str, str | None]:
+        try:
+            msg = await delete_preference(pid)
+            if "not found" in msg.lower():
+                return pid, msg
+            return pid, None
+        except Exception as e:
+            return pid, str(e)
+
+    results = await asyncio.gather(*[_delete_one(p) for p in pattern_ids])
+    deleted = [pid for pid, err in results if err is None]
+    errors = [f"{pid}: {err}" for pid, err in results if err is not None]
+    return deleted, errors
 
 
 async def write_reflection(reflection: str):

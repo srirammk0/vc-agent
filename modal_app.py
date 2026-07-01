@@ -18,6 +18,8 @@ image = (
         "fastapi",
         "supabase",
         "supermemory",
+        "crawl4ai",
+        "google-genai",
     )
     .add_local_dir("./agent", remote_path="/root/agent")
 )
@@ -243,6 +245,21 @@ def sync_scheduled():
     sync()
 
 
+# --- Signals Scraper: runs every 30 minutes ---
+@app.function(
+    image=image,
+    secrets=[modal.Secret.from_name("vc-scout-secrets")],
+    schedule=modal.Cron("*/30 * * * *"),
+    timeout=1800,  # 30 mins
+)
+def signals_scheduled():
+    import sys
+    import asyncio
+    sys.path.insert(0, "/root/agent")
+    from signals_scraper import scrape_and_filter
+    asyncio.run(scrape_and_filter())
+
+
 @app.function(
     image=image,
     secrets=[modal.Secret.from_name("vc-scout-secrets")],
@@ -362,6 +379,40 @@ def submit_feedback(payload: dict):
     })
     sync_on_demand.spawn()
     return result
+
+
+# --- Send Signal to Agent ---
+@app.function(
+    image=image,
+    secrets=[modal.Secret.from_name("vc-scout-secrets")],
+    timeout=300,
+)
+@modal.fastapi_endpoint(method="POST")
+def send_signal_to_agent(payload: dict):
+    signal_id = payload.get("id")
+    if not signal_id:
+        return {"error": "signal id required"}
+
+    import os
+    from supabase import create_client
+    
+    sb = create_client(
+        os.environ["SUPABASE_URL"],
+        os.environ["SUPABASE_SERVICE_ROLE_KEY"],
+    )
+    
+    resp = sb.table("signals").select("*").eq("id", signal_id).single().execute()
+    signal = resp.data
+    
+    if not signal:
+        return {"error": "signal not found"}
+
+    message = f"Please research this startup: {signal['title']}. Source: {signal['source_url']}. Snippet: {signal['snippet']}"
+
+    # Spawn in background so dashboard doesn't wait
+    chat_reply_background.spawn(message, os.environ.get("ALERT_PHONE_NUMBER", ""))
+    
+    return {"status": "sent"}
 
 
 # --- Background task: SendBlue reply ---

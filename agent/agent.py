@@ -127,10 +127,12 @@ Tool routing — follow this exactly:
 - Look up something you already know → supermemory_search (FIRST before any web search)
 - Status change (approve/pass) → update_startup_statuses. If you don't have the slug, call list_known_startups FIRST to find it.
 - Save new startups → save_startups (batch). Skip anything with significant existing press coverage — use your own judgment based on what you found in research.
+- Permanently remove a startup (duplicate, mistake, bad data) → delete_startups. If you don't have the slug, call list_known_startups FIRST. Do NOT use this for a startup the boss is just rejecting — that's update_startup_statuses with 'passed'.
 - Learn a pattern → write_preferences; record a reflection → write_reflection
+- Wrong or outdated learned pattern → list_preferences to find its ID, then delete_preferences
 
 Batch-only tools — non-negotiable, pass a list even for a single item:
-- save_startups, update_startup_statuses, write_preferences, exa_deep_search_many
+- save_startups, update_startup_statuses, delete_startups, write_preferences, delete_preferences, exa_deep_search_many
 
 Self-healing — non-negotiable:
 - Tool result starting with "[" = error. Do NOT retry with the same args. Change params or skip.
@@ -283,6 +285,17 @@ Common requests and exactly how to handle them:
 → call update_startup_statuses([{{slug, status, reason}}])
 → call write_preferences([{{pattern, type}}]) with the distilled reason
 → reply confirming what changed
+
+"delete X" / "remove X" / "forget about X" / "that was a duplicate/mistake"
+→ call list_known_startups if you don't already have the slug
+→ call delete_startups([slug])
+→ reply confirming it's gone
+→ do NOT use this for a startup the boss is just rejecting — use update_startup_statuses with 'passed' instead
+
+"that pattern/preference is wrong" / "stop avoiding X" / "we don't care about that anymore"
+→ call list_preferences to find the matching ID
+→ call delete_preferences([id])
+→ reply confirming what was removed
 
 "find me startups" / "run a sweep" / "scout for X"
 → call exa_deep_search_many with 4-5 diverse queries in ONE call
@@ -544,6 +557,22 @@ def register_tools(
             except Exception as e:
                 return _err(e)
 
+        @agent.tool(prepare=make_non_strict)
+        async def delete_startups(ctx: RunContext, slugs: list[str]) -> str:
+            """Permanently delete startups from memory (and the dashboard). Use for duplicates, mistakes, or bad saves — not for rejecting a startup (use update_startup_statuses with 'passed' for that). IMPORTANT: slug must be exact — call list_known_startups first if unsure. Use even for one startup — pass a one-element list."""
+            if not slugs:
+                return "No slugs provided."
+            try:
+                deleted, errors = await sm.delete_startups_batch(slugs)
+                lines = [f"Deleted {len(deleted)} startup(s): {', '.join(deleted) or 'none'}"]
+                if errors:
+                    lines.append(f"Errors ({len(errors)}): {'; '.join(errors)}")
+                return "\n".join(lines)
+            except asyncio.TimeoutError:
+                return _T
+            except Exception as e:
+                return _err(e)
+
     @agent.tool(prepare=make_non_strict)
     async def write_preferences(ctx: RunContext, preferences: list[PreferenceWrite]) -> str:
         """Save seek/avoid patterns. type: 'approved' (seek) or 'passed' (avoid). Use even for one pattern — pass a one-element list."""
@@ -553,6 +582,32 @@ def register_tools(
             items = [p.model_dump() for p in preferences]
             count, errors = await sm.write_preferences_batch(items)
             lines = [f"Saved {count} preference(s)."]
+            if errors:
+                lines.append(f"Errors ({len(errors)}): {'; '.join(errors)}")
+            return "\n".join(lines)
+        except asyncio.TimeoutError:
+            return _T
+        except Exception as e:
+            return _err(e)
+
+    @agent.tool(prepare=make_non_strict)
+    async def list_preferences(ctx: RunContext) -> str:
+        """List every saved seek/avoid pattern with its ID. Call this before delete_preferences if you don't have the exact ID."""
+        try:
+            return await sm.list_preferences()
+        except asyncio.TimeoutError:
+            return _T
+        except Exception as e:
+            return _err(e)
+
+    @agent.tool(prepare=make_non_strict)
+    async def delete_preferences(ctx: RunContext, pattern_ids: list[str]) -> str:
+        """Delete saved seek/avoid patterns by ID (the bracketed ID from list_preferences, e.g. 'approved-a1b2c3d4'). Use when a learned pattern turns out wrong or outdated. Use even for one pattern — pass a one-element list."""
+        if not pattern_ids:
+            return "No pattern IDs provided."
+        try:
+            deleted, errors = await sm.delete_preferences_batch(pattern_ids)
+            lines = [f"Deleted {len(deleted)} preference(s): {', '.join(deleted) or 'none'}"]
             if errors:
                 lines.append(f"Errors ({len(errors)}): {'; '.join(errors)}")
             return "\n".join(lines)

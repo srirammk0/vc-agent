@@ -47,7 +47,8 @@ def sync():
     existing = sb.table("startups").select("slug").execute()
     existing_slugs = {row["slug"] for row in (existing.data or [])}
 
-    docs = sm.documents.list(container_tags=["vc:startups"], include_content=True)
+    docs = sm.documents.list(container_tags=["vc:startups"], include_content=True, limit=500)
+    sm_slugs = set()
     for doc in getattr(docs, "memories", []):
         meta = doc.metadata or {}
         content = getattr(doc, "content", "") or ""
@@ -56,6 +57,7 @@ def sync():
         ).strip("-")
         if not slug:
             continue
+        sm_slugs.add(slug)
 
         # Agent-owned content fields, always safe to refresh.
         content_fields = {
@@ -83,6 +85,12 @@ def sync():
                 "updated_at": inserted_at,
                 **content_fields,
             }).execute()
+
+    # Supermemory is the source of truth: rows that exist in Supabase but are no
+    # longer in Supermemory (e.g. deleted via delete_startups) are orphans — drop them.
+    orphan_slugs = existing_slugs - sm_slugs
+    for slug in orphan_slugs:
+        sb.table("startups").delete().eq("slug", slug).execute()
 
     # Sync thesis too
     thesis_docs = sm.documents.list(container_tags=["vc:thesis"], include_content=True)
