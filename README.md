@@ -19,7 +19,7 @@ Orchestrated by **Modal** with warm containers and scheduled crons.
 │  - text_agent (SMS)   │◄────────────────────────│ news_digest_     │
 │  - scout_agent        │                          │ scheduled        │
 │  - news_agent         │                          └──────────────────┘
-│  - feedback_agent     │   cron: every 30 min     ┌──────────────────┐
+│  - feedback_agent     │   cron: every 2h         ┌──────────────────┐
 │                       │◄────────────────────────│ signals_scheduled │
 │  Supermemory (brain)  │   cron: weekly           ┌──────────────────┐
 │  Supabase (mirror)    │◄────────────────────────│ signals_          │
@@ -29,7 +29,7 @@ Orchestrated by **Modal** with warm containers and scheduled crons.
         ├── SendBlue (inbound/outbound iMessage)
         ├── Exa (startup discovery, deep research)
         ├── Linkup (news, fund blogs, press checks)
-        └── Gemma 4 on Modal (strict signal-quality filter)
+        └── Gemma 4 on Cerebras (strict signal-quality filter)
                                                     ┌──────────────────┐
                                                     │ Next.js (Vercel) │
                                                     │ dashboard        │
@@ -86,17 +86,16 @@ Split into two crons based on how often each source class actually changes:
 
 | Pipeline | Cadence | Sources |
 |---|---|---|
-| `scrape_and_filter_frequent` | Every 30 min | LinkedIn/X posts, GitHub trending, Show HN (points-scored, filters out bare GitHub-repo links and hobby/toy-phrased titles), Hugging Face Spaces, Work at a Startup (best-effort YC-batch filter for recent companies) |
-| `scrape_and_filter_directories` | Weekly (Monday) | YC Launches, South Park Commons, Neo, Founders Inc — portfolio/launch pages that don't meaningfully change every 30 minutes. South Park Commons and Founders Inc additionally filter for companies founded 2025+. |
+| `scrape_and_filter_frequent` | Every 2h | LinkedIn/X posts, GitHub trending, Show HN (points-scored, filters out bare GitHub-repo links and hobby/toy-phrased titles), Hugging Face Spaces, Work at a Startup (best-effort YC-batch filter for recent companies) |
+| `scrape_and_filter_directories` | Weekly (Monday) | YC Launches, South Park Commons, Neo, Founders Inc — portfolio/launch pages that don't meaningfully change every couple hours. South Park Commons and Founders Inc additionally filter for companies founded 2025+. |
 
-**Quality filter**: after the regex scoring pass, candidates go through `gemma_filter` — a self-hosted
-**Gemma 4** SGLang server on Modal, called via its OpenAI-compatible `/v1/chat/completions` endpoint with
+**Quality filter**: after the regex scoring pass, candidates go through `gemma_filter` — **Gemma 4**
+(`gemma-4-31b`) hosted on **Cerebras**, called via its OpenAI-compatible `/v1/chat/completions` endpoint with
 `json_schema`-constrained structured output (genuine schema enforcement, not just a prompt asking nicely for
 JSON). The filter prompt is deliberately strict: named startup, real commercial AI product, undeniably
-early-stage, no significant press coverage, US-based. Replaces an earlier Gemini 3.1 Flash Lite pass.
-
-Reaching the Gemma endpoint requires Modal's own tunnel proxy auth (`Modal-Key`/`Modal-Secret` headers from
-`modal token new`) in addition to the endpoint URL — see Environment Variables below.
+early-stage, no significant press coverage, US-based. This replaced an earlier self-hosted Gemma 4 SGLang
+server on Modal — the GPU keep-warm cost of serving it wasn't worth it for a filter that only needs to run a
+few times an hour, and before that, Gemini 3.1 Flash Lite.
 
 ---
 
@@ -148,7 +147,7 @@ real web research.
 |---|---|---|---|
 | `scout_scheduled` | Cron, every 4h | 20 min | Autonomous scout sweep; texts a report and appends it to SMS conversation history |
 | `news_digest_scheduled` | Cron, Mon 6am ET | 20 min | Weekly market-intel brief; same alert-to-history behavior |
-| `signals_scheduled` | Cron, every 30 min | 30 min | Fast-moving signal sources (social, GitHub, Show HN, Hugging Face, hiring) |
+| `signals_scheduled` | Cron, every 2h | 30 min | Fast-moving signal sources (social, GitHub, Show HN, Hugging Face, hiring) |
 | `signals_directories_scheduled` | Cron, weekly (Mon) | 15 min | Slow-moving accelerator/portfolio directories (YC, SPC, Neo, F.inc) |
 | `sync_scheduled` / `sync_on_demand` | Cron (30 min) / on-demand | 5 min | Mirrors Supermemory → Supabase |
 | `enrich_startup` | Dashboard POST | 1 min | Kicks off `enrich_startup_job` in the background |
@@ -184,9 +183,7 @@ modal secret create vc-scout-secrets \
   SENDBLUE_API_SECRET=your_sendblue_secret \
   ALERT_PHONE_NUMBER=your_number_E164 \
   SENDBLUE_FROM_NUMBER=your_sendblue_number \
-  MODAL_GEMMA_URL=your_gemma_sglang_endpoint \
-  MODAL_PROXY_KEY=your_modal_token_id \
-  MODAL_PROXY_SECRET=your_modal_token_secret
+  CEREBRAS_API_KEY=your_cerebras_key
 ```
 
 Deploy with:

@@ -1,7 +1,8 @@
 """
 Signal scraper pipeline — crawls multiple sources for early-stage AI startup signals,
 deduplicates / scores / filters with regex heuristics, then runs a final Gemma 4
-(self-hosted on Modal) structured-output pass to approve only genuine opportunities.
+(Cerebras-hosted, gemma-4-31b) structured-output pass to approve only genuine
+opportunities.
 
 Writes approved signals to the Supabase `signals` table.
 """
@@ -658,10 +659,11 @@ def score_and_filter(posts: list[dict], today: datetime) -> list[dict]:
     return results
 
 # ---------------------------------------------------------------------------
-# Gemma Filter (self-hosted SGLang server on Modal)
+# Gemma Filter (Cerebras-hosted)
 # ---------------------------------------------------------------------------
 
-GEMMA_MODEL_ID = "google/gemma-4-E4B-it"
+CEREBRAS_URL = "https://api.cerebras.ai/v1/chat/completions"
+GEMMA_MODEL_ID = "gemma-4-31b"
 
 # Enforced via response_format json_schema below — the model is constrained to emit
 # exactly this shape, not just asked nicely to produce JSON in the prompt.
@@ -692,19 +694,18 @@ _DECISIONS_SCHEMA = {
 
 
 async def gemma_filter(candidates: list[dict]) -> list[dict]:
-    """Runs the strict VC-signal filter against a self-hosted Gemma 4 SGLang server
-    on Modal, behind Modal's tunnel proxy auth (Modal-Key/Modal-Secret headers —
-    distinct from any app-level auth)."""
-    url = os.environ.get("MODAL_GEMMA_URL", "")
-    proxy_key = os.environ.get("MODAL_PROXY_KEY", "")
-    proxy_secret = os.environ.get("MODAL_PROXY_SECRET", "")
-    if not url or not candidates:
+    """Runs the strict VC-signal filter against Cerebras-hosted Gemma (gemma-4-31b).
+    Replaces the earlier self-hosted Modal SGLang server — same OpenAI-compatible
+    /v1/chat/completions shape and json_schema structured output, just a plain
+    bearer token instead of Modal's tunnel proxy auth."""
+    api_key = os.environ.get("CEREBRAS_API_KEY", "")
+    if not api_key or not candidates:
         return candidates
 
-    headers = {"Content-Type": "application/json"}
-    if proxy_key and proxy_secret:
-        headers["Modal-Key"] = proxy_key
-        headers["Modal-Secret"] = proxy_secret
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
 
     approved = []
     batch_size = 25
@@ -746,7 +747,7 @@ Items to review:
         try:
             async with httpx.AsyncClient() as client:
                 resp = await client.post(
-                    f"{url}/v1/chat/completions",
+                    CEREBRAS_URL,
                     json={
                         "model": GEMMA_MODEL_ID,
                         "messages": [{"role": "user", "content": prompt}],

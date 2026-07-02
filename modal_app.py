@@ -248,11 +248,11 @@ def sync_scheduled():
     sync()
 
 
-# --- Signals Scraper (frequent sources): runs every 30 minutes ---
+# --- Signals Scraper (frequent sources): runs every 2 hours ---
 @app.function(
     image=image,
     secrets=[modal.Secret.from_name("vc-scout-secrets")],
-    schedule=modal.Cron("*/30 * * * *"),
+    schedule=modal.Cron("0 */2 * * *"),
     timeout=1800,  # 30 mins
 )
 def signals_scheduled():
