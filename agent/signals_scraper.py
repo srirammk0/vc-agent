@@ -709,8 +709,14 @@ async def gemma_filter(candidates: list[dict]) -> list[dict]:
 
     approved = []
     batch_size = 25
+    max_batches = 5
 
-    for i in range(0, len(candidates), batch_size):
+    total_batches = (len(candidates) + batch_size - 1) // batch_size
+    if total_batches > max_batches:
+        skipped = len(candidates) - max_batches * batch_size
+        print(f"  Gemma filter: capping at {max_batches} batches ({skipped} candidates skipped this run)")
+
+    for i in range(0, min(len(candidates), max_batches * batch_size), batch_size):
         batch = candidates[i:i + batch_size]
         items_text = "\n".join(
             f"[{j}] Platform: {c['platform']} | Title: {c['title']} | "
