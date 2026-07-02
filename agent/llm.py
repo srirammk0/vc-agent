@@ -30,12 +30,14 @@ def _settings(max_tokens: int) -> AnthropicModelSettings:
 
 
 # Sonnet 5 — all agents
-FINALIZE_SMS_SETTINGS = _settings(3000)
-FINALIZE_SCOUT_SETTINGS = _settings(4000)
-FINALIZE_NEWS_SETTINGS = _settings(4000)
-FINALIZE_FEEDBACK_SETTINGS = _settings(1500)
+# Non-streaming calls (pydantic-ai doesn't stream here) risk SDK timeouts well
+# before Sonnet 5's 128K ceiling, so these stay well under that — just enough
+# headroom that a tool-heavy turn doesn't truncate mid-response.
+FINALIZE_SMS_SETTINGS = _settings(8000)
+FINALIZE_NEWS_SETTINGS = _settings(8000)
+FINALIZE_FEEDBACK_SETTINGS = _settings(4000)
 
-ENRICH_SETTINGS = _settings(3000)
+ENRICH_SETTINGS = _settings(6000)
 
 
 def _is_rate_limit_error(exc: BaseException) -> bool:
@@ -75,7 +77,7 @@ model = finalize_model
 fast_model = finalize_model
 
 
-async def run_with_retry(agent, prompt: str, *, max_attempts: int = 6, **kwargs):
+async def run_with_retry(agent, prompt: str, *, max_attempts: int = 8, **kwargs):
     for attempt in range(max_attempts):
         try:
             return await agent.run(prompt, **kwargs)

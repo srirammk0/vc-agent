@@ -199,31 +199,12 @@ def _stop_typing_loop(
         send_typing(recipient, "stop")
 
 
-# --- Scheduled scout: every 4 hours (4-turn reflection loop) ---
-@app.function(
-    image=image,
-    secrets=[modal.Secret.from_name("vc-scout-secrets")],
-    schedule=modal.Cron("0 */4 * * *"),
-    timeout=1200,
-    min_containers=1,
-)
-def scout_scheduled():
-    res = run_agent({"mode": "scout"})
-    reply = res.get("reply", "Sweep finished with no report.")
-    alert = f"Scheduled sweep complete.\n\nAgent Report:\n{reply}"
-    send_sms(alert)
-    run_agent({"mode": "append_alert", "message": alert, "recipients": notify_phone_numbers()})
-    sync_on_demand.spawn()
-    return res
-
-
 # --- Weekly market-intel brief: Monday 6am ET ---
 @app.function(
     image=image,
     secrets=[modal.Secret.from_name("vc-scout-secrets")],
     schedule=modal.Cron("0 6 * * 1", timezone="America/New_York"),
     timeout=1200,
-    min_containers=1,
 )
 def news_digest_scheduled():
     res = run_agent({"mode": "news_digest"})
@@ -261,24 +242,6 @@ def signals_scheduled():
     sys.path.insert(0, "/root/agent")
     from signals_scraper import scrape_and_filter_frequent
     asyncio.run(scrape_and_filter_frequent())
-
-
-# --- Signals Scraper (accelerator/portfolio directories): runs weekly ---
-# YC Launches, South Park Commons, Neo, and Founders Inc don't change on a 30-min
-# cycle — re-scraping them that often is wasted crawling, so they get their own
-# slower cron instead of running inside signals_scheduled.
-@app.function(
-    image=image,
-    secrets=[modal.Secret.from_name("vc-scout-secrets")],
-    schedule=modal.Cron("0 9 * * 1"),
-    timeout=900,
-)
-def signals_directories_scheduled():
-    import sys
-    import asyncio
-    sys.path.insert(0, "/root/agent")
-    from signals_scraper import scrape_and_filter_directories
-    asyncio.run(scrape_and_filter_directories())
 
 
 @app.function(

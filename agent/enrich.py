@@ -104,7 +104,7 @@ async def structure_enrichment(
             except Exception:
                 pass
 
-    result = await llm.run_with_retry(_enrich_agent, prompt, max_attempts=4)
+    result = await llm.run_with_retry(_enrich_agent, prompt, max_attempts=6)
     output = result.output
     if cache is not None and cache_key:
         await cache.cache_set(cache_key, output.model_dump())
