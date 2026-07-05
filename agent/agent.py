@@ -64,7 +64,7 @@ async def _save_history(sender: str, messages: list) -> None:
 
 
 async def append_alert_to_history(message: str, recipients: list[str]) -> dict:
-    """Append a scheduled-job alert (e.g. the scout sweep SMS) to a recipient's
+    """Append a scheduled-job alert (e.g. the weekly news digest SMS) to a recipient's
     conversation history as if the text_agent had just said it, so a follow-up
     text from the boss has that context without re-fetching it from Supermemory."""
     if not message or not recipients:
@@ -302,7 +302,6 @@ async def text_handler_prompt(ctx: RunContext) -> str:
     thesis = await sm.load_thesis()
     preferences = await sm.load_preferences()
     known = await sm.known_startups_summary()
-    scout_notes = await sm.load_recent_reflection("scout")
     market_brief = await sm.load_latest_market_brief()
     return f"""You handle inbound texts from your boss (a pre-seed VC) and execute their requests fully before replying.
 
@@ -314,16 +313,13 @@ evaporate; if it's worth mentioning, it's worth saving.
 
 Other autonomous processes you run alongside — context only, you do not re-run these:
 
-Latest scout sweep notes (from the autonomous scouting agent, runs every 4h):
-{scout_notes}
-
 Latest weekly market-intel brief (from the news digest agent, runs Monday mornings):
 {market_brief}
 
 Common requests and exactly how to handle them:
 
-"what did the scout find" / "what's new from scouting" / "what was in this week's brief" / "what's been happening"
-→ answer directly from the scout sweep notes / market brief above, no tool call needed
+"what was in this week's brief" / "what's been happening"
+→ answer directly from the market brief above, no tool call needed
 → only call supermemory_search (container_tag vc:reflections or vc:market-intel) if the boss wants more detail than what's summarized above
 
 "approve X" / "pass on X" / "mark X as [status]"
@@ -448,7 +444,7 @@ def register_tools(
     market_brief: bool = False,
     exa: bool = True,
     linkup_tools: bool = False,
-    reflection_source: str = "scout",
+    reflection_source: str,
 ):
     _T = "[tool timed out — skip this step and continue]"
 

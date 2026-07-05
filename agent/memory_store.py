@@ -425,7 +425,7 @@ async def delete_preferences_batch(pattern_ids: list[str]) -> tuple[list[str], l
     return deleted, errors
 
 
-async def write_reflection(reflection: str, source: str = "scout"):
+async def write_reflection(reflection: str, source: str):
     date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     await asyncio.wait_for(
         asyncio.to_thread(
@@ -441,7 +441,7 @@ async def write_reflection(reflection: str, source: str = "scout"):
 
 
 async def load_recent_reflection(source: str) -> str:
-    """Latest reflection written by a given source (e.g. 'scout', 'news') — used to give
+    """Latest reflection written by a given source (e.g. 'news', 'text') — used to give
     the SMS agent visibility into what other autonomous processes have been doing."""
     try:
         docs = await asyncio.wait_for(

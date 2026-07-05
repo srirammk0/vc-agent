@@ -12,19 +12,17 @@ Orchestrated by **Modal** with warm containers and scheduled crons.
 ## How it Works
 
 ```text
-┌───────────────────────┐   cron: every 4h        ┌──────────────────┐
-│  Modal                │◄────────────────────────│ scout_scheduled  │
-│                       │                          └──────────────────┘
-│  agent/ (Python)      │   cron: Mon 6am ET       ┌──────────────────┐
-│  - text_agent (SMS)   │◄────────────────────────│ news_digest_     │
-│  - scout_agent        │                          │ scheduled        │
-│  - news_agent         │                          └──────────────────┘
-│  - feedback_agent     │   cron: every 2h         ┌──────────────────┐
-│                       │◄────────────────────────│ signals_scheduled │
-│  Supermemory (brain)  │   cron: weekly           ┌──────────────────┐
-│  Supabase (mirror)    │◄────────────────────────│ signals_          │
-└───────┬───────────────┘                          │ directories_     │
-        │                                          │ scheduled        │
+┌───────────────────────┐   cron: Mon 6am ET       ┌──────────────────┐
+│  Modal                │◄────────────────────────│ news_digest_     │
+│                       │                          │ scheduled        │
+│  agent/ (Python)      │                          └──────────────────┘
+│  - text_agent (SMS)   │   cron: every 2h         ┌──────────────────┐
+│  - news_agent         │◄────────────────────────│ signals_scheduled │
+│  - feedback_agent     │                          └──────────────────┘
+│                       │   cron: weekly           ┌──────────────────┐
+│  Supermemory (brain)  │◄────────────────────────│ signals_          │
+│  Supabase (mirror)    │                          │ directories_     │
+└───────┬───────────────┘                          │ scheduled        │
         │                                          └──────────────────┘
         ├── SendBlue (inbound/outbound iMessage)
         ├── Exa (startup discovery, deep research)
@@ -38,36 +36,32 @@ Orchestrated by **Modal** with warm containers and scheduled crons.
 
 1. **Load memory**: every agent loads the live investment thesis and learned seek/avoid patterns directly
    from Supermemory before it does anything.
-2. **Scheduled scout sweep** (every 4h): searches Exa for pre-seed AI startups, filters against the thesis,
-   and saves survivors with `status: new`.
-3. **Weekly market brief** (Monday mornings): reads VC news, fund blogs, and prominent investor writing via
+2. **Weekly market brief** (Monday mornings): reads VC news, fund blogs, and prominent investor writing via
    Linkup, saves a structured digest, and texts you the top links.
-4. **Signals feed**: two crons continuously crawl launch/hiring/portfolio sources (see below), score them
+3. **Signals feed**: two crons continuously crawl launch/hiring/portfolio sources (see below), score them
    with regex heuristics, and run a final strict LLM pass before writing them to the dashboard's Signals tab.
-5. **iMessage loop**: text the agent directly — approve/pass startups, ask what the scout or news digest
-   found, update the thesis, or just ask it to research something. It saves what it finds.
-6. **Dashboard**: approve/pass/enrich startups, browse and dismiss signals, all live via Supabase realtime.
+4. **iMessage loop**: text the agent directly — approve/pass startups, ask what the news digest found, run
+   an on-demand sweep, update the thesis, or just ask it to research something. It saves what it finds.
+5. **Dashboard**: approve/pass/enrich startups, browse and dismiss signals, all live via Supabase realtime.
 
 ---
 
 ## Agents (`agent/agent.py`)
 
-All four agents share the same Anthropic Claude Sonnet model and tool registry
+All three agents share the same Anthropic Claude Sonnet model and tool registry
 (`register_tools` in `agent/agent.py`), just with different system prompts and which tools are enabled.
 
 | Agent | Trigger | Purpose |
 |---|---|---|
-| `text_agent` | Inbound SMS (SendBlue webhook) | Handles the boss's texts: approve/pass, delete, research a company, update the thesis, run an on-demand sweep. Has standing context on what the scout and news digest found, and a standing rule to save any genuine startup it surfaces during research — not just on explicit sweep requests. |
-| `scout_agent` | `scout_scheduled` cron (every 4h) | Autonomous sweep: search Exa broadly, filter against the thesis, save survivors in one batch, then log learned patterns. Runs the same decisive search-and-save process as the SMS agent's "find me startups" flow — deliberately kept in sync so scheduled sweeps find just as much as an on-demand ask. |
+| `text_agent` | Inbound SMS (SendBlue webhook) | Handles the boss's texts: approve/pass, delete, research a company, update the thesis, run an on-demand sweep. Has standing context on what the news digest found, and a standing rule to save any genuine startup it surfaces during research — not just on explicit sweep requests. |
 | `news_agent` | `news_digest_scheduled` cron (Monday 6am ET) | Weekly VC market-intel brief across three buckets: industry news, fund blogs, individual investors/substacks. Cannot edit the thesis (hard filters are fixed); only writes soft seek/avoid patterns. |
 | `feedback_agent` | Dashboard approve/pass reason submission | Distills a one-line dashboard reason into a reusable learning pattern. |
 
-**Cross-agent context**: reflections (`write_reflection`) are namespaced by source (`scout`, `news`, `text`,
+**Cross-agent context**: reflections (`write_reflection`) are namespaced by source (`news`, `text`,
 `feedback`) in Supermemory so concurrent writers never clobber each other. The SMS agent's system prompt
-loads the latest scout sweep notes and the latest weekly market brief on every turn, so "what did the scout
-find" or "what was in this week's brief" gets answered directly without a tool call. The scheduled scout and
-news-digest SMS alerts are also appended to the SMS agent's own conversation history, so a follow-up text has
-that context too.
+loads the latest weekly market brief on every turn, so "what was in this week's brief" gets answered directly
+without a tool call. The news-digest SMS alert is also appended to the SMS agent's own conversation history,
+so a follow-up text has that context too.
 
 **Memory model (Supermemory containers)**: `vc:thesis`, `vc:preferences` (seek/avoid patterns),
 `vc:startups`, `vc:reflections` (namespaced by source), `vc:market-intel` (weekly briefs). Signals are
@@ -145,8 +139,7 @@ real web research.
 
 | Function | Trigger | Timeout | Description |
 |---|---|---|---|
-| `scout_scheduled` | Cron, every 4h | 20 min | Autonomous scout sweep; texts a report and appends it to SMS conversation history |
-| `news_digest_scheduled` | Cron, Mon 6am ET | 20 min | Weekly market-intel brief; same alert-to-history behavior |
+| `news_digest_scheduled` | Cron, Mon 6am ET | 20 min | Weekly market-intel brief; texts a report and appends it to SMS conversation history |
 | `signals_scheduled` | Cron, every 2h | 30 min | Fast-moving signal sources (social, GitHub, Show HN, Hugging Face, hiring) |
 | `signals_directories_scheduled` | Cron, weekly (Mon) | 15 min | Slow-moving accelerator/portfolio directories (YC, SPC, Neo, F.inc) |
 | `sync_scheduled` / `sync_on_demand` | Cron (30 min) / on-demand | 5 min | Mirrors Supermemory → Supabase |
@@ -219,7 +212,7 @@ See `.env.example` for the full list (Supabase URL/keys, `MODAL_ENRICH_URL`, `MO
 
 ```
 agent/                Python agents, tools, and the signals scraper (deployed to Modal)
-  agent.py             Agent definitions, tool registry, orchestration (run_scout, run_text_handler, ...)
+  agent.py             Agent definitions, tool registry, orchestration (run_text_handler, ...)
   memory_store.py      Supermemory read/write layer (thesis, preferences, startups, reflections, briefs)
   signals_scraper.py   Multi-source signal crawlers + regex scoring + Gemma structured-output filter
   news_digest.py        Monitored sources and Linkup search specs for the weekly brief
