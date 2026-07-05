@@ -18,8 +18,13 @@ image = (
         "supabase",
         "supermemory==3.12.1",
         "crawl4ai",
+        "fastembed",
     )
     .run_commands("python -m playwright install --with-deps chromium")
+    .run_commands(
+        "python -c \"from fastembed import TextEmbedding; "
+        "TextEmbedding(model_name='BAAI/bge-small-en-v1.5')\""
+    )
     .add_local_dir("./agent", remote_path="/root/agent")
 )
 

@@ -8,3 +8,4 @@ python-dotenv==1.2.2
 modal
 fastapi
 crawl4ai
+fastembed

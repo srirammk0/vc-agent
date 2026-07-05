@@ -18,6 +18,9 @@ from datetime import datetime, timezone, timedelta
 import httpx
 from supabase import create_client
 
+import cache
+import social_classifier
+
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
@@ -163,16 +166,22 @@ def parse_snippet_date(body: str):
     return None
 
 
+MAX_RECENCY_DAYS = 3
+
+
 def is_recent_time(t: str | None) -> bool:
+    """Only used for LinkedIn/X candidates. Fails open (True) when no time signal
+    could be extracted at all, since we'd rather over-include than silently drop a
+    post — the 3-day cutoff still applies wherever a real age is known."""
     if not t:
         return True
     t = t.strip().lower()
-    if re.match(r"^\d+[hd]$", t):
+    if re.match(r"^\d+h$", t):
         return True
-    wm = re.match(r"^(\d+)w$", t)
-    if wm:
-        return int(wm.group(1)) <= 4
-    if "months" in t:
+    dm = re.match(r"^(\d+)d$", t)
+    if dm:
+        return int(dm.group(1)) <= MAX_RECENCY_DAYS
+    if re.match(r"^\d+w$", t) or "month" in t:
         return False
     return True
 
@@ -208,12 +217,20 @@ def extract_x_posts(md: str) -> list[dict]:
             continue
         author = f"@{username}"
         body = snippet
+        post_time = None
         am = re.search(r"([^\(]+)\s*\((@[A-Za-z0-9_]+)\)", snippet)
         if am:
-            raw = re.sub(r"^\d+\s+(?:days?|hours?|weeks?)\s+ago\s+·\s*", "", am.group(1).strip())
-            author = f"{raw} ({am.group(2).strip()})"
+            name_field = am.group(1).strip()
+            tm = re.match(r"^(\d+)\s+(hours?|days?|weeks?)\s+ago\s+·\s*", name_field)
+            if tm:
+                unit_letter = tm.group(2)[0]
+                post_time = f"{tm.group(1)}{unit_letter}"
+                name_field = name_field[tm.end():]
+            author = f"{name_field} ({am.group(2).strip()})"
             body = snippet[am.end():].strip().lstrip(". ")
-        posts.append({"author": author, "url": url, "body": body, "platform": "X (Twitter)", "time": None})
+        if not is_recent_time(post_time):
+            continue
+        posts.append({"author": author, "url": url, "body": body, "platform": "X (Twitter)", "time": post_time})
     return posts
 
 
@@ -249,6 +266,29 @@ def parse_linkedin_post(md: str, source_url: str) -> list[dict]:
     if author and body and is_recent_time(post_time):
         posts.append({"author": author, "url": source_url, "body": body, "platform": "LinkedIn", "time": post_time})
     return posts
+
+# ---------------------------------------------------------------------------
+# Cross-run dedup (LinkedIn/X only)
+# ---------------------------------------------------------------------------
+
+_SEEN_TTL_SECONDS = MAX_RECENCY_DAYS * 86400
+
+
+async def dedup_across_runs(posts: list[dict]) -> list[dict]:
+    """Drops any post URL already processed in a prior run within the recency
+    window, then marks the survivors as seen. Stores only a hash of the URL plus
+    a timestamp via the existing Supabase-backed cache — never the post content —
+    so a LinkedIn/X post never gets re-scored/re-embedded/re-Gemma'd twice."""
+    fresh = []
+    for p in posts:
+        key = cache.make_key("signal:seen", p["url"])
+        if await cache.cache_get(key, _SEEN_TTL_SECONDS) is not None:
+            continue
+        fresh.append(p)
+    await asyncio.gather(*(
+        cache.cache_set(cache.make_key("signal:seen", p["url"]), True) for p in fresh
+    ))
+    return fresh
 
 # ---------------------------------------------------------------------------
 # Source crawlers
@@ -306,12 +346,12 @@ async def crawl_social(crawler, run_config) -> list[dict]:
         for r in results:
             x_posts.extend(r)
 
-    seen = {}
+    dedup_within_run = {}
     for p in x_posts:
         key = (p["author"], p["body"][:50])
-        if key not in seen:
-            seen[key] = p
-    return list(seen.values())
+        if key not in dedup_within_run:
+            dedup_within_run[key] = p
+    return await dedup_across_runs(list(dedup_within_run.values()))
 
 
 async def crawl_github(crawler, run_config) -> list[dict]:
@@ -450,7 +490,8 @@ def score_and_filter(posts: list[dict], today: datetime) -> list[dict]:
         if any(re.search(p, body_lower) for p in LATE_STAGE_OR_BIG_TECH):
             continue
         dt = parse_snippet_date(post["body"])
-        if dt and (today - dt).days > 30:
+        recency_limit_days = MAX_RECENCY_DAYS if platform in social_classifier.SOCIAL_PLATFORMS else 30
+        if dt and (today - dt).days > recency_limit_days:
             continue
         if re.search(NON_US_CURRENCIES, body_lower) or re.search(NON_US_GEOGRAPHY, body_lower):
             continue
@@ -538,12 +579,58 @@ _DECISIONS_SCHEMA = {
     },
 }
 
+# Same shape plus company_name, used for the LinkedIn/X strict pass — company_name
+# is what gets cross-checked against startups we already track.
+_DECISIONS_SCHEMA_WITH_NAME = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "decisions",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "decisions": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "index": {"type": "integer"},
+                            "approved": {"type": "boolean"},
+                            "reasoning": {"type": "string"},
+                            "company_name": {"type": "string"},
+                        },
+                        "required": ["index", "approved", "reasoning", "company_name"],
+                    },
+                }
+            },
+            "required": ["decisions"],
+        },
+    },
+}
 
-async def gemma_filter(candidates: list[dict]) -> list[dict]:
+_SOCIAL_HARD_FILTERS = """
+This batch is LinkedIn/X posts specifically. On top of everything above, ALL of these hard filters must pass:
+- US-based only (reject if non-US or unclear-but-hinting-non-US).
+- Must be an AI startup — AI/ML is a core enabling technology, not a bolt-on feature.
+- If the post discloses a funding amount, total raised must be UNDER $10M — reject anything at or above $10M
+  (e.g. "$66M seed", "$20M seed", "$10.5M seed" are all OVER the cap, reject those).
+- If the post discloses team/employee size, it must be UNDER 20 people — reject anything at or above 20.
+- If funding or team size isn't mentioned at all, don't reject solely for missing that information — judge
+  on the other criteria instead.
+
+Also extract the specific startup/product name being discussed into "company_name" (not the poster's personal
+name unless they ARE the company) — e.g. "Arcturus", "Taste Labs", "PivotBridge.AI". This is used to check
+against startups already in our dealflow, so it must be the actual product/company name."""
+
+
+async def gemma_filter(candidates: list[dict], strict_hard_filters: bool = False) -> list[dict]:
     """Runs the strict VC-signal filter against Cerebras-hosted Gemma (gemma-4-31b).
     Replaces the earlier self-hosted Modal SGLang server — same OpenAI-compatible
     /v1/chat/completions shape and json_schema structured output, just a plain
-    bearer token instead of Modal's tunnel proxy auth."""
+    bearer token instead of Modal's tunnel proxy auth.
+
+    strict_hard_filters=True adds the LinkedIn/X-only hard filters (US-only, AI
+    startup, <$10M raised, <20 employees) and has Gemma extract company_name for
+    each approved item, used to cross-check against startups already tracked."""
     api_key = os.environ.get("CEREBRAS_API_KEY", "")
     if not api_key or not candidates:
         return candidates
@@ -590,6 +677,7 @@ REJECT if ANY of the following apply (BE RUTHLESS):
 - It is not US-based or geography is unclear but hints at non-US.
 
 When in doubt, REJECT. We only want highly qualified signals.
+{_SOCIAL_HARD_FILTERS if strict_hard_filters else ""}
 
 Decide on every item below and return one decision object per item, with "index" matching the item's bracketed number. Keep "reasoning" under 15 words — you must cover every item in the budget you have.
 
@@ -605,7 +693,7 @@ Items to review:
                         "messages": [{"role": "user", "content": prompt}],
                         "temperature": 0.1,
                         "max_tokens": 8192,
-                        "response_format": _DECISIONS_SCHEMA,
+                        "response_format": _DECISIONS_SCHEMA_WITH_NAME if strict_hard_filters else _DECISIONS_SCHEMA,
                     },
                     headers=headers,
                     timeout=60.0,
@@ -622,6 +710,8 @@ Items to review:
                     idx = dec.get("index", -1)
                     if 0 <= idx < len(batch) and dec.get("approved"):
                         batch[idx]["gemini_reasoning"] = dec.get("reasoning", "")
+                        if strict_hard_filters:
+                            batch[idx]["company_name"] = dec.get("company_name", "")
                         approved.append(batch[idx])
 
                 approve_count = sum(1 for d in decisions if d.get("approved"))
@@ -632,6 +722,45 @@ Items to review:
             approved.extend(batch)
 
     return approved
+
+# ---------------------------------------------------------------------------
+# Known-startups cross-check (LinkedIn/X only)
+# ---------------------------------------------------------------------------
+
+def _normalize_name(name: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
+def load_known_startup_names() -> set[str]:
+    """Normalized names of every startup already in the dealflow list (any status).
+    Used to stop LinkedIn/X signals from resurfacing a startup we already track."""
+    url = os.environ.get("SUPABASE_URL", "")
+    key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+    if not url or not key:
+        return set()
+    try:
+        sb = create_client(url, key)
+        res = sb.table("startups").select("name").execute()
+        return {_normalize_name(row["name"]) for row in (res.data or []) if row.get("name")}
+    except Exception as e:
+        print(f"  Failed to load known startups: {e}")
+        return set()
+
+
+def filter_known_startups(signals: list[dict], known_names: set[str]) -> list[dict]:
+    if not known_names:
+        return signals
+    kept = []
+    dropped = 0
+    for sig in signals:
+        company = _normalize_name(sig.get("company_name", ""))
+        if company and company in known_names:
+            dropped += 1
+            continue
+        kept.append(sig)
+    if dropped:
+        print(f"  Known-startup cross-check: dropped {dropped} signals for startups already tracked")
+    return kept
 
 # ---------------------------------------------------------------------------
 # Supabase writer
@@ -690,7 +819,18 @@ async def _score_filter_and_write(all_raw: list[dict]) -> list[dict]:
     today = datetime.now()
     scored = score_and_filter(all_raw, today)
     print(f"After regex filter: {len(scored)} candidates")
-    approved = await gemma_filter(scored)
+    scored = social_classifier.filter_social_candidates(scored)
+    print(f"After embedding pre-filter: {len(scored)} candidates")
+
+    social = [c for c in scored if c["platform"] in social_classifier.SOCIAL_PLATFORMS]
+    other = [c for c in scored if c["platform"] not in social_classifier.SOCIAL_PLATFORMS]
+
+    known_names = load_known_startup_names()
+    approved_social = await gemma_filter(social, strict_hard_filters=True)
+    approved_social = filter_known_startups(approved_social, known_names)
+    approved_other = await gemma_filter(other)
+
+    approved = approved_social + approved_other
     print(f"After Gemma filter: {len(approved)} approved signals")
     write_to_supabase(approved)
     return approved
