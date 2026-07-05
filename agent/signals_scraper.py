@@ -8,6 +8,7 @@ Writes approved signals to the Supabase `signals` table.
 """
 
 import asyncio
+import random
 import re
 import json
 import time
@@ -294,6 +295,22 @@ async def dedup_across_runs(posts: list[dict]) -> list[dict]:
 # Source crawlers
 # ---------------------------------------------------------------------------
 
+async def _crawl_with_retry(crawler, url, run_config, attempts=3, base_delay=2.0):
+    """Yahoo (and to a lesser extent LinkedIn) intermittently antibot-blocks or times
+    out under concurrent load. Retry with backoff + jitter before giving up, instead
+    of silently dropping the query."""
+    for attempt in range(attempts):
+        try:
+            res = await crawler.arun(url=url, config=run_config)
+            if res.success:
+                return res
+        except Exception:
+            pass
+        if attempt < attempts - 1:
+            await asyncio.sleep(base_delay * (attempt + 1) + random.uniform(0, 1))
+    return None
+
+
 async def crawl_social(crawler, run_config) -> list[dict]:
     queries = []
     li_terms = [
@@ -302,6 +319,9 @@ async def crawl_social(crawler, run_config) -> list[dict]:
         '"pre-seed" "ai"', '"seed round" "ai"', '"stealth" "ai"',
         '"first check"', '"pre-seed round"', '"we raised a seed"',
         '"stealth mode AI"', '"just launched our beta"', '"mvp launch"', '"new startup"',
+        '"raising our pre-seed"', '"pre-launch"', '"beta access"', '"waitlist" "ai"',
+        '"we are live"', '"early access"', '"soft launch"', '"currently building"',
+        '"solo founder" "ai"', '"building in public" "ai"',
     ]
     for term in li_terms:
         queries.append((f'site:linkedin.com/posts/ {term}', "LinkedIn"))
@@ -314,15 +334,15 @@ async def crawl_social(crawler, run_config) -> list[dict]:
             url = f"https://search.yahoo.com/search?p={urllib.parse.quote_plus(q)}&btf=m&b={offset}"
             targets.append((q, plat, url))
 
-    sem = asyncio.Semaphore(15)
-    crawl_sem = asyncio.Semaphore(45)
+    sem = asyncio.Semaphore(6)
+    crawl_sem = asyncio.Semaphore(20)
     li_urls: list[str] = []
     x_posts: list[dict] = []
 
     async def search(q, plat, url):
         async with sem:
-            res = await crawler.arun(url=url, config=run_config)
-            if not res.success:
+            res = await _crawl_with_retry(crawler, url, run_config)
+            if res is None:
                 return
             md = res.markdown or ""
             if plat == "LinkedIn":
@@ -336,8 +356,8 @@ async def crawl_social(crawler, run_config) -> list[dict]:
 
     async def crawl_li(url):
         async with crawl_sem:
-            res = await crawler.arun(url=url, config=run_config)
-            if res.success:
+            res = await _crawl_with_retry(crawler, url, run_config)
+            if res is not None:
                 return parse_linkedin_post(res.markdown or "", url)
             return []
 
