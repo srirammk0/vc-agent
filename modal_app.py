@@ -204,22 +204,6 @@ def _stop_typing_loop(
         send_typing(recipient, "stop")
 
 
-# --- Weekly market-intel brief: Monday 6am ET ---
-@app.function(
-    image=image,
-    secrets=[modal.Secret.from_name("vc-scout-secrets")],
-    schedule=modal.Cron("0 6 * * 1", timezone="America/New_York"),
-    timeout=1200,
-)
-def news_digest_scheduled():
-    res = run_agent({"mode": "news_digest"})
-    reply = res.get("reply", "Brief finished with no summary.")
-    alert = f"Weekly market brief.\n\n{reply}"
-    send_sms(alert)
-    run_agent({"mode": "append_alert", "message": alert, "recipients": notify_phone_numbers()})
-    return res
-
-
 # --- Sync: mirror Supermemory -> Supabase ---
 @app.function(
     image=image,
