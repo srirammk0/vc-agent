@@ -109,6 +109,8 @@ CATEGORY_MAP = {
     "Show HN": "developer",
     "Hugging Face": "developer",
     "Product Hunt": "developer",
+    "BetaList": "developer",
+    "Launching Next": "developer",
     "YC Launches": "accelerator",
     "South Park Commons": "accelerator",
     "Founders Inc": "accelerator",
@@ -461,50 +463,127 @@ async def crawl_huggingface(crawler, run_config) -> list[dict]:
     return signals[:30]
 
 
-async def crawl_product_hunt(crawler, run_config) -> list[dict]:
-    """Newest/unranked launches — deliberately not the trending page, since anything
-    already popular there has visibility we don't need help finding."""
-    from crawl4ai import CrawlerRunConfig, CacheMode
-    cfg = CrawlerRunConfig(
-        cache_mode=CacheMode.BYPASS,
-        js_code="window.scrollTo(0, document.body.scrollHeight);",
-        delay_before_return_html=3.0,
-    )
-    res = await crawler.arun(url="https://www.producthunt.com/newest", config=cfg)
+def _strip_html(text: str) -> str:
+    no_tags = re.sub(r"<[^>]+>", " ", text or "")
+    return re.sub(r"\s+", " ", no_tags).strip()
+
+
+async def crawl_product_hunt() -> list[dict]:
+    """Product Hunt's main site is behind Cloudflare bot-detection (serves a real 200
+    but an empty content shell to headless browsers) — the public Atom feed bypasses
+    that entirely since it's a plain content endpoint, no browser needed."""
+    import xml.etree.ElementTree as ET
+
     signals = []
-    if not res.success:
-        return signals
-    md = res.markdown or ""
-    lines = md.split("\n")
-    seen_urls = set()
-    link_re = re.compile(r"\[([^\]]{3,80})\]\((https://www\.producthunt\.com/posts/[^\)\s]+)\)")
-    for idx, line in enumerate(lines):
-        m = link_re.search(line)
-        if not m:
-            continue
-        name = m.group(1).strip()
-        url = m.group(2).split("?")[0]
-        if url in seen_urls or not name:
-            continue
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            resp = await client.get(
+                "https://www.producthunt.com/feed",
+                headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"},
+            )
+        if resp.status_code != 200:
+            print(f"  Product Hunt feed: HTTP {resp.status_code}")
+            return signals
+        root = ET.fromstring(resp.text)
+        ns = {"a": "http://www.w3.org/2005/Atom"}
+        for entry in root.findall("a:entry", ns):
+            name_el = entry.find("a:title", ns)
+            link_el = entry.find("a:link", ns)
+            content_el = entry.find("a:content", ns)
+            name = (name_el.text or "").strip() if name_el is not None else ""
+            url = (link_el.get("href") or "").split("?")[0] if link_el is not None else ""
+            tagline = ""
+            if content_el is not None and content_el.text:
+                first_p = re.search(r"<p>(.*?)</p>", content_el.text, re.DOTALL)
+                tagline = _strip_html(first_p.group(1) if first_p else content_el.text)[:200]
+            if not name or not url:
+                continue
 
-        tagline = ""
-        for si in range(idx + 1, min(idx + 4, len(lines))):
-            sl = lines[si].strip()
-            if sl and not sl.startswith("[") and not sl.startswith("!"):
-                tagline = sl
-                break
+            combined = f"{name} {tagline}".lower()
+            if not any(re.search(p, combined) for p in GITHUB_AI_KEYWORDS):
+                continue
 
-        combined = f"{name} {tagline}".lower()
-        if not any(re.search(p, combined) for p in GITHUB_AI_KEYWORDS):
-            continue
-
-        seen_urls.add(url)
-        signals.append({
-            "author": name, "platform": "Product Hunt", "url": url,
-            "body": f"New Product Hunt launch: {name} — {tagline}" if tagline else f"New Product Hunt launch: {name}",
-            "time": "Today", "score_boost": 2,
-        })
+            signals.append({
+                "author": name, "platform": "Product Hunt", "url": url,
+                "body": f"New Product Hunt launch: {name} — {tagline}" if tagline else f"New Product Hunt launch: {name}",
+                "time": "Today", "score_boost": 2,
+            })
+    except Exception as e:
+        print(f"  Product Hunt feed error: {e}")
     return signals[:40]
+
+
+async def crawl_betalist() -> list[dict]:
+    """Server-rendered, no bot-protection observed — plain GET + regex over the
+    div.startup-row cards."""
+    signals = []
+    try:
+        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+            resp = await client.get(
+                "https://betalist.com/",
+                headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"},
+            )
+        if resp.status_code != 200:
+            print(f"  BetaList: HTTP {resp.status_code}")
+            return signals
+        html = resp.text
+        row_re = re.compile(
+            r'href="(/startups/[a-z0-9\-]+)"></a>.*?font-medium[^>]*>([^<]+)</span>\s*'
+            r'<span[^>]*>([^<]+)</span>',
+            re.DOTALL,
+        )
+        for m in row_re.finditer(html):
+            slug_path, name, tagline = m.groups()
+            signals.append({
+                "author": name.strip(), "platform": "BetaList",
+                "url": f"https://betalist.com{slug_path}",
+                "body": f"New BetaList launch: {name.strip()} — {tagline.strip()}",
+                "time": "Today", "score_boost": 1,
+            })
+    except Exception as e:
+        print(f"  BetaList error: {e}")
+
+    kept = [
+        s for s in signals
+        if any(re.search(p, s["body"].lower()) for p in GITHUB_AI_KEYWORDS)
+    ]
+    return kept[:40]
+
+
+async def crawl_launching_next() -> list[dict]:
+    """Server-rendered Bootstrap cards — plain GET + regex over div.card.shadow."""
+    signals = []
+    try:
+        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+            resp = await client.get(
+                "https://www.launchingnext.com/",
+                headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"},
+            )
+        if resp.status_code != 200:
+            print(f"  Launching Next: HTTP {resp.status_code}")
+            return signals
+        html = resp.text
+        card_re = re.compile(
+            r'<h3>([^<]+)</h3>\s*<p class="card-text">([^<]*)</p>\s*'
+            r'<a class="stretched-link" href="(/s/[^"]+)"',
+        )
+        for m in card_re.finditer(html):
+            name, tagline, path = m.groups()
+            name = re.sub(r"\s*#\d+$", "", name.strip())  # strip trailing rank numbers
+            signals.append({
+                "author": name, "platform": "Launching Next",
+                "url": f"https://www.launchingnext.com{path}",
+                "body": f"New Launching Next launch: {name} — {tagline.strip()}",
+                "time": "Today", "score_boost": 1,
+            })
+    except Exception as e:
+        print(f"  Launching Next error: {e}")
+
+    kept = [
+        s for s in signals
+        if any(re.search(p, s["body"].lower()) for p in GITHUB_AI_KEYWORDS)
+    ]
+    return kept[:40]
 
 
 async def crawl_hiring(crawler, run_config) -> list[dict]:
@@ -944,17 +1023,20 @@ async def scrape_and_filter_frequent():
         show_hn_task = crawl_show_hn(crawler, run_config)
         hf_task = crawl_huggingface(crawler, run_config)
         hiring_task = crawl_hiring(crawler, run_config)
-        ph_task = crawl_product_hunt(crawler, run_config)
+        ph_task = crawl_product_hunt()
+        betalist_task = crawl_betalist()
+        launching_next_task = crawl_launching_next()
 
         social = await social_task
         all_raw.extend(social)
         print(f"  Social: {len(social)} posts")
 
         rest = await asyncio.gather(
-            github_task, show_hn_task, hf_task, hiring_task, ph_task,
+            github_task, show_hn_task, hf_task, hiring_task,
+            ph_task, betalist_task, launching_next_task,
             return_exceptions=True,
         )
-        labels = ["GitHub", "Show HN", "HuggingFace", "Hiring", "Product Hunt"]
+        labels = ["GitHub", "Show HN", "HuggingFace", "Hiring", "Product Hunt", "BetaList", "Launching Next"]
         for label, result in zip(labels, rest):
             if isinstance(result, Exception):
                 print(f"  {label}: ERROR - {result}")
