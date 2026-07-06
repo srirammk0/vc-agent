@@ -47,10 +47,11 @@ export function useLiveSignals(initial: Signal[]) {
 
   function commit() {
     const list = Array.from(mapRef.current.values());
-    list.sort(
-      (a, b) =>
-        new Date(b.scraped_at).getTime() - new Date(a.scraped_at).getTime()
-    );
+    list.sort((a, b) => {
+      const scoreDiff = (b.score ?? 0) - (a.score ?? 0);
+      if (scoreDiff !== 0) return scoreDiff;
+      return new Date(b.scraped_at).getTime() - new Date(a.scraped_at).getTime();
+    });
     setSignals(list);
   }
 

@@ -108,6 +108,7 @@ CATEGORY_MAP = {
     "GitHub": "developer",
     "Show HN": "developer",
     "Hugging Face": "developer",
+    "Product Hunt": "developer",
     "YC Launches": "accelerator",
     "South Park Commons": "accelerator",
     "Founders Inc": "accelerator",
@@ -460,6 +461,52 @@ async def crawl_huggingface(crawler, run_config) -> list[dict]:
     return signals[:30]
 
 
+async def crawl_product_hunt(crawler, run_config) -> list[dict]:
+    """Newest/unranked launches — deliberately not the trending page, since anything
+    already popular there has visibility we don't need help finding."""
+    from crawl4ai import CrawlerRunConfig, CacheMode
+    cfg = CrawlerRunConfig(
+        cache_mode=CacheMode.BYPASS,
+        js_code="window.scrollTo(0, document.body.scrollHeight);",
+        delay_before_return_html=3.0,
+    )
+    res = await crawler.arun(url="https://www.producthunt.com/newest", config=cfg)
+    signals = []
+    if not res.success:
+        return signals
+    md = res.markdown or ""
+    lines = md.split("\n")
+    seen_urls = set()
+    link_re = re.compile(r"\[([^\]]{3,80})\]\((https://www\.producthunt\.com/posts/[^\)\s]+)\)")
+    for idx, line in enumerate(lines):
+        m = link_re.search(line)
+        if not m:
+            continue
+        name = m.group(1).strip()
+        url = m.group(2).split("?")[0]
+        if url in seen_urls or not name:
+            continue
+
+        tagline = ""
+        for si in range(idx + 1, min(idx + 4, len(lines))):
+            sl = lines[si].strip()
+            if sl and not sl.startswith("[") and not sl.startswith("!"):
+                tagline = sl
+                break
+
+        combined = f"{name} {tagline}".lower()
+        if not any(re.search(p, combined) for p in GITHUB_AI_KEYWORDS):
+            continue
+
+        seen_urls.add(url)
+        signals.append({
+            "author": name, "platform": "Product Hunt", "url": url,
+            "body": f"New Product Hunt launch: {name} — {tagline}" if tagline else f"New Product Hunt launch: {name}",
+            "time": "Today", "score_boost": 2,
+        })
+    return signals[:40]
+
+
 async def crawl_hiring(crawler, run_config) -> list[dict]:
     from crawl4ai import CrawlerRunConfig, CacheMode
     cfg = CrawlerRunConfig(
@@ -573,7 +620,9 @@ CEREBRAS_URL = "https://api.cerebras.ai/v1/chat/completions"
 GEMMA_MODEL_ID = "gemma-4-31b"
 
 # Enforced via response_format json_schema below — the model is constrained to emit
-# exactly this shape, not just asked nicely to produce JSON in the prompt.
+# exactly this shape, not just asked nicely to produce JSON in the prompt. Always
+# requires company_name (cross-checked against startups we already track / signals
+# we've already surfaced) and conviction (drives review-order ranking downstream).
 _DECISIONS_SCHEMA = {
     "type": "json_schema",
     "json_schema": {
@@ -589,36 +638,10 @@ _DECISIONS_SCHEMA = {
                             "index": {"type": "integer"},
                             "approved": {"type": "boolean"},
                             "reasoning": {"type": "string"},
-                        },
-                        "required": ["index", "approved", "reasoning"],
-                    },
-                }
-            },
-            "required": ["decisions"],
-        },
-    },
-}
-
-# Same shape plus company_name, used for the LinkedIn/X strict pass — company_name
-# is what gets cross-checked against startups we already track.
-_DECISIONS_SCHEMA_WITH_NAME = {
-    "type": "json_schema",
-    "json_schema": {
-        "name": "decisions",
-        "schema": {
-            "type": "object",
-            "properties": {
-                "decisions": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "index": {"type": "integer"},
-                            "approved": {"type": "boolean"},
-                            "reasoning": {"type": "string"},
                             "company_name": {"type": "string"},
+                            "conviction": {"type": "integer"},
                         },
-                        "required": ["index", "approved", "reasoning", "company_name"],
+                        "required": ["index", "approved", "reasoning", "company_name", "conviction"],
                     },
                 }
             },
@@ -635,22 +658,24 @@ This batch is LinkedIn/X posts specifically. On top of everything above, ALL of 
   (e.g. "$66M seed", "$20M seed", "$10.5M seed" are all OVER the cap, reject those).
 - If the post discloses team/employee size, it must be UNDER 20 people — reject anything at or above 20.
 - If funding or team size isn't mentioned at all, don't reject solely for missing that information — judge
-  on the other criteria instead.
-
-Also extract the specific startup/product name being discussed into "company_name" (not the poster's personal
-name unless they ARE the company) — e.g. "Arcturus", "Taste Labs", "PivotBridge.AI". This is used to check
-against startups already in our dealflow, so it must be the actual product/company name."""
+  on the other criteria instead."""
 
 
-async def gemma_filter(candidates: list[dict], strict_hard_filters: bool = False) -> list[dict]:
+async def gemma_filter(
+    candidates: list[dict],
+    strict_hard_filters: bool = False,
+    blocked_names: set[str] | None = None,
+) -> list[dict]:
     """Runs the strict VC-signal filter against Cerebras-hosted Gemma (gemma-4-31b).
     Replaces the earlier self-hosted Modal SGLang server — same OpenAI-compatible
     /v1/chat/completions shape and json_schema structured output, just a plain
     bearer token instead of Modal's tunnel proxy auth.
 
     strict_hard_filters=True adds the LinkedIn/X-only hard filters (US-only, AI
-    startup, <$10M raised, <20 employees) and has Gemma extract company_name for
-    each approved item, used to cross-check against startups already tracked."""
+    startup, <$10M raised, <20 employees). Every call extracts company_name (for
+    dedup) and conviction (for review-order ranking). blocked_names is the set of
+    companies already tracked or surfaced recently — Gemma is told to reject any
+    candidate about one of them even from a different post/source."""
     api_key = os.environ.get("CEREBRAS_API_KEY", "")
     if not api_key or not candidates:
         return candidates
@@ -669,6 +694,14 @@ async def gemma_filter(candidates: list[dict], strict_hard_filters: bool = False
         skipped = len(candidates) - max_batches * batch_size
         print(f"  Gemma filter: capping at {max_batches} batches ({skipped} candidates skipped this run)")
 
+    blocked_text = ""
+    if blocked_names:
+        names_list = ", ".join(sorted(blocked_names)[:300])
+        blocked_text = f"""
+
+Companies already tracked or surfaced as a signal in the last 14 days — REJECT any candidate about
+one of these even if the post, angle, or source platform is different: {names_list}"""
+
     for i in range(0, min(len(candidates), max_batches * batch_size), batch_size):
         batch = candidates[i:i + batch_size]
         items_text = "\n".join(
@@ -678,7 +711,7 @@ async def gemma_filter(candidates: list[dict], strict_hard_filters: bool = False
             for j, c in enumerate(batch)
         )
 
-        prompt = f"""You are an EXTREMELY STRICT VC signal filter for a pre-seed/seed AI startup fund. Your job is to filter out the noise and ONLY pass through high-conviction, early-stage AI startup opportunities.
+        prompt = f"""You are an EXTREMELY STRICT VC signal filter for a pre-seed/seed AI startup fund. Your job is to filter out the noise and ONLY pass through high-conviction, early-stage AI startup opportunities. The fund specifically wants niche, underground, pre-attention startups — not things already getting mainstream visibility.
 
 Review each signal below and decide whether it represents a GENUINE, MEANINGFUL early-stage AI startup or a tangible opportunity that leads to one.
 
@@ -698,6 +731,18 @@ REJECT if ANY of the following apply (BE RUTHLESS):
 
 When in doubt, REJECT. We only want highly qualified signals.
 {_SOCIAL_HARD_FILTERS if strict_hard_filters else ""}
+{blocked_text}
+
+For every APPROVED item, also assign "conviction" (integer 1-10) — how strong an underground, pre-attention
+early-stage signal this is:
+- Score HIGHER (8-10) for genuinely low-visibility signals: solo or 2-3 person team, self-posted (not written
+  by a journalist), no press pickup, not yet reposted/quoted by anyone else, no recognizable investor/accelerator
+  name attached.
+- Score LOWER (1-4), even though still approved, for anything already showing outside attention: high
+  upvotes/points, "featured in" a publication, backed by a named fund or accelerator, or clearly already
+  making the rounds. Don't reject these — just rank them below the truly underground finds.
+- Also extract the specific startup/product name into "company_name" (not the poster's personal name unless
+  they ARE the company) — e.g. "Arcturus", "Taste Labs", "PivotBridge.AI".
 
 Decide on every item below and return one decision object per item, with "index" matching the item's bracketed number. Keep "reasoning" under 15 words — you must cover every item in the budget you have.
 
@@ -713,7 +758,7 @@ Items to review:
                         "messages": [{"role": "user", "content": prompt}],
                         "temperature": 0.1,
                         "max_tokens": 8192,
-                        "response_format": _DECISIONS_SCHEMA_WITH_NAME if strict_hard_filters else _DECISIONS_SCHEMA,
+                        "response_format": _DECISIONS_SCHEMA,
                     },
                     headers=headers,
                     timeout=60.0,
@@ -730,8 +775,10 @@ Items to review:
                     idx = dec.get("index", -1)
                     if 0 <= idx < len(batch) and dec.get("approved"):
                         batch[idx]["gemini_reasoning"] = dec.get("reasoning", "")
-                        if strict_hard_filters:
-                            batch[idx]["company_name"] = dec.get("company_name", "")
+                        batch[idx]["company_name"] = dec.get("company_name", "")
+                        conviction = dec.get("conviction")
+                        if isinstance(conviction, int) and 1 <= conviction <= 10:
+                            batch[idx]["score"] = conviction
                         approved.append(batch[idx])
 
                 approve_count = sum(1 for d in decisions if d.get("approved"))
@@ -764,6 +811,29 @@ def load_known_startup_names() -> set[str]:
         return {_normalize_name(row["name"]) for row in (res.data or []) if row.get("name")}
     except Exception as e:
         print(f"  Failed to load known startups: {e}")
+        return set()
+
+
+def load_recent_signal_company_names(days: int = 14) -> set[str]:
+    """Normalized company_name of every signal scraped in the last `days`, across all
+    statuses (new/sent/dismissed). Stops a startup from resurfacing as a fresh signal
+    from a different post/platform after it's already been shown and passed on."""
+    url = os.environ.get("SUPABASE_URL", "")
+    key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+    if not url or not key:
+        return set()
+    try:
+        sb = create_client(url, key)
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        res = (
+            sb.table("signals")
+            .select("company_name")
+            .gte("scraped_at", cutoff)
+            .execute()
+        )
+        return {_normalize_name(row["company_name"]) for row in (res.data or []) if row.get("company_name")}
+    except Exception as e:
+        print(f"  Failed to load recent signal company names: {e}")
         return set()
 
 
@@ -822,6 +892,7 @@ def write_to_supabase(signals: list[dict]):
                     "favicon_url": sig.get("favicon_url", ""),
                     "ai_features": sig.get("ai_features", []),
                     "gemini_reasoning": sig.get("gemini_reasoning", ""),
+                    "company_name": sig.get("company_name", ""),
                     "status": existing_status.get(sig["source_url"], "new"),
                 },
                 on_conflict="source_url",
@@ -845,12 +916,12 @@ async def _score_filter_and_write(all_raw: list[dict]) -> list[dict]:
     social = [c for c in scored if c["platform"] in social_classifier.SOCIAL_PLATFORMS]
     other = [c for c in scored if c["platform"] not in social_classifier.SOCIAL_PLATFORMS]
 
-    known_names = load_known_startup_names()
-    approved_social = await gemma_filter(social, strict_hard_filters=True)
-    approved_social = filter_known_startups(approved_social, known_names)
-    approved_other = await gemma_filter(other)
+    blocked_names = load_known_startup_names() | load_recent_signal_company_names()
+    approved_social = await gemma_filter(social, strict_hard_filters=True, blocked_names=blocked_names)
+    approved_other = await gemma_filter(other, blocked_names=blocked_names)
 
-    approved = approved_social + approved_other
+    approved = filter_known_startups(approved_social + approved_other, blocked_names)
+    approved.sort(key=lambda x: x.get("score", 0), reverse=True)
     print(f"After Gemma filter: {len(approved)} approved signals")
     write_to_supabase(approved)
     return approved
@@ -873,16 +944,17 @@ async def scrape_and_filter_frequent():
         show_hn_task = crawl_show_hn(crawler, run_config)
         hf_task = crawl_huggingface(crawler, run_config)
         hiring_task = crawl_hiring(crawler, run_config)
+        ph_task = crawl_product_hunt(crawler, run_config)
 
         social = await social_task
         all_raw.extend(social)
         print(f"  Social: {len(social)} posts")
 
         rest = await asyncio.gather(
-            github_task, show_hn_task, hf_task, hiring_task,
+            github_task, show_hn_task, hf_task, hiring_task, ph_task,
             return_exceptions=True,
         )
-        labels = ["GitHub", "Show HN", "HuggingFace", "Hiring"]
+        labels = ["GitHub", "Show HN", "HuggingFace", "Hiring", "Product Hunt"]
         for label, result in zip(labels, rest):
             if isinstance(result, Exception):
                 print(f"  {label}: ERROR - {result}")
