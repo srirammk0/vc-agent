@@ -34,7 +34,6 @@ def _settings(max_tokens: int) -> AnthropicModelSettings:
 # before Sonnet 5's 128K ceiling, so these stay well under that — just enough
 # headroom that a tool-heavy turn doesn't truncate mid-response.
 FINALIZE_SMS_SETTINGS = _settings(8000)
-FINALIZE_NEWS_SETTINGS = _settings(8000)
 FINALIZE_FEEDBACK_SETTINGS = _settings(4000)
 
 ENRICH_SETTINGS = _settings(6000)

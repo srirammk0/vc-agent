@@ -233,6 +233,63 @@ def signals_scheduled():
     asyncio.run(scrape_and_filter_frequent())
 
 
+# --- Signals review: once daily, an agent curates the day's raw signals (deletes ---
+# --- bad/duplicate/noise, schedules re-checks on the promising few). Runs after   ---
+# --- that day's last signals_scheduled fire (last 2h fire is 22:00 UTC).          ---
+@app.function(
+    image=image,
+    secrets=[modal.Secret.from_name("vc-scout-secrets")],
+    schedule=modal.Cron("50 23 * * *", timezone="America/New_York"),
+    timeout=600,
+)
+def signals_review_scheduled():
+    import sys
+    import asyncio
+    sys.path.insert(0, "/root/agent")
+    from signals_review import run_signals_review
+    asyncio.run(run_signals_review())
+
+
+# --- Scheduled-tasks poller: pops due self-scheduled work (signal re-checks, ---
+# --- boss-requested follow-up texts). Modal has no native delayed-execution   ---
+# --- primitive, so this polling cron + the Supabase `scheduled_tasks` table   ---
+# --- is the mechanism (see agent/scheduler.py).                              ---
+@app.function(
+    image=image,
+    secrets=[modal.Secret.from_name("vc-scout-secrets")],
+    schedule=modal.Cron("*/20 * * * *"),
+    timeout=600,
+)
+def scheduled_tasks_poller():
+    import sys
+    import asyncio
+    sys.path.insert(0, "/root/agent")
+    from scheduler import load_due_tasks, mark_task_done
+
+    async def _run():
+        for task in await load_due_tasks():
+            try:
+                if task["kind"] == "text_followup":
+                    p = task.get("payload") or {}
+                    if p.get("sender") and p.get("instructions"):
+                        chat_reply_background.spawn(p["instructions"], p["sender"])
+                elif task["kind"] == "signal_recheck":
+                    from signals_review import recheck_signal
+                    notify = await recheck_signal(task.get("payload") or {})
+                    if notify:
+                        send_sms(notify)
+                        run_agent({
+                            "mode": "append_alert",
+                            "message": notify,
+                            "recipients": notify_phone_numbers(),
+                        })
+                await mark_task_done(task["id"])
+            except Exception as e:
+                print(f"scheduled_tasks_poller: task {task.get('id')} failed:", e)
+
+    asyncio.run(_run())
+
+
 @app.function(
     image=image,
     secrets=[modal.Secret.from_name("vc-scout-secrets")],

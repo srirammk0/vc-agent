@@ -12,18 +12,21 @@ Orchestrated by **Modal** with warm containers and scheduled crons.
 ## How it Works
 
 ```text
-┌───────────────────────┐   cron: Mon 6am ET       ┌──────────────────┐
-│  Modal                │◄────────────────────────│ news_digest_     │
-│                       │                          │ scheduled        │
-│  agent/ (Python)      │                          └──────────────────┘
-│  - text_agent (SMS)   │   cron: every 2h         ┌──────────────────┐
-│  - news_agent         │◄────────────────────────│ signals_scheduled │
-│  - feedback_agent     │                          └──────────────────┘
-│                       │   cron: weekly           ┌──────────────────┐
-│  Supermemory (brain)  │◄────────────────────────│ signals_          │
-│  Supabase (mirror)    │                          │ directories_     │
-└───────┬───────────────┘                          │ scheduled        │
-        │                                          └──────────────────┘
+┌───────────────────────┐   cron: every 2h         ┌──────────────────┐
+│  Modal                │◄────────────────────────│ signals_scheduled │
+│                       │                          └──────────────────┘
+│  agent/ (Python)      │   cron: daily 11:50pm ET ┌──────────────────┐
+│  - text_agent (SMS)   │◄────────────────────────│ signals_review_  │
+│  - feedback_agent     │                          │ scheduled        │
+│  - signals_review_    │                          └──────────────────┘
+│    agent               │   cron: every 20 min     ┌──────────────────┐
+│                       │◄────────────────────────│ scheduled_tasks_ │
+│  Supermemory (brain)  │                          │ poller           │
+│  Supabase (mirror +   │                          └──────────────────┘
+│  signals + scheduled_ │   cron: every 30 min     ┌──────────────────┐
+│  tasks)               │◄────────────────────────│ sync_scheduled   │
+└───────┬───────────────┘                          └──────────────────┘
+        │
         ├── SendBlue (inbound/outbound iMessage)
         ├── Exa (startup discovery, deep research)
         ├── Linkup (news, fund blogs, press checks)
@@ -36,13 +39,25 @@ Orchestrated by **Modal** with warm containers and scheduled crons.
 
 1. **Load memory**: every agent loads the live investment thesis and learned seek/avoid patterns directly
    from Supermemory before it does anything.
-2. **Weekly market brief** (Monday mornings): reads VC news, fund blogs, and prominent investor writing via
-   Linkup, saves a structured digest, and texts you the top links.
-3. **Signals feed**: two crons continuously crawl launch/hiring/portfolio sources (see below), score them
-   with regex heuristics, and run a final strict LLM pass before writing them to the dashboard's Signals tab.
-4. **iMessage loop**: text the agent directly — approve/pass startups, ask what the news digest found, run
-   an on-demand sweep, update the thesis, or just ask it to research something. It saves what it finds.
+2. **Signals feed**: `signals_scheduled` crawls LinkedIn/X every 2h for early-stage AI startup signals
+   (including founders building in or just out of stealth), scores them with regex heuristics, and runs a
+   final strict Gemma pass — capped at 50 approved signals per day (70% LinkedIn / 30% X by conviction).
+3. **Daily signal review**: once a day, `signals_review_agent` reads every signal from that day at
+   excerpt-level (no deep research), deletes bad/duplicate/noise, and schedules a re-check on the few
+   genuinely promising ones — see [Self-scheduling](#self-scheduling-agentscheduler.py) below.
+4. **iMessage loop**: text the agent directly — approve/pass startups, run an on-demand sweep, update the
+   thesis, ask it to research something, or ask it to check back on something later. It saves what it finds.
 5. **Dashboard**: approve/pass/enrich startups, browse and dismiss signals, all live via Supabase realtime.
+
+## Self-scheduling (`agent/scheduler.py`)
+
+Modal has no native delayed-execution primitive (`modal.Cron` schedules are fixed at deploy time;
+`.spawn()`/`modal.Queue` are immediate-dispatch only), so the agent's own future work — a signal re-check,
+a boss-requested follow-up text — is a row in the Supabase `scheduled_tasks` table, popped every 20 minutes
+by `scheduled_tasks_poller`. Two kinds: `signal_recheck` (fired by `signals_review_agent`'s
+`schedule_signal_check` tool, capped at 2 re-checks per signal and spaced ≥7 days apart) and
+`text_followup` (fired by `text_agent`'s `schedule_followup` tool when the boss asks to be reminded about
+something — replayed through the normal SMS pipeline when due, as if the boss had just texted it).
 
 ---
 
@@ -53,43 +68,43 @@ All three agents share the same Anthropic Claude Sonnet model and tool registry
 
 | Agent | Trigger | Purpose |
 |---|---|---|
-| `text_agent` | Inbound SMS (SendBlue webhook) | Handles the boss's texts: approve/pass, delete, research a company, update the thesis, run an on-demand sweep. Has standing context on what the news digest found, and a standing rule to save any genuine startup it surfaces during research — not just on explicit sweep requests. |
-| `news_agent` | `news_digest_scheduled` cron (Monday 6am ET) | Weekly VC market-intel brief across three buckets: industry news, fund blogs, individual investors/substacks. Cannot edit the thesis (hard filters are fixed); only writes soft seek/avoid patterns. |
+| `text_agent` | Inbound SMS (SendBlue webhook) | Handles the boss's texts: approve/pass, delete, research a company, update the thesis, run an on-demand sweep, or schedule a future check-in. Has a standing rule to save any genuine startup it surfaces during research — not just on explicit sweep requests. |
+| `signals_review_agent` | `signals_review_scheduled` cron (daily 11:50pm ET) | Curates the day's raw signals at excerpt-level: deletes bad/duplicate/noise, schedules a re-check on the promising few. Built fresh per run (see `agent/signals_review.py`). |
 | `feedback_agent` | Dashboard approve/pass reason submission | Distills a one-line dashboard reason into a reusable learning pattern. |
 
-**Cross-agent context**: reflections (`write_reflection`) are namespaced by source (`news`, `text`,
-`feedback`) in Supermemory so concurrent writers never clobber each other. The SMS agent's system prompt
-loads the latest weekly market brief on every turn, so "what was in this week's brief" gets answered directly
-without a tool call. The news-digest SMS alert is also appended to the SMS agent's own conversation history,
-so a follow-up text has that context too.
+**Cross-agent context**: reflections (`write_reflection`) are namespaced by source (`text`, `feedback`) in
+Supermemory so concurrent writers never clobber each other. Scheduled-task alerts (a promising signal
+re-check, in the future) get appended to the SMS agent's own conversation history via
+`append_alert_to_history`, so a follow-up text has that context without re-fetching it.
 
 **Memory model (Supermemory containers)**: `vc:thesis`, `vc:preferences` (seek/avoid patterns),
-`vc:startups`, `vc:reflections` (namespaced by source), `vc:market-intel` (weekly briefs). Signals are
-**not** stored in Supermemory — they go straight to Supabase (see below), and are intentionally kept out of
-every agent's context.
+`vc:startups`, `vc:reflections` (namespaced by source). Signals and scheduled tasks are **not** stored in
+Supermemory — they live in Supabase (see below), intentionally kept out of every agent's standing context.
 
 ---
 
-## Signals Pipeline (`agent/signals_scraper.py`)
+## Signals Pipeline (`agent/signals_scraper.py`, `agent/signals_review.py`)
 
-A separate, higher-volume feed from scouting: crawls launch/hiring/portfolio sources for early-stage AI
-signals, scores them with regex heuristics, then runs a final strict structured-output pass before writing
-approved signals to the dashboard's Signals tab (Supabase `signals` table).
-
-Split into two crons based on how often each source class actually changes:
-
-| Pipeline | Cadence | Sources |
-|---|---|---|
-| `scrape_and_filter_frequent` | Every 2h | LinkedIn/X posts, GitHub trending, Show HN (points-scored, filters out bare GitHub-repo links and hobby/toy-phrased titles), Hugging Face Spaces, Work at a Startup (best-effort YC-batch filter for recent companies) |
-| `scrape_and_filter_directories` | Weekly (Monday) | YC Launches, South Park Commons, Neo, Founders Inc — portfolio/launch pages that don't meaningfully change every couple hours. South Park Commons and Founders Inc additionally filter for companies founded 2025+. |
+A separate, higher-volume feed from scouting: crawls LinkedIn/X for early-stage AI startup signals, scores
+them with regex heuristics, runs a final strict structured-output pass, then writes approved signals to the
+dashboard's Signals tab (Supabase `signals` table) — capped at **50/day**, split **70% LinkedIn / 30% X** by
+conviction score (`DAILY_SIGNAL_CAP`/`LINKEDIN_SHARE` in `signals_scraper.py`). `scrape_and_filter_frequent`
+runs every 2h and skips crawling entirely once the day's cap is already met, saving the search/embedding/
+Gemma cost, not just the write.
 
 **Quality filter**: after the regex scoring pass, candidates go through `gemma_filter` — **Gemma 4**
 (`gemma-4-31b`) hosted on **Cerebras**, called via its OpenAI-compatible `/v1/chat/completions` endpoint with
 `json_schema`-constrained structured output (genuine schema enforcement, not just a prompt asking nicely for
-JSON). The filter prompt is deliberately strict: named startup, real commercial AI product, undeniably
-early-stage, no significant press coverage, US-based. This replaced an earlier self-hosted Gemma 4 SGLang
-server on Modal — the GPU keep-warm cost of serving it wasn't worth it for a filter that only needs to run a
-few times an hour, and before that, Gemini 3.1 Flash Lite.
+JSON). The filter prompt is deliberately strict: named startup/founder, real commercial AI product,
+undeniably early-stage (including founders actively building in stealth or just out of it), no significant
+press coverage, US-based, under $10M raised / under 20 people for social posts specifically.
+
+**Daily review**: once a day, `signals_review_agent` (`agent/signals_review.py`) reads every `status='new'`
+signal at excerpt-level — no deep research — and calls `delete_signals` on anything bad/duplicate/noise, and
+`schedule_signal_check` on the handful worth revisiting (capped at 5 schedules/run, 2 re-checks/signal ever,
+re-checks spaced ≥7 days apart via `agent/scheduler.py`). A fired re-check runs one fresh Exa search + one
+Gemma call scoped to that company; if conviction clears the bar it's re-surfaced and you get a text, silent
+otherwise.
 
 ---
 
@@ -103,12 +118,16 @@ which are written directly (no Supermemory involved).
   enrichment fields (company description, founders, stage, raised, location, team size) populated by the
   on-demand enrichment job.
 - `thesis`: the active investment thesis markdown content.
-- `signals`: platform, category, signal type, score, and the Gemma filter's approval reasoning for every
-  approved signal. Auto-archives (`status: dismissed`) anything older than 3 days on every scrape.
+- `signals`: platform (LinkedIn / X (Twitter)), category, signal type, score, and the Gemma filter's approval
+  reasoning for every approved signal. Auto-archives (`status: dismissed`) anything older than 3 days on
+  every scrape.
+- `scheduled_tasks`: the agent's self-scheduling table (`kind`, `due_at`, `payload`, `status`) — see
+  `agent/scheduler.py` and `scripts/migrate-scheduled-tasks.sql`.
 - `cache`: a general-purpose cache (Exa results, LLM outputs, SMS conversation history) — see `agent/cache.py`.
 
 Full SQL schema (tables, indexes, RLS policies, realtime publication) is in `scripts/seed-supabase.py`. See
-`scripts/migrations.sql` and `scripts/migrate-created-at.sql` for incremental migrations applied since.
+`scripts/migrations.sql`, `scripts/migrate-created-at.sql`, `scripts/migrate-signals-company-name.sql`, and
+`scripts/migrate-scheduled-tasks.sql` for incremental migrations applied since.
 
 ---
 
@@ -123,7 +142,7 @@ Next.js 16 + React 19 + Supabase, gated behind a single shared-password cookie (
 - **Command palette** (⌘K / Ctrl+K): fuzzy-search and jump to any startup.
 - **Startup detail page**: full assessment, enrichment data, and an "Enrich" button that kicks off an
   async Modal job (founder/social research via Exa) without blocking the dashboard.
-- **Signals panel**: browse approved signals by category, dismiss individually or clear all, or send a
+- **Signals panel**: browse approved LinkedIn/X signals, dismiss individually or clear all, or send a
   signal straight to the agent for deeper research (spawns a background SMS-agent turn).
 - **Feedback**: approving/passing a startup from the dashboard can include a reason, which gets distilled
   into a learning pattern by `feedback_agent` and mirrored into Supermemory immediately (not just on the
@@ -139,9 +158,9 @@ real web research.
 
 | Function | Trigger | Timeout | Description |
 |---|---|---|---|
-| `news_digest_scheduled` | Cron, Mon 6am ET | 20 min | Weekly market-intel brief; texts a report and appends it to SMS conversation history |
-| `signals_scheduled` | Cron, every 2h | 30 min | Fast-moving signal sources (social, GitHub, Show HN, Hugging Face, hiring) |
-| `signals_directories_scheduled` | Cron, weekly (Mon) | 15 min | Slow-moving accelerator/portfolio directories (YC, SPC, Neo, F.inc) |
+| `signals_scheduled` | Cron, every 2h | 30 min | LinkedIn/X signal scrape + Gemma filter, capped at 50/day |
+| `signals_review_scheduled` | Cron, daily 11:50pm ET | 10 min | `signals_review_agent` curates the day's signals |
+| `scheduled_tasks_poller` | Cron, every 20 min | 10 min | Pops due self-scheduled tasks (signal re-checks, follow-up texts) |
 | `sync_scheduled` / `sync_on_demand` | Cron (30 min) / on-demand | 5 min | Mirrors Supermemory → Supabase |
 | `enrich_startup` | Dashboard POST | 1 min | Kicks off `enrich_startup_job` in the background |
 | `submit_feedback` | Dashboard POST | 5 min | Runs `feedback_agent` on an approve/pass reason |
@@ -156,7 +175,8 @@ real web research.
 ### 1. Database Setup
 1. Spin up a Supabase project.
 2. Run the SQL schema at the top of [`scripts/seed-supabase.py`](scripts/seed-supabase.py) in the SQL Editor.
-3. Apply `scripts/migrations.sql` and `scripts/migrate-created-at.sql` if starting from an older schema.
+3. Apply `scripts/migrations.sql`, `scripts/migrate-created-at.sql`, `scripts/migrate-signals-company-name.sql`,
+   and `scripts/migrate-scheduled-tasks.sql` if starting from an older schema.
 
 ### 2. Environment Variables
 
@@ -213,9 +233,10 @@ See `.env.example` for the full list (Supabase URL/keys, `MODAL_ENRICH_URL`, `MO
 ```
 agent/                Python agents, tools, and the signals scraper (deployed to Modal)
   agent.py             Agent definitions, tool registry, orchestration (run_text_handler, ...)
-  memory_store.py      Supermemory read/write layer (thesis, preferences, startups, reflections, briefs)
-  signals_scraper.py   Multi-source signal crawlers + regex scoring + Gemma structured-output filter
-  news_digest.py        Monitored sources and Linkup search specs for the weekly brief
+  memory_store.py      Supermemory read/write layer (thesis, preferences, startups, reflections)
+  signals_scraper.py   LinkedIn/X signal crawler + regex scoring + Gemma structured-output filter
+  signals_review.py    Daily signals_review_agent: deletes noise, schedules re-checks
+  scheduler.py          Supabase-backed self-scheduling primitive (scheduled_tasks table)
   llm.py               Model/settings config, retry logic
   cache.py             Supabase-backed cache (Exa results, LLM outputs, SMS conversation history)
   sync.py              Supermemory -> Supabase mirror

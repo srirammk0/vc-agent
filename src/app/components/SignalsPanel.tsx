@@ -4,29 +4,20 @@ import { useState, useMemo } from "react";
 import type { Signal } from "../hooks/useLiveSignals";
 import { useRouter } from "next/navigation";
 
-type Category = "social" | "developer" | "accelerator" | "traction";
+type Category = "social";
 
 const CATEGORIES: { id: Category; label: string }[] = [
   { id: "social", label: "Social & Founders" },
-  { id: "developer", label: "Developer & Open Source" },
-  { id: "accelerator", label: "Accelerators & Directories" },
-  { id: "traction", label: "Traction & Hiring" },
 ];
 
 export default function SignalsPanel({ signals }: { signals: Signal[] }) {
   const router = useRouter();
   const [expanded, setExpanded] = useState<Record<Category, boolean>>({
     social: true,
-    developer: true,
-    accelerator: true,
-    traction: true,
   });
 
   const [page, setPage] = useState<Record<Category, number>>({
     social: 1,
-    developer: 1,
-    accelerator: 1,
-    traction: 1,
   });
 
   const [busy, setBusy] = useState<string | null>(null);
@@ -34,9 +25,6 @@ export default function SignalsPanel({ signals }: { signals: Signal[] }) {
   const byCategory = useMemo(() => {
     const acc: Record<Category, Signal[]> = {
       social: [],
-      developer: [],
-      accelerator: [],
-      traction: [],
     };
     signals.forEach((s) => {
       if (s.status === "new" && acc[s.category as Category]) {

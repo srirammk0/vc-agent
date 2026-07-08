@@ -466,48 +466,6 @@ async def load_recent_reflection(source: str) -> str:
         return "No reflections yet."
 
 
-async def load_latest_market_brief() -> str:
-    """Most recent weekly market-intel brief — used to give the SMS agent visibility
-    into what the news digest agent found."""
-    try:
-        docs = await asyncio.wait_for(
-            asyncio.to_thread(
-                get_client().documents.list,
-                container_tags=["vc:market-intel"],
-                include_content=True,
-            ),
-            timeout=_SM_TIMEOUT,
-        )
-        memories = getattr(docs, "memories", [])
-        if not memories:
-            return "No market brief yet."
-        memories.sort(key=lambda d: (d.metadata or {}).get("date", ""), reverse=True)
-        content = (getattr(memories[0], "content", "") or "").strip()
-        return truncate_text(content, 2000) or "No market brief yet."
-    except Exception as e:
-        print("Failed to load market brief from Supermemory:", e)
-        return "No market brief yet."
-
-
-async def write_market_brief(brief: str, headline: str = "") -> str:
-    """Save this week's market-intel digest to memory."""
-    date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    title = headline.strip() or f"Weekly VC brief — {date}"
-    content = f"# {title}\n\n{brief.strip()}"
-    await asyncio.wait_for(
-        asyncio.to_thread(
-            lambda: get_client().add(
-                content=content,
-                container_tag="vc:market-intel",
-                custom_id=f"brief-{date}",
-                metadata={"date": date, "type": "weekly_brief"},
-            )
-        ),
-        timeout=_SM_TIMEOUT,
-    )
-    return date
-
-
 async def update_thesis(new_content: str):
     await asyncio.wait_for(
         asyncio.to_thread(
