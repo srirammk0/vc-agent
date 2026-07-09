@@ -1,10 +1,11 @@
 # VC Research Agent
 
 Automated pre-seed/seed AI startup scout. A set of Pydantic AI agents (Anthropic Claude Sonnet) research and
-save early-stage AI companies, run a continuous multi-source signal feed, and text you about all of it —
-persisted to **Supermemory** (the agent's brain) and mirrored to **Supabase** for a live Next.js dashboard.
-All agentic work — LLM calls, the signals crawler, SMS — runs on **Modal**; **Trigger.dev** owns scheduling
-only (fixed crons and one-off delayed triggers), calling into Modal's HTTP endpoints at the right time.
+save early-stage AI companies, crawl LinkedIn/X and accelerator portfolio pages on demand when directed to,
+and text you about all of it — persisted to **Supermemory** (the agent's brain) and mirrored to **Supabase**
+for a live Next.js dashboard. All agentic work — LLM calls, crawling, SMS — runs on **Modal**; **Trigger.dev**
+owns scheduling only (fixed crons and one-off delayed triggers), calling into Modal's HTTP endpoints at the
+right time.
 
 **Live:** [startup-scout-agent.vercel.app](https://startup-scout-agent.vercel.app)
 
@@ -13,18 +14,15 @@ only (fixed crons and one-off delayed triggers), calling into Modal's HTTP endpo
 ## How it Works
 
 ```text
-┌──────────────────────┐  cron: every 2h           ┌───────────────────┐
-│  Trigger.dev          │──────────────────────────►│ signals-scrape-   │
+┌──────────────────────┐  cron: daily 11:50pm ET    ┌───────────────────┐
+│  Trigger.dev          │──────────────────────────►│ signals-review-   │
 │  (scheduling only)     │                          │ scheduled          │
-│                       │  cron: daily 11:50pm ET   ├───────────────────┤
-│  4 fixed crons +       │──────────────────────────►│ signals-review-   │
+│                       │  cron: 6:00am ET           ├───────────────────┤
+│  3 fixed crons +       │──────────────────────────►│ daily-planner-    │
 │  one-off delayed        │                          │ scheduled          │
-│  triggers (real         │  cron: 6:00am ET          ├───────────────────┤
-│  point-in-time,         │──────────────────────────►│ daily-planner-    │
-│  not a poll)            │                          │ scheduled          │
-│                       │  cron: every 30 min       ├───────────────────┤
-│                       │──────────────────────────►│ sync-scheduled     │
-│                       │                          ├───────────────────┤
+│  triggers (real         │  cron: every 30 min       ├───────────────────┤
+│  point-in-time,         │──────────────────────────►│ sync-scheduled     │
+│  not a poll)            │                          ├───────────────────┤
 │                       │  delayed, one-off         │ run-scheduled-     │
 │                       │──────────────────────────►│ check              │
 └──────────────────────┘                          └─────────┬─────────┘
@@ -32,17 +30,18 @@ only (fixed crons and one-off delayed triggers), calling into Modal's HTTP endpo
                                                               ▼
 ┌────────────────────────────────────────────────────────────────────────┐
 │  Modal — all agentic work                                              │
-│  agent/ (Python): text_agent (SMS) · feedback_agent · signals_review_  │
-│  agent · daily_planner_agent                                           │
+│  agent/ (Python): text_agent (SMS, incl. crawl_for_startups) ·         │
+│  feedback_agent · signals_review_agent · daily_planner_agent           │
 │  Supermemory (brain) · Supabase (mirror + signals)                     │
 │  agent/trigger_client.py schedules one-off checks back onto            │
-│  Trigger.dev's run-scheduled-check task (REST, with a delay)           │
+│  Trigger.dev's run-scheduled-check task (REST, with a delay) —         │
+│  this is also how a directed crawl gets kicked off in the background   │
 └───────┬──────────────────────────────────────────────────────────────┘
         │
         ├── SendBlue (inbound/outbound iMessage)
         ├── Exa (startup discovery, deep research)
         ├── Linkup (news, fund blogs, press checks)
-        └── Gemma 4 on Cerebras (strict signal-quality filter)
+        └── Gemma 4 on Cerebras (signal-quality filter + portfolio-page extraction)
                                                     ┌──────────────────┐
                                                     │ Next.js (Vercel) │
                                                     │ dashboard        │
@@ -51,18 +50,23 @@ only (fixed crons and one-off delayed triggers), calling into Modal's HTTP endpo
 
 1. **Load memory**: every agent loads the live investment thesis and learned seek/avoid patterns directly
    from Supermemory before it does anything.
-2. **Signals feed**: `signals-scrape-scheduled` crawls LinkedIn/X every 2h for early-stage AI startup signals
-   (including founders building in or just out of stealth), scores them with regex heuristics, and runs a
-   final strict Gemma pass — capped at 50 approved signals per day (70% LinkedIn / 30% X by conviction).
-3. **Daily signal review**: once a day, `signals_review_agent` reads every signal from that day at
-   excerpt-level (no deep research), deletes bad/duplicate/noise, and schedules a re-check on the few
-   genuinely promising ones — see [Scheduling](#scheduling-triggerdev) below.
+2. **Agent-directed crawling**: text the agent to go find startups and it directs its own crawl — LinkedIn/X
+   search (including founders building in or just out of stealth, with sensible default terms or a niche you
+   name), or a specific accelerator/investor's portfolio page you give it a URL for. Runs in the background,
+   scores/filters candidates (regex heuristics + a strict Gemma pass for social posts, a separate Gemma
+   extraction pass for portfolio pages), writes approved ones to the `signals` table (capped at 50/day), and
+   texts back a summary.
+3. **Daily signal review**: once a day, `signals_review_agent` reads everything that landed in the `signals`
+   table that day at excerpt-level (no deep research), deletes bad/duplicate/noise, and schedules a re-check
+   on the few genuinely promising ones — see [Scheduling](#scheduling-triggerdev) below.
 4. **Daily planning**: every morning at 6am ET, `daily_planner_agent` looks at approved startups nobody's
    checked on in a while and decides — with judgment, not a fixed replay — which ones deserve a fresh look
    today, scheduling each at a specific time.
-5. **iMessage loop**: text the agent directly — approve/pass startups, run an on-demand sweep, update the
-   thesis, ask it to research something, or ask it to check back on something later. It saves what it finds.
-6. **Dashboard**: approve/pass/enrich startups, browse and dismiss signals, all live via Supabase realtime.
+5. **iMessage loop**: text the agent directly — approve/pass startups, run an on-demand sweep, direct a
+   crawl, update the thesis, ask it to research something, ask what's currently scheduled, or ask it to
+   check back on something later (defaults to within 3 days unless you give it a specific longer timeframe).
+6. **Dashboard**: approve/pass/enrich startups, browse and dismiss crawl results, all live via Supabase
+   realtime.
 
 ## Scheduling (Trigger.dev)
 
@@ -72,19 +76,23 @@ crons and one-off future work — while Modal keeps 100% of the agentic work. Ev
 (`src/trigger/*.ts`) is a thin `fetch()` forwarding call into a hardened Modal HTTP endpoint at the right
 moment; nothing Python runs inside Trigger.dev.
 
-- **Fixed crons**: `sync-scheduled` (*/30 min), `signals-scrape-scheduled` (0 */2h),
-  `signals-review-scheduled` (50 23 * * * America/New_York), `daily-planner-scheduled`
-  (0 6 * * * America/New_York) — each just forwards to its Modal endpoint.
+- **Fixed crons**: `sync-scheduled` (*/30 min), `signals-review-scheduled`
+  (50 23 * * * America/New_York), `daily-planner-scheduled` (0 6 * * * America/New_York) —
+  each just forwards to its Modal endpoint.
 - **One-off delayed triggers**: the agent's own future work — a signal re-check, a boss-requested follow-up
-  text, a daily-planner portfolio check — is scheduled by calling Trigger.dev's REST trigger endpoint
-  directly from Python (`agent/trigger_client.py`, no JS SDK involved) with a `delay`, targeting the
-  `run-scheduled-check` task. When it fires at the exact right time (not a poll window), it forwards to
-  Modal's `run_scheduled_check` endpoint, which dispatches by `kind`: `signal_recheck` (fired by
+  text, a daily-planner portfolio check, an agent-directed crawl — is scheduled by calling Trigger.dev's
+  REST trigger endpoint directly from Python (`agent/trigger_client.py`, no JS SDK involved) with a `delay`,
+  targeting the `run-scheduled-check` task. Every call is also logged to the `scheduled_tasks` table
+  (`agent/scheduled_tasks_log.py`) purely so the agent can answer "what do you have scheduled" —
+  Trigger.dev still owns actual timing. When it fires at the exact right time (not a poll window), it
+  forwards to Modal's `run_scheduled_check` endpoint, which dispatches by `kind`: `signal_recheck` (fired by
   `signals_review_agent`'s `schedule_signal_check` tool, capped at 2 re-checks per signal and spaced
   ≥7 days apart — guardrail state lives on the `signals` row itself, `recheck_count`/
-  `last_recheck_scheduled_at`), `text_followup` (fired by `text_agent`'s `schedule_followup` tool, replayed
-  through the normal SMS pipeline when due, as if the boss had just texted it), and `daily_check` (fired by
-  `daily_planner_agent`'s `schedule_check` tool).
+  `last_recheck_scheduled_at`), `text_followup` (fired by `text_agent`'s `schedule_followup` tool — defaults
+  to firing within 3 days unless the boss gave an explicit longer timeframe, replayed through the normal SMS
+  pipeline when due, as if the boss had just texted it), `daily_check` (fired by `daily_planner_agent`'s
+  `schedule_check` tool), and `directed_crawl` (fired by `text_agent`'s `crawl_for_startups` tool — runs
+  `signals_scraper.run_directed_crawl` and texts back what it found).
 - **Hardening**: every Modal endpoint Trigger.dev calls checks a shared secret (`SCHEDULER_SHARED_SECRET`)
   sent in the request body — these are the only Modal endpoints reachable without prior application logic
   (dashboard endpoints have their own separate on-demand triggers, unrelated to scheduling).
@@ -115,21 +123,32 @@ Supermemory — they live in Supabase (see below), intentionally kept out of eve
 
 ---
 
-## Signals Pipeline (`agent/signals_scraper.py`, `agent/signals_review.py`)
+## Agent-Directed Crawling (`agent/signals_scraper.py`, `agent/signals_review.py`)
 
-A separate, higher-volume feed from scouting: crawls LinkedIn/X for early-stage AI startup signals, scores
-them with regex heuristics, runs a final strict structured-output pass, then writes approved signals to the
-dashboard's Signals tab (Supabase `signals` table) — capped at **50/day**, split **70% LinkedIn / 30% X** by
-conviction score (`DAILY_SIGNAL_CAP`/`LINKEDIN_SHARE` in `signals_scraper.py`). `scrape_and_filter_frequent`
-runs every 2h and skips crawling entirely once the day's cap is already met, saving the search/embedding/
-Gemma cost, not just the write.
+Not an autonomous background feed — the boss directs it. Texting the agent to go find startups (or check a
+specific accelerator's portfolio page) calls `text_agent`'s `crawl_for_startups` tool, which kicks off
+`signals_scraper.run_directed_crawl` in the background (via the same Trigger.dev one-off-delayed-trigger
+mechanism as `schedule_followup`, see [Scheduling](#scheduling-triggerdev)) and texts back a summary when
+done. Two crawl surfaces:
 
-**Quality filter**: after the regex scoring pass, candidates go through `gemma_filter` — **Gemma 4**
-(`gemma-4-31b`) hosted on **Cerebras**, called via its OpenAI-compatible `/v1/chat/completions` endpoint with
-`json_schema`-constrained structured output (genuine schema enforcement, not just a prompt asking nicely for
-JSON). The filter prompt is deliberately strict: named startup/founder, real commercial AI product,
-undeniably early-stage (including founders actively building in stealth or just out of it), no significant
-press coverage, US-based, under $10M raised / under 20 people for social posts specifically.
+- **LinkedIn/X**: general sourcing or a niche the boss names, including founders self-describing as building
+  in or just out of stealth — scored with regex heuristics, then run through a final strict Gemma
+  structured-output pass (`gemma_filter`).
+- **Accelerator/investor portfolio pages**: only ever a specific URL the agent was actually given (no
+  hardcoded directory of accelerators) — crawled directly and run through a separate Gemma extraction pass
+  (`extract_portfolio_companies`) that pulls real company listings out of the page's markdown, since a
+  directory page doesn't match the social-post heuristics at all.
+
+Approved candidates from either surface write to the dashboard's Crawl Results tab (Supabase `signals`
+table) — capped at **50/day** total, portfolio results get first claim on the budget (`PORTFOLIO_PER_RUN_CAP`),
+the rest split **70% LinkedIn / 30% X** by conviction score (`DAILY_SIGNAL_CAP`/`LINKEDIN_SHARE` in
+`signals_scraper.py`).
+
+**Quality filter**: **Gemma 4** (`gemma-4-31b`) hosted on **Cerebras**, called via its OpenAI-compatible
+`/v1/chat/completions` endpoint with `json_schema`-constrained structured output (genuine schema
+enforcement, not just a prompt asking nicely for JSON). The social-post filter prompt is deliberately
+strict: named startup/founder, real commercial AI product, undeniably early-stage, no significant press
+coverage, US-based, under $10M raised / under 20 people.
 
 **Daily review**: once a day, `signals_review_agent` (`agent/signals_review.py`) reads every `status='new'`
 signal at excerpt-level — no deep research — and calls `delete_signals` on anything bad/duplicate/noise, and
@@ -154,9 +173,11 @@ which are written directly (no Supermemory involved).
   reasoning for every approved signal, and `recheck_count`/`last_recheck_scheduled_at` (self-scheduling
   guardrail state, see `scripts/migrate-signal-recheck-tracking.sql`). Auto-archives (`status: dismissed`)
   anything older than 3 days on every scrape.
-- `scheduled_tasks`: unused — was the old Supabase-polling self-scheduling table (see
-  `scripts/migrate-scheduled-tasks.sql`), replaced by Trigger.dev's real delayed triggers
-  (`agent/trigger_client.py`). Left in place, nothing reads or writes it.
+- `scheduled_tasks`: was the old Supabase-polling self-scheduling table (see
+  `scripts/migrate-scheduled-tasks.sql`), repurposed as a pure visibility log now that Trigger.dev owns
+  actual timing — `agent/trigger_client.py` logs a row on every schedule, `agent/scheduled_tasks_log.py`
+  marks it done when it fires, and `text_agent`'s `list_scheduled_tasks` tool reads pending rows so the
+  agent can answer "what do you have scheduled."
 - `cache`: a general-purpose cache (Exa results, LLM outputs, SMS conversation history) — see `agent/cache.py`.
 
 Full SQL schema (tables, indexes, RLS policies, realtime publication) is in `scripts/seed-supabase.py`. See
@@ -170,7 +191,7 @@ Full SQL schema (tables, indexes, RLS policies, realtime publication) is in `scr
 Next.js 16 + React 19 + Supabase, gated behind a single shared-password cookie (`src/proxy.ts`,
 `src/app/login/`).
 
-- **Tabs**: All / New / Approved / Passed / Signals, with live counts.
+- **Tabs**: All / New / Approved / Passed / Crawl Results, with live counts.
 - **Realtime**: Supabase Postgres changes subscription for instant updates, falling back to polling if the
   public anon key isn't configured (`useLiveStartups`, `useLiveSignals`).
 - **Command palette** (⌘K / Ctrl+K): fuzzy-search and jump to any startup.
@@ -194,10 +215,9 @@ calls them over HTTP at the right time (see [Scheduling](#scheduling-triggerdev)
 
 | Function | Trigger | Timeout | Description |
 |---|---|---|---|
-| `signals_scheduled` | Trigger.dev cron, every 2h | 30 min | LinkedIn/X signal scrape + Gemma filter, capped at 50/day |
 | `signals_review_scheduled` | Trigger.dev cron, daily 11:50pm ET | 10 min | `signals_review_agent` curates the day's signals |
 | `daily_planner_scheduled` | Trigger.dev cron, daily 6:00am ET | 10 min | `daily_planner_agent` decides today's portfolio checks |
-| `run_scheduled_check` | Trigger.dev one-off delayed trigger | 10 min | Dispatches a due self-scheduled check by `kind` (`signal_recheck`/`text_followup`/`daily_check`) |
+| `run_scheduled_check` | Trigger.dev one-off delayed trigger | 30 min | Dispatches a due self-scheduled check by `kind` (`signal_recheck`/`text_followup`/`daily_check`/`directed_crawl`) |
 | `sync_scheduled` / `sync_on_demand` | Trigger.dev cron (30 min) / on-demand | 5 min | Mirrors Supermemory → Supabase |
 | `enrich_startup` | Dashboard POST | 1 min | Kicks off `enrich_startup_job` in the background |
 | `submit_feedback` | Dashboard POST | 5 min | Runs `feedback_agent` on an approve/pass reason |
@@ -254,7 +274,7 @@ modal deploy modal_app.py
 #### Trigger.dev
 Fill in `trigger.config.ts`'s `project` field with your Trigger.dev project ref (Trigger.dev dashboard →
 Project settings). In the Trigger.dev dashboard, add these environment variables per environment (dev + prod):
-`MODAL_SYNC_URL`, `MODAL_SIGNALS_SCRAPE_URL`, `MODAL_SIGNALS_REVIEW_URL`, `MODAL_DAILY_PLANNER_URL`,
+`MODAL_SYNC_URL`, `MODAL_SIGNALS_REVIEW_URL`, `MODAL_DAILY_PLANNER_URL`,
 `MODAL_RUN_SCHEDULED_CHECK_URL` (the deployed Modal endpoint URLs, printed by `modal deploy`), and
 `SCHEDULER_SHARED_SECRET` (same value as the Modal secret above).
 

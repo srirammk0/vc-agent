@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 type Category = "social";
 
 const CATEGORIES: { id: Category; label: string }[] = [
-  { id: "social", label: "Social & Founders" },
+  { id: "social", label: "Crawl Results" },
 ];
 
 export default function SignalsPanel({ signals }: { signals: Signal[] }) {
@@ -213,22 +213,8 @@ export default function SignalsPanel({ signals }: { signals: Signal[] }) {
                                   borderRadius: 4,
                                 }}
                               >
-                                {s.platform}
+                                Sourced from: {s.platform}
                               </span>
-                              {s.signal_type && (
-                                <span
-                                  style={{
-                                    fontSize: 11,
-                                    fontWeight: 500,
-                                    color: "var(--accent)",
-                                    background: "rgba(0,122,255,0.08)",
-                                    padding: "2px 6px",
-                                    borderRadius: 4,
-                                  }}
-                                >
-                                  {s.signal_type}
-                                </span>
-                              )}
                             </div>
                             <div style={{ fontSize: 12, color: "var(--muted)", display: "flex", gap: 12 }}>
                               <span>Score: {s.score}</span>

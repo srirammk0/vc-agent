@@ -5,8 +5,9 @@ genuinely promising-but-not-yet-actionable few via Trigger.dev (agent/trigger_cl
 Excerpt-level only — no deep research per item, matching the daily scrape's own
 filtering depth.
 
-Runs once daily via signals_review_scheduled in modal_app.py, after that day's
-last signals_scheduled run.
+Runs once daily via signals_review_scheduled in modal_app.py, after whatever
+agent-directed crawls (agent/signals_scraper.py's run_directed_crawl, fired by
+text_agent's crawl_for_startups tool) landed in the signals table that day.
 """
 
 import asyncio

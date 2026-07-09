@@ -17,9 +17,16 @@ import memory_store as sm
 import cache
 import llm
 import trigger_client
+import scheduled_tasks_log
 
 _EXA_DEEP_TTL_SECONDS = 6 * 3600
 _USAGE_LIMITS = UsageLimits(request_limit=40)
+
+# schedule_followup bounds: default ceiling keeps the agent's own judgment calls
+# short-term; boss_specified_duration=True (only when the boss stated an explicit
+# longer timeframe themselves) unlocks the higher absolute ceiling instead.
+DEFAULT_MAX_FOLLOWUP_MINUTES = 3 * 24 * 60  # 3 days
+ABSOLUTE_MAX_FOLLOWUP_MINUTES = 30 * 24 * 60  # 30 days, hard cap regardless
 
 model = llm.model
 
@@ -362,10 +369,26 @@ Common requests and exactly how to handle them:
 → call update_thesis with the full new content
 
 "check back on X in [timeframe]" / "remind me about this later" / "follow up on this in a week"
-→ call schedule_followup(due_in_minutes, instructions) — any granularity works, from minutes (e.g. "in
-  20 minutes" -> 20) to weeks (e.g. "in a week" -> 10080) — with instructions written as a reminder to
-  yourself
+→ call schedule_followup(due_in_minutes, instructions) — convert whatever timeframe the boss gave you
+  (e.g. "in 20 minutes" -> 20, "in 2 days" -> 2880)
+→ default to short-term: your own judgment calls ("probably worth checking back on this soon") should
+  stay within 3 days — schedule_followup enforces this automatically, don't fight it
+→ only pass boss_specified_duration=True when the boss THEMSELVES stated a specific longer timeframe
+  (e.g. "check back in a month") — this unlocks a longer schedule instead of the 3-day default
 → reply confirming when you'll check back
+
+"what do you have scheduled" / "what's coming up" / "did you already schedule a check on X"
+→ call list_scheduled_tasks() and summarize what's pending
+
+Where to crawl when the boss wants startups sourced (call crawl_for_startups):
+→ stealth startups and general LinkedIn/X sourcing: pass platforms=["linkedin","x"] and, if the boss
+  named a niche/industry, your own search_terms for it — otherwise the tool's default terms already
+  cover stealth-mode/launch/raise phrasing
+→ a specific accelerator's portfolio (e.g. "check YC's site for new AI companies"): pass
+  portfolio_urls=[that exact URL] — only ever a URL you were actually given or that you're confident
+  is real, never invent one
+→ this runs in the background and texts back what it finds — reply confirming you've started, don't
+  wait for results before replying
 
 Startups you already know (name | slug | status) — never re-save these:
 {known}
@@ -435,6 +458,7 @@ def register_tools(
     exa: bool = True,
     linkup_tools: bool = False,
     follow_up: bool = False,
+    crawl: bool = False,
     reflection_source: str,
 ):
     _T = "[tool timed out — skip this step and continue]"
@@ -638,26 +662,107 @@ def register_tools(
     if follow_up:
 
         @agent.tool(prepare=make_non_strict)
-        async def schedule_followup(ctx: RunContext[AgentDeps], due_in_minutes: int, instructions: str) -> str:
-            """Schedule a future check-in the boss asked for — any granularity, from minutes to weeks
-            (e.g. 'check back on X in 20 minutes', 'check back on X's funding in a week').
-            due_in_minutes: minutes from now — convert whatever timeframe the boss gave you
-            (20 minutes -> 20, 2 hours -> 120, a week -> 10080). instructions: what to check/do when
-            it fires, written as a reminder to yourself."""
+        async def schedule_followup(
+            ctx: RunContext[AgentDeps],
+            due_in_minutes: int,
+            instructions: str,
+            boss_specified_duration: bool = False,
+        ) -> str:
+            """Schedule a future check-in. Defaults to short-term — stays within 3 days unless
+            boss_specified_duration=True. due_in_minutes: minutes from now — convert whatever
+            timeframe the boss gave you (20 minutes -> 20, 2 hours -> 120, 2 days -> 2880).
+            boss_specified_duration: set True ONLY when the boss explicitly stated a longer
+            timeframe themselves (e.g. 'check back in a month') — leave False for your own
+            judgment calls like 'probably worth revisiting in a couple weeks', which get capped
+            at 3 days instead. instructions: what to check/do when it fires, written as a
+            reminder to yourself."""
             deps = ctx.deps
             sender = deps.phone_number if deps else None
             if not sender:
                 return "[cannot schedule: no sender on this conversation]"
             try:
-                due_at = datetime.now(timezone.utc) + timedelta(minutes=max(due_in_minutes, 1))
+                ceiling = ABSOLUTE_MAX_FOLLOWUP_MINUTES if boss_specified_duration else DEFAULT_MAX_FOLLOWUP_MINUTES
+                requested = due_in_minutes
+                due_in_minutes = min(max(due_in_minutes, 1), ceiling)
+                due_at = datetime.now(timezone.utc) + timedelta(minutes=due_in_minutes)
                 ok = await trigger_client.schedule_check(
                     "text_followup",
                     {"sender": sender, "instructions": instructions},
                     due_at,
+                    idempotency_key=f"text_followup:{sender}:{due_at.isoformat()}",
                 )
                 if not ok:
                     return "[failed to schedule — trigger.dev call didn't succeed, try again]"
-                return f"Scheduled a follow-up in {_format_duration(due_in_minutes)}."
+                reply = f"Scheduled a follow-up in {_format_duration(due_in_minutes)}."
+                if due_in_minutes < requested:
+                    reply += " (capped — let me know if you really want it further out)"
+                return reply
+            except Exception as e:
+                return _err(e)
+
+        @agent.tool(prepare=make_non_strict)
+        async def list_scheduled_tasks(ctx: RunContext[AgentDeps]) -> str:
+            """List everything currently scheduled (follow-ups, signal re-checks, daily portfolio
+            checks, crawls) that hasn't fired yet, soonest first. Use this when the boss asks
+            what's scheduled/pending, or to check for a duplicate before scheduling something new."""
+            try:
+                pending = scheduled_tasks_log.list_pending()
+                if not pending:
+                    return "Nothing currently scheduled."
+                lines = []
+                for t in pending:
+                    due = t.get("due_at", "?")
+                    kind = t.get("kind", "?")
+                    payload = t.get("payload") or {}
+                    detail = payload.get("instructions") or payload.get("notes") or payload.get("reason") or ""
+                    lines.append(f"- [{kind}] due {due}" + (f" — {detail}" if detail else ""))
+                return "\n".join(lines)
+            except Exception as e:
+                return _err(e)
+
+    if crawl:
+
+        @agent.tool(prepare=make_non_strict)
+        async def crawl_for_startups(
+            ctx: RunContext[AgentDeps],
+            platforms: list[str],
+            search_terms: list[str] | None = None,
+            portfolio_urls: list[str] | None = None,
+            notes: str = "",
+        ) -> str:
+            """Direct a background crawl for early-stage AI startups and text back what it
+            finds. Three places to point it: stealth founders and general LinkedIn/X
+            sourcing (platforms=["linkedin","x"], optionally your own search_terms for a
+            niche the boss named — otherwise sensible defaults, including stealth-mode
+            phrasing, are used); a specific accelerator/investor's portfolio page
+            (portfolio_urls=[exact URL] — only ever a URL you were actually given or are
+            confident is real, never invent one; platforms can be empty in this case).
+            notes: freeform context (e.g. the niche/industry) fed into the filtering.
+            Runs in the background — returns immediately, results arrive as a follow-up
+            text, so reply confirming you've started rather than waiting."""
+            deps = ctx.deps
+            sender = deps.phone_number if deps else None
+            if not sender:
+                return "[cannot crawl: no sender on this conversation]"
+            if not platforms and not portfolio_urls:
+                return "[need at least one of platforms or portfolio_urls to crawl]"
+            try:
+                due_at = datetime.now(timezone.utc) + timedelta(minutes=1)
+                ok = await trigger_client.schedule_check(
+                    "directed_crawl",
+                    {
+                        "sender": sender,
+                        "platforms": platforms,
+                        "search_terms": search_terms,
+                        "portfolio_urls": portfolio_urls,
+                        "notes": notes,
+                    },
+                    due_at,
+                )
+                if not ok:
+                    return "[failed to start crawl — trigger.dev call didn't succeed, try again]"
+                sources = ", ".join(platforms) if platforms else f"{len(portfolio_urls or [])} portfolio page(s)"
+                return f"Started crawling {sources}. I'll text you what I find."
             except Exception as e:
                 return _err(e)
 
@@ -707,7 +812,7 @@ def register_tools(
                 return f"Failed to send reaction: {e}"
 
 
-register_tools(text_agent, linkup_tools=True, follow_up=True, reflection_source="text")
+register_tools(text_agent, linkup_tools=True, follow_up=True, crawl=True, reflection_source="text")
 register_tools(
     feedback_agent,
     dealflow=True,

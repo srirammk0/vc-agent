@@ -234,28 +234,10 @@ def sync_scheduled(payload: dict):
     return {"status": "ok"}
 
 
-# --- Signals Scraper (frequent sources). Scheduling owned by Trigger.dev ---
-# --- (cron 0 */2 * * *, src/trigger/signals-scrape.ts).                  ---
-@app.function(
-    image=image,
-    secrets=[modal.Secret.from_name("vc-scout-secrets")],
-    timeout=1800,  # 30 mins
-)
-@modal.fastapi_endpoint(method="POST")
-def signals_scheduled(payload: dict):
-    _check_scheduler_secret(payload)
-    import sys
-    import asyncio
-    sys.path.insert(0, "/root/agent")
-    from signals_scraper import scrape_and_filter_frequent
-    asyncio.run(scrape_and_filter_frequent())
-    return {"status": "ok"}
-
-
-# --- Signals review: once daily, an agent curates the day's raw signals (deletes ---
-# --- bad/duplicate/noise). Scheduling owned by Trigger.dev (cron 50 23 * * *      ---
-# --- America/New_York, src/trigger/signals-review.ts), after that day's last      ---
-# --- signals_scheduled fire (last 2h fire is 22:00 UTC).                          ---
+# --- Signals review: once daily, an agent curates whatever landed in the signals   ---
+# --- table that day via agent-directed crawls (deletes bad/duplicate/noise).       ---
+# --- Scheduling owned by Trigger.dev (cron 50 23 * * * America/New_York,           ---
+# --- src/trigger/signals-review.ts).                                              ---
 @app.function(
     image=image,
     secrets=[modal.Secret.from_name("vc-scout-secrets")],
@@ -274,12 +256,14 @@ def signals_review_scheduled(payload: dict):
 
 # --- Scheduled-check dispatch: fired by Trigger.dev's run-scheduled-check task ---
 # --- when a one-off delayed trigger comes due (signal re-checks, follow-up     ---
-# --- texts, daily portfolio checks). This is how self-scheduling actually      ---
-# --- fires now — see agent/trigger_client.py for how these get scheduled.      ---
+# --- texts, daily portfolio checks, agent-directed crawls). This is how        ---
+# --- self-scheduling actually fires now — see agent/trigger_client.py for how  ---
+# --- these get scheduled. timeout=1800 to give directed_crawl (the heaviest    ---
+# --- kind — full LinkedIn/X search + portfolio-page crawling) room to finish.  ---
 @app.function(
     image=image,
     secrets=[modal.Secret.from_name("vc-scout-secrets")],
-    timeout=600,
+    timeout=1800,
 )
 @modal.fastapi_endpoint(method="POST")
 def run_scheduled_check(payload: dict):
@@ -315,10 +299,26 @@ def run_scheduled_check(payload: dict):
                     "message": notify,
                     "recipients": notify_phone_numbers(),
                 })
+        elif kind == "directed_crawl":
+            from signals_scraper import run_directed_crawl
+            notify = asyncio.run(run_directed_crawl(payload))
+            if notify:
+                send_sms(notify)
+                run_agent({
+                    "mode": "append_alert",
+                    "message": notify,
+                    "recipients": notify_phone_numbers(),
+                })
         else:
             print(f"run_scheduled_check: unknown kind {kind!r}")
     except Exception as e:
         print(f"run_scheduled_check: task kind={kind} failed:", e)
+
+    try:
+        from scheduled_tasks_log import mark_done
+        mark_done(payload.get("_task_id"))
+    except Exception as e:
+        print("run_scheduled_check: mark_done failed:", e)
 
     return {"status": "ok"}
 

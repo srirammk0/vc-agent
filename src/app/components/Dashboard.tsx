@@ -19,7 +19,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "new", label: "New" },
   { id: "approved", label: "Approved" },
   { id: "passed", label: "Passed" },
-  { id: "signals", label: "Signals" },
+  { id: "signals", label: "Crawl Results" },
 ];
 
 const TAB_COUNT_BADGE: Record<Tab, { bg: string; color: string }> = {
@@ -112,7 +112,7 @@ export default function Dashboard({ initial, initialSignals }: { initial: Startu
   const [batchBusy, setBatchBusy] = useState<string | null>(null);
 
   async function clearAllSignals() {
-    if (!confirm("Are you sure you want to clear all active signals?")) return;
+    if (!confirm("Are you sure you want to clear all active crawl results?")) return;
     setClearing(true);
     try {
       await fetch("/api/signals", { method: "DELETE" });
