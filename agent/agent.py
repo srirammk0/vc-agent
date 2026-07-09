@@ -362,7 +362,9 @@ Common requests and exactly how to handle them:
 → call update_thesis with the full new content
 
 "check back on X in [timeframe]" / "remind me about this later" / "follow up on this in a week"
-→ call schedule_followup(due_in_days, instructions) with instructions written as a reminder to yourself
+→ call schedule_followup(due_in_minutes, instructions) — any granularity works, from minutes (e.g. "in
+  20 minutes" -> 20) to weeks (e.g. "in a week" -> 10080) — with instructions written as a reminder to
+  yourself
 → reply confirming when you'll check back
 
 Startups you already know (name | slug | status) — never re-save these:
@@ -381,6 +383,14 @@ Patterns you've learned (seek/avoid):
 def make_non_strict(ctx: RunContext, tool_def: ToolDefinition) -> ToolDefinition:
     tool_def.strict = False
     return tool_def
+
+
+def _format_duration(minutes: int) -> str:
+    if minutes < 60:
+        return f"{minutes} minute(s)"
+    if minutes < 1440:
+        return f"{minutes / 60:g} hour(s)"
+    return f"{minutes / 1440:g} day(s)"
 
 
 async def _exa_deep_search_one(query: str) -> str:
@@ -628,15 +638,18 @@ def register_tools(
     if follow_up:
 
         @agent.tool(prepare=make_non_strict)
-        async def schedule_followup(ctx: RunContext[AgentDeps], due_in_days: int, instructions: str) -> str:
-            """Schedule a future check-in the boss asked for (e.g. 'check back on X's funding in a week').
-            due_in_days: days from now. instructions: what to check/do when it fires, written as a reminder to yourself."""
+        async def schedule_followup(ctx: RunContext[AgentDeps], due_in_minutes: int, instructions: str) -> str:
+            """Schedule a future check-in the boss asked for — any granularity, from minutes to weeks
+            (e.g. 'check back on X in 20 minutes', 'check back on X's funding in a week').
+            due_in_minutes: minutes from now — convert whatever timeframe the boss gave you
+            (20 minutes -> 20, 2 hours -> 120, a week -> 10080). instructions: what to check/do when
+            it fires, written as a reminder to yourself."""
             deps = ctx.deps
             sender = deps.phone_number if deps else None
             if not sender:
                 return "[cannot schedule: no sender on this conversation]"
             try:
-                due_at = datetime.now(timezone.utc) + timedelta(days=max(due_in_days, 0))
+                due_at = datetime.now(timezone.utc) + timedelta(minutes=max(due_in_minutes, 1))
                 ok = await trigger_client.schedule_check(
                     "text_followup",
                     {"sender": sender, "instructions": instructions},
@@ -644,7 +657,7 @@ def register_tools(
                 )
                 if not ok:
                     return "[failed to schedule — trigger.dev call didn't succeed, try again]"
-                return f"Scheduled a follow-up in {due_in_days} day(s)."
+                return f"Scheduled a follow-up in {_format_duration(due_in_minutes)}."
             except Exception as e:
                 return _err(e)
 
