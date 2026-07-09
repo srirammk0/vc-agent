@@ -16,7 +16,7 @@ from tools import linkup
 import memory_store as sm
 import cache
 import llm
-import scheduler
+import trigger_client
 
 _EXA_DEEP_TTL_SECONDS = 6 * 3600
 _USAGE_LIMITS = UsageLimits(request_limit=40)
@@ -637,11 +637,13 @@ def register_tools(
                 return "[cannot schedule: no sender on this conversation]"
             try:
                 due_at = datetime.now(timezone.utc) + timedelta(days=max(due_in_days, 0))
-                await scheduler.write_scheduled_task(
-                    kind="text_followup",
-                    due_at=due_at,
-                    payload={"sender": sender, "instructions": instructions},
+                ok = await trigger_client.schedule_check(
+                    "text_followup",
+                    {"sender": sender, "instructions": instructions},
+                    due_at,
                 )
+                if not ok:
+                    return "[failed to schedule — trigger.dev call didn't succeed, try again]"
                 return f"Scheduled a follow-up in {due_in_days} day(s)."
             except Exception as e:
                 return _err(e)

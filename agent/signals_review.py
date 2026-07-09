@@ -1,13 +1,15 @@
 """End-of-day signals review — a pydantic-ai agent (not a raw Gemma call) that reads
 every excerpt-level signal from today's scrape (already ≤50 via signals_scraper's
 daily cap), deletes bad/duplicate/noise, and schedules a future re-check on the
-genuinely promising-but-not-yet-actionable few. Excerpt-level only — no deep
-research per item, matching the daily scrape's own filtering depth.
+genuinely promising-but-not-yet-actionable few via Trigger.dev (agent/trigger_client.py).
+Excerpt-level only — no deep research per item, matching the daily scrape's own
+filtering depth.
 
 Runs once daily via signals_review_scheduled in modal_app.py, after that day's
 last signals_scheduled run.
 """
 
+import asyncio
 import os
 from datetime import datetime, timedelta, timezone
 
@@ -16,16 +18,16 @@ from pydantic_ai import Agent, RunContext, ToolDefinition
 from supabase import create_client
 
 import llm
-import scheduler
+import trigger_client
 
 
 def _make_non_strict(ctx: RunContext, tool_def: ToolDefinition) -> ToolDefinition:
     tool_def.strict = False
     return tool_def
 
-MAX_SCHEDULES_PER_RUN = 5
 MIN_RECHECK_DAYS = 7
 MAX_RECHECKS_PER_SIGNAL = 2
+MAX_SCHEDULES_PER_RUN = 5
 
 SIGNALS_REVIEW_RULES = """You review today's raw LinkedIn/X signals for a pre-seed AI VC fund's sourcing
 pipeline. You're given excerpts only (title, platform, snippet, company name, conviction score) — do NOT
@@ -94,6 +96,35 @@ def _delete_signals_sync(ids: list[str]) -> list[str]:
         return []
 
 
+def _get_recheck_count_sync(signal_id: str) -> int:
+    """Guardrail state now lives on the signals row itself (recheck_count,
+    last_recheck_scheduled_at — scripts/migrate-signal-recheck-tracking.sql),
+    replacing the old Supabase scheduled_tasks table's count query. Trigger.dev
+    owns actual timing; this is just the "how many times ever" cap."""
+    sb = _sb_client()
+    if sb is None:
+        return 0
+    try:
+        res = sb.table("signals").select("recheck_count").eq("id", signal_id).single().execute()
+        return (res.data or {}).get("recheck_count") or 0
+    except Exception as e:
+        print(f"signals_review: failed to read recheck_count for {signal_id}:", e)
+        return 0
+
+
+def _bump_recheck_count_sync(signal_id: str, prior_count: int) -> None:
+    sb = _sb_client()
+    if sb is None:
+        return
+    try:
+        sb.table("signals").update({
+            "recheck_count": prior_count + 1,
+            "last_recheck_scheduled_at": datetime.now(timezone.utc).isoformat(),
+        }).eq("id", signal_id).execute()
+    except Exception as e:
+        print(f"signals_review: failed to bump recheck_count for {signal_id}:", e)
+
+
 def _build_agent() -> Agent:
     """Fresh Agent + tools per run so MAX_SCHEDULES_PER_RUN is a real per-run cap,
     not accumulated state across cron fires."""
@@ -127,7 +158,7 @@ def _build_agent() -> Agent:
             if scheduled_this_run["n"] >= MAX_SCHEDULES_PER_RUN:
                 skipped.append(f"{check.signal_id} (run limit)")
                 continue
-            prior = await scheduler.count_pending_or_done_for_signal(check.signal_id)
+            prior = await asyncio.to_thread(_get_recheck_count_sync, check.signal_id)
             if prior >= MAX_RECHECKS_PER_SIGNAL:
                 skipped.append(f"{check.signal_id} (already re-checked {prior}x)")
                 continue
@@ -139,7 +170,14 @@ def _build_agent() -> Agent:
                 "company_name": row.get("company_name", ""),
                 "source_url": row.get("source_url", ""),
             }
-            await scheduler.write_scheduled_task("signal_recheck", due_at, payload)
+            ok = await trigger_client.schedule_check(
+                "signal_recheck", payload, due_at,
+                idempotency_key=f"signal_recheck:{check.signal_id}:{prior}",
+            )
+            if not ok:
+                skipped.append(f"{check.signal_id} (trigger.dev scheduling failed)")
+                continue
+            await asyncio.to_thread(_bump_recheck_count_sync, check.signal_id, prior)
             scheduled_this_run["n"] += 1
             scheduled.append(check.signal_id)
 

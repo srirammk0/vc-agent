@@ -41,6 +41,18 @@ def run_agent(payload: dict) -> dict:
     return json.loads(result.stdout)
 
 
+def _check_scheduler_secret(payload: dict) -> None:
+    """Guards endpoints only Trigger.dev's scheduler should call — these used to be
+    Modal-cron-only (unreachable from the internet) and became HTTP-callable to let
+    Trigger.dev own scheduling, so this closes the gap that opened up."""
+    import os
+    from fastapi import HTTPException
+
+    expected = os.environ.get("SCHEDULER_SHARED_SECRET", "")
+    if not expected or (payload or {}).get("secret") != expected:
+        raise HTTPException(status_code=401, detail="unauthorized")
+
+
 def _e164(phone: str | None) -> str | None:
     if not phone:
         return None
@@ -204,90 +216,131 @@ def _stop_typing_loop(
         send_typing(recipient, "stop")
 
 
-# --- Sync: mirror Supermemory -> Supabase ---
+# --- Sync: mirror Supermemory -> Supabase. Scheduling owned by Trigger.dev ---
+# --- (cron */30 * * * *, src/trigger/sync.ts) — this is now a plain hardened  ---
+# --- HTTP endpoint, not a Modal cron.                                        ---
 @app.function(
     image=image,
     secrets=[modal.Secret.from_name("vc-scout-secrets")],
-    schedule=modal.Cron("*/30 * * * *"),
     timeout=300,
 )
-def sync_scheduled():
+@modal.fastapi_endpoint(method="POST")
+def sync_scheduled(payload: dict):
+    _check_scheduler_secret(payload)
     import sys
     sys.path.insert(0, "/root/agent")
     from sync import sync
     sync()
+    return {"status": "ok"}
 
 
-# --- Signals Scraper (frequent sources): runs every 2 hours ---
+# --- Signals Scraper (frequent sources). Scheduling owned by Trigger.dev ---
+# --- (cron 0 */2 * * *, src/trigger/signals-scrape.ts).                  ---
 @app.function(
     image=image,
     secrets=[modal.Secret.from_name("vc-scout-secrets")],
-    schedule=modal.Cron("0 */2 * * *"),
     timeout=1800,  # 30 mins
 )
-def signals_scheduled():
+@modal.fastapi_endpoint(method="POST")
+def signals_scheduled(payload: dict):
+    _check_scheduler_secret(payload)
     import sys
     import asyncio
     sys.path.insert(0, "/root/agent")
     from signals_scraper import scrape_and_filter_frequent
     asyncio.run(scrape_and_filter_frequent())
+    return {"status": "ok"}
 
 
 # --- Signals review: once daily, an agent curates the day's raw signals (deletes ---
-# --- bad/duplicate/noise, schedules re-checks on the promising few). Runs after   ---
-# --- that day's last signals_scheduled fire (last 2h fire is 22:00 UTC).          ---
+# --- bad/duplicate/noise). Scheduling owned by Trigger.dev (cron 50 23 * * *      ---
+# --- America/New_York, src/trigger/signals-review.ts), after that day's last      ---
+# --- signals_scheduled fire (last 2h fire is 22:00 UTC).                          ---
 @app.function(
     image=image,
     secrets=[modal.Secret.from_name("vc-scout-secrets")],
-    schedule=modal.Cron("50 23 * * *", timezone="America/New_York"),
     timeout=600,
 )
-def signals_review_scheduled():
+@modal.fastapi_endpoint(method="POST")
+def signals_review_scheduled(payload: dict):
+    _check_scheduler_secret(payload)
     import sys
     import asyncio
     sys.path.insert(0, "/root/agent")
     from signals_review import run_signals_review
     asyncio.run(run_signals_review())
+    return {"status": "ok"}
 
 
-# --- Scheduled-tasks poller: pops due self-scheduled work (signal re-checks, ---
-# --- boss-requested follow-up texts). Modal has no native delayed-execution   ---
-# --- primitive, so this polling cron + the Supabase `scheduled_tasks` table   ---
-# --- is the mechanism (see agent/scheduler.py).                              ---
+# --- Scheduled-check dispatch: fired by Trigger.dev's run-scheduled-check task ---
+# --- when a one-off delayed trigger comes due (signal re-checks, follow-up     ---
+# --- texts, daily portfolio checks). This is how self-scheduling actually      ---
+# --- fires now — see agent/trigger_client.py for how these get scheduled.      ---
 @app.function(
     image=image,
     secrets=[modal.Secret.from_name("vc-scout-secrets")],
-    schedule=modal.Cron("*/20 * * * *"),
     timeout=600,
 )
-def scheduled_tasks_poller():
+@modal.fastapi_endpoint(method="POST")
+def run_scheduled_check(payload: dict):
+    _check_scheduler_secret(payload)
     import sys
     import asyncio
     sys.path.insert(0, "/root/agent")
-    from scheduler import load_due_tasks, mark_task_done
 
-    async def _run():
-        for task in await load_due_tasks():
-            try:
-                if task["kind"] == "text_followup":
-                    p = task.get("payload") or {}
-                    if p.get("sender") and p.get("instructions"):
-                        chat_reply_background.spawn(p["instructions"], p["sender"])
-                elif task["kind"] == "signal_recheck":
-                    from signals_review import recheck_signal
-                    notify = await recheck_signal(task.get("payload") or {})
-                    if notify:
-                        send_sms(notify)
-                        run_agent({
-                            "mode": "append_alert",
-                            "message": notify,
-                            "recipients": notify_phone_numbers(),
-                        })
-                await mark_task_done(task["id"])
-            except Exception as e:
-                print(f"scheduled_tasks_poller: task {task.get('id')} failed:", e)
+    kind = payload.get("kind")
+    try:
+        if kind == "text_followup":
+            sender = payload.get("sender")
+            instructions = payload.get("instructions")
+            if sender and instructions:
+                chat_reply_background.spawn(instructions, sender)
+        elif kind == "signal_recheck":
+            from signals_scraper import recheck_signal
+            notify = asyncio.run(recheck_signal(payload))
+            if notify:
+                send_sms(notify)
+                run_agent({
+                    "mode": "append_alert",
+                    "message": notify,
+                    "recipients": notify_phone_numbers(),
+                })
+        elif kind == "daily_check":
+            from daily_planner import run_daily_check
+            notify = asyncio.run(run_daily_check(payload))
+            if notify:
+                send_sms(notify)
+                run_agent({
+                    "mode": "append_alert",
+                    "message": notify,
+                    "recipients": notify_phone_numbers(),
+                })
+        else:
+            print(f"run_scheduled_check: unknown kind {kind!r}")
+    except Exception as e:
+        print(f"run_scheduled_check: task kind={kind} failed:", e)
 
-    asyncio.run(_run())
+    return {"status": "ok"}
+
+
+# --- Daily planner: once each morning, decides which approved-but-quiet     ---
+# --- startups deserve a fresh look today and schedules each via Trigger.dev ---
+# --- (agent/daily_planner.py). Scheduling owned by Trigger.dev (cron        ---
+# --- 0 6 * * * America/New_York, src/trigger/daily-planner.ts).             ---
+@app.function(
+    image=image,
+    secrets=[modal.Secret.from_name("vc-scout-secrets")],
+    timeout=600,
+)
+@modal.fastapi_endpoint(method="POST")
+def daily_planner_scheduled(payload: dict):
+    _check_scheduler_secret(payload)
+    import sys
+    import asyncio
+    sys.path.insert(0, "/root/agent")
+    from daily_planner import run_daily_planner
+    asyncio.run(run_daily_planner())
+    return {"status": "ok"}
 
 
 @app.function(

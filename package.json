@@ -1,17 +1,20 @@
 {
   "name": "vc-research-agent",
   "version": "3.0.0",
-  "description": "VC research agent — Pydantic AI + Cerebras, Exa, Supabase, SendBlue, Modal",
+  "description": "VC research agent — Pydantic AI + Cerebras, Exa, Supabase, SendBlue, Modal, Trigger.dev",
   "type": "module",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "trigger:dev": "npx trigger.dev@4.5.1 dev",
+    "trigger:deploy": "npx trigger.dev@4.5.1 deploy"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
     "@tailwindcss/postcss": "^4.3.1",
+    "@trigger.dev/sdk": "^4.5.1",
     "lucide-react": "^1.22.0",
     "next": "^16.2.9",
     "react": "^19.2.7",

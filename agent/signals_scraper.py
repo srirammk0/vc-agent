@@ -817,11 +817,10 @@ async def scrape_and_filter_frequent():
 
 
 async def recheck_signal(payload: dict) -> str | None:
-    """Fired by the scheduled_tasks_poller for a 'signal_recheck' task (scheduled by
-    signals_review's schedule_signal_check tool). Runs one fresh Exa search + one
-    Gemma call scoped to this single company; if conviction now clears the bar,
-    updates the Supabase row and returns an SMS-worthy summary. Returns None
-    otherwise (silent — no SMS unless genuinely promising)."""
+    """Fired for a 'signal_recheck' task scheduled via Trigger.dev. Runs one fresh
+    Exa search + one Gemma call scoped to this single company; if conviction now
+    clears the bar, updates the Supabase row and returns an SMS-worthy summary.
+    Returns None otherwise (silent — no SMS unless genuinely promising)."""
     signal_id = payload.get("signal_id")
     company_name = payload.get("company_name", "")
     source_url = payload.get("source_url", "")
