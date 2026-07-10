@@ -4,6 +4,7 @@ import { supabase, type Startup } from "../../../lib/supabase";
 import StatusBadge from "../../components/StatusBadge";
 import StartupActions from "../../components/StartupActions";
 import EnrichmentSection from "../../components/EnrichmentSection";
+import StartupEmbeds from "../../components/StartupEmbeds";
 
 export const dynamic = "force-dynamic";
 
@@ -112,6 +113,20 @@ export default async function StartupDetail({
             </div>
           </div>
         </div>
+
+        <StartupEmbeds
+          website={s.website}
+          founders={s.founders}
+          enrichmentFields={{
+            company_description: s.company_description,
+            founders: s.founders,
+            stage: s.stage,
+            raised: s.raised,
+            location: s.location,
+            founded: s.founded,
+            team_size: s.team_size,
+          }}
+        />
 
         {/* Assessment */}
         <Section title="Assessment">

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import ScrollRestoration from "./components/ScrollRestoration";
 
 export const metadata: Metadata = {
   title: "VC Research Agent",
@@ -10,6 +11,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body suppressHydrationWarning>
+        <ScrollRestoration />
         {children}
       </body>
     </html>

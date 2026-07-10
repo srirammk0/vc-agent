@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { MessageCircle } from "lucide-react";
 import type { Startup } from "../../lib/supabase";
 import { hasEnrichmentData } from "../../lib/enrichment";
@@ -98,11 +99,12 @@ function HeroLoader() {
   );
 }
 
-type DashUiState = { tab: Tab; query: string; scrollY: number };
+type DashUiState = { tab: Tab; query: string };
 
 const DASH_UI_KEY = "dealflow-ui";
 
 export default function Dashboard({ initial }: { initial: Startup[] }) {
+  const router = useRouter();
   const { startups, refresh: refreshStartups, refreshing: refreshingStartups } = useLiveStartups(initial);
   const savedUi = readSession<Partial<DashUiState>>(DASH_UI_KEY, {});
   const [tab, setTab] = useState<Tab>((savedUi.tab as Tab) ?? "all");
@@ -141,17 +143,7 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
       typeof navigator !== "undefined" &&
         /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent)
     );
-
-    if (typeof window !== "undefined") {
-      if ("scrollRestoration" in window.history) {
-        window.history.scrollRestoration = "manual";
-      }
-      const y = savedUi.scrollY ?? 0;
-      if (y > 0) {
-        requestAnimationFrame(() => window.scrollTo(0, y));
-      }
-      writeSession("dealflow-seen", true);
-    }
+    writeSession("dealflow-seen", true);
 
     if (booting) {
       const t = setTimeout(() => setBooting(false), 280);
@@ -161,21 +153,6 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
 
   useEffect(() => {
     writeSession(DASH_UI_KEY, { tab, query });
-  }, [tab, query]);
-
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const onScroll = () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        writeSession(DASH_UI_KEY, { tab, query, scrollY: window.scrollY });
-      }, 120);
-    };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      clearTimeout(timer);
-      window.removeEventListener("scroll", onScroll);
-    };
   }, [tab, query]);
 
   const counts = useMemo(
@@ -410,6 +387,11 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
                   key={s.slug}
                   data-startup-card
                   className="row-enter"
+                  onClick={(e) => {
+                    const target = e.target as HTMLElement;
+                    if (target.closest("a, button, input, label, [data-no-nav]")) return;
+                    router.push(`/startups/${s.slug}`);
+                  }}
                   style={{
                     animationDelay: `${Math.min(i * 22, 280)}ms`,
                     border: isSelected ? "1.5px solid var(--accent)" : "1px solid var(--border)",
@@ -425,6 +407,7 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
                     transition: "all 0.25s cubic-bezier(0.16, 1, 0.3, 1)",
                     padding: "18px 20px",
                     position: "relative",
+                    cursor: enriched ? "pointer" : "default",
                   }}
                 >
                   {/* Card top row: name + badges + actions */}
@@ -436,7 +419,7 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
                       gap: 12,
                     }}
                   >
-                    <div style={{ paddingTop: 2, flexShrink: 0 }}>
+                    <div style={{ paddingTop: 2, flexShrink: 0 }} data-no-nav>
                       <CleanCheckbox
                         checked={isSelected}
                         onChange={() => {
@@ -532,7 +515,7 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
                     </div>
 
                     {/* Actions (raised so menus sit above card content) */}
-                    <div style={{ flexShrink: 0, position: "relative", zIndex: 20 }}>
+                    <div style={{ flexShrink: 0, position: "relative", zIndex: 20 }} data-no-nav>
                       <StartupActions
                         slug={s.slug}
                         name={s.name}
