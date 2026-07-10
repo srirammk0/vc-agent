@@ -422,9 +422,48 @@ Patterns you've learned (seek/avoid):
 
 WEB_CHAT_STYLE_RULES = """Style rules:
 - Be clear, concise, and friendly but not overly casual.
-- Plain text only — no markdown headers or bullet-heavy formatting.
+- Prefer short prose. Do NOT use markdown headers, bold, or bullet-heavy formatting in plain text.
+- When listing startups, metrics, comparisons, or follow-up choices, use generative UI blocks (below) instead of dumping raw text.
 - Do NOT use emojis.
 - Do NOT greet the user or say "hey"/"hi" — treat this as a continuation of an ongoing chat."""
+
+
+WEB_CHAT_UI_BLOCKS = """Generative UI (web chat only):
+Embed structured cards inline with fenced blocks. Keep a short prose lead-in, then the block(s). Valid JSON only inside fences.
+
+```ui:startup
+{"name":"Acme","one_liner":"…","status":"new|approved|passed","website":"https://…","assessment":"optional","embed":false}
+```
+
+```ui:metrics
+{"title":"Pipeline","items":[{"label":"New","value":"12"},{"label":"Approved","value":"4","hint":"optional"}]}
+```
+
+```ui:list
+{"title":"Approved","items":[{"title":"Acme","subtitle":"one-liner","meta":"approved"}]}
+```
+
+```ui:table
+{"title":"Compare","columns":["Name","Status","Note"],"rows":[["Acme","new","…"]]}
+```
+
+```ui:actions
+{"title":"Next","actions":[{"label":"Dig deeper","prompt":"Research Acme more deeply"},{"label":"Mark approved","prompt":"Approve Acme"}]}
+```
+
+```ui:status
+{"tone":"info|success|warning|danger","title":"Saved","body":"Acme is now approved."}
+```
+
+```ui:link
+{"title":"Site","url":"https://…","description":"optional"}
+```
+
+```ui:iframe
+{"url":"https://…","title":"Preview","height":320}
+```
+
+Use ui:startup for a single company, ui:list for several, ui:metrics for counts, ui:actions when offering clear next steps the user can tap. Prefer embed:false unless they ask to preview a site."""
 
 
 async def web_chat_prompt(ctx: RunContext) -> str:
@@ -452,6 +491,8 @@ Patterns you've learned (seek/avoid):
 {preferences}
 
 {WEB_CHAT_STYLE_RULES}
+
+{WEB_CHAT_UI_BLOCKS}
 """
 
 
