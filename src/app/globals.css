@@ -703,8 +703,6 @@ a {
   flex-direction: column;
   gap: 22px;
   padding-bottom: 8px;
-  max-width: 960px;
-  margin: 0 auto;
   width: 100%;
 }
 
@@ -729,8 +727,6 @@ a {
   align-items: flex-start;
   justify-content: center;
   padding: 24px 4px 48px;
-  max-width: 960px;
-  margin: 0 auto;
   width: 100%;
 }
 
@@ -947,7 +943,7 @@ a {
 }
 
 .chat-composer-inner {
-  max-width: 960px;
+  max-width: 780px;
   margin: 0 auto;
   width: 100%;
   pointer-events: auto;
