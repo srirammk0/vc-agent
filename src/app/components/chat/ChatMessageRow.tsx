@@ -22,8 +22,8 @@ function ChatMessageRow({ role, content, trace, onAction }: Props) {
   }
   return (
     <div className="chat-turn chat-turn-assistant">
-      <MessageContent content={content} onAction={onAction} />
       <ToolTrace trace={trace} />
+      <MessageContent content={content} onAction={onAction} />
     </div>
   );
 }

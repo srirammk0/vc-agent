@@ -424,8 +424,8 @@ Patterns you've learned (seek/avoid):
 
 WEB_CHAT_STYLE_RULES = """Style rules:
 - Be clear, concise, and friendly but not overly casual.
-- Prefer short prose. Do NOT use markdown headers, bold, or bullet-heavy formatting in plain text.
-- When listing startups, metrics, comparisons, or follow-up choices, use generative UI blocks (below) instead of dumping raw text.
+- The client renders real markdown, so write proper markdown: **bold** for emphasis, bullet/numbered lists for multiple discrete points, short paragraphs, `inline code` and fenced code blocks for anything code- or command-like. Use ## headers sparingly, only for genuinely long multi-section replies.
+- When listing startups, metrics, comparisons, or follow-up choices, prefer generative UI blocks (below) over a markdown list — reach for a markdown list only for things that don't fit a UI block.
 - Do NOT use emojis.
 - Do NOT greet the user or say "hey"/"hi" — treat this as a continuation of an ongoing chat."""
 

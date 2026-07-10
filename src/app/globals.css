@@ -703,7 +703,7 @@ a {
   flex-direction: column;
   gap: 22px;
   padding-bottom: 8px;
-  max-width: 780px;
+  max-width: 960px;
   margin: 0 auto;
   width: 100%;
 }
@@ -729,7 +729,7 @@ a {
   align-items: flex-start;
   justify-content: center;
   padding: 24px 4px 48px;
-  max-width: 780px;
+  max-width: 960px;
   margin: 0 auto;
   width: 100%;
 }
@@ -816,7 +816,7 @@ a {
 /* ── Tool-call trace dropdown ─────────────────────────── */
 
 .chat-trace {
-  margin-top: 6px;
+  margin-bottom: 8px;
 }
 
 .chat-trace-toggle {
@@ -905,40 +905,31 @@ a {
   padding-bottom: 14px;
 }
 
-.chat-trace-row-head {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
 .chat-trace-step-label {
   font-size: 12.5px;
   font-weight: 600;
   color: var(--heading);
 }
 
-.chat-trace-tool-name {
-  font-size: 11px;
-  color: var(--muted);
-  font-family: ui-monospace, monospace;
+/* Snippets, not dumps: single-line, truncated in JS, ellipsized in CSS as a
+   backstop — a "bit of the output", never a full JSON/result block. */
+.chat-trace-args,
+.chat-trace-result {
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chat-trace-args {
-  margin: 4px 0 0;
-  font-size: 11.5px;
-  font-family: ui-monospace, monospace;
-  color: var(--label);
-  white-space: pre-wrap;
-  word-break: break-word;
+  color: var(--muted);
+  font-style: italic;
 }
 
 .chat-trace-result {
-  margin-top: 4px;
-  font-size: 12.5px;
-  color: var(--body);
-  line-height: 1.4;
-  white-space: pre-wrap;
+  color: var(--label);
 }
 
 /* Floats above the scrolling message list rather than sitting in the page's own
@@ -956,7 +947,7 @@ a {
 }
 
 .chat-composer-inner {
-  max-width: 780px;
+  max-width: 960px;
   margin: 0 auto;
   width: 100%;
   pointer-events: auto;

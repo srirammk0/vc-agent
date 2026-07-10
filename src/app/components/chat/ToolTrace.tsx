@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Check, ChevronDown, Wrench } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 import type { ToolTraceEntry } from "../../../lib/chatTypes";
 
 const TOOL_LABELS: Record<string, string> = {
@@ -21,25 +21,41 @@ const TOOL_LABELS: Record<string, string> = {
   update_thesis: "Updating thesis",
 };
 
-const ARGS_LIMIT = 320;
-const RESULT_LIMIT = 320;
+const SNIPPET_LIMIT = 140;
+const ARGS_PREFER_KEYS = ["q", "query", "url", "urls", "pattern", "content", "slug", "slugs", "name"];
 
 function stepLabel(toolName: string): string {
   return TOOL_LABELS[toolName] ?? toolName;
 }
 
-function truncate(text: string, max: number): string {
-  return text.length > max ? `${text.slice(0, max).trimEnd()}…` : text;
+function oneLine(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
 }
 
-function formatArgs(args: unknown): string {
-  let str: string;
-  try {
-    str = JSON.stringify(args, null, 2);
-  } catch {
-    str = String(args);
+function truncate(text: string, max: number): string {
+  const clean = oneLine(text);
+  return clean.length > max ? `${clean.slice(0, max).trimEnd()}…` : clean;
+}
+
+// A "bit of the output", not a JSON dump — pull the most human-relevant field
+// out of the tool's args instead of pretty-printing the whole payload.
+function summarizeArgs(args: unknown): string | null {
+  if (args == null) return null;
+  if (typeof args === "string") return args ? truncate(args, SNIPPET_LIMIT) : null;
+  if (typeof args !== "object") return truncate(String(args), SNIPPET_LIMIT);
+
+  const obj = args as Record<string, unknown>;
+  for (const key of ARGS_PREFER_KEYS) {
+    const v = obj[key];
+    if (typeof v === "string" && v) return truncate(v, SNIPPET_LIMIT);
+    if (Array.isArray(v) && v.length) return truncate(v.map(String).join(", "), SNIPPET_LIMIT);
   }
-  return truncate(str, ARGS_LIMIT);
+  try {
+    const compact = JSON.stringify(obj);
+    return compact && compact !== "{}" ? truncate(compact, SNIPPET_LIMIT) : null;
+  } catch {
+    return null;
+  }
 }
 
 export default function ToolTrace({ trace }: { trace?: ToolTraceEntry[] }) {
@@ -68,37 +84,35 @@ export default function ToolTrace({ trace }: { trace?: ToolTraceEntry[] }) {
         {running ? (
           <span className="live-dot chat-thinking-dot" />
         ) : (
-          <Wrench size={12} />
+          <Check size={12} strokeWidth={2.75} />
         )}
-        <span>{running ? `${stepLabel(running.toolName)}…` : `${trace.length} tool call${trace.length === 1 ? "" : "s"}`}</span>
+        <span>{running ? `${stepLabel(running.toolName)}…` : "Finished working"}</span>
         <ChevronDown size={13} className={`chat-trace-chevron${open ? " chat-trace-chevron-open" : ""}`} />
       </button>
       {open && (
         <div className="chat-trace-body animate-fade-in">
-          {trace.map((entry, i) => (
-            <div key={entry.id} className="chat-trace-step">
-              <div className="chat-trace-step-rail">
-                <span
-                  className={`chat-trace-step-dot${
-                    entry.status === "running" ? " chat-trace-step-dot-running" : " chat-trace-step-dot-done"
-                  }`}
-                >
-                  {entry.status === "done" ? <Check size={10} strokeWidth={3} /> : null}
-                </span>
-                {i < trace.length - 1 && <span className="chat-trace-step-line" />}
-              </div>
-              <div className="chat-trace-step-body">
-                <div className="chat-trace-row-head">
-                  <span className="chat-trace-step-label">{stepLabel(entry.toolName)}</span>
-                  <span className="chat-trace-tool-name">{entry.toolName}</span>
+          {trace.map((entry, i) => {
+            const argsSummary = summarizeArgs(entry.args);
+            return (
+              <div key={entry.id} className="chat-trace-step">
+                <div className="chat-trace-step-rail">
+                  <span
+                    className={`chat-trace-step-dot${
+                      entry.status === "running" ? " chat-trace-step-dot-running" : " chat-trace-step-dot-done"
+                    }`}
+                  >
+                    {entry.status === "done" ? <Check size={10} strokeWidth={3} /> : null}
+                  </span>
+                  {i < trace.length - 1 && <span className="chat-trace-step-line" />}
                 </div>
-                <pre className="chat-trace-args">{formatArgs(entry.args)}</pre>
-                {entry.result && (
-                  <div className="chat-trace-result">{truncate(entry.result, RESULT_LIMIT)}</div>
-                )}
+                <div className="chat-trace-step-body">
+                  <span className="chat-trace-step-label">{stepLabel(entry.toolName)}</span>
+                  {argsSummary && <div className="chat-trace-args">{argsSummary}</div>}
+                  {entry.result && <div className="chat-trace-result">{truncate(entry.result, SNIPPET_LIMIT)}</div>}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

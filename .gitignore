@@ -41,3 +41,7 @@ __pycache__/
 .venv/
 .vercel
 .env*.local
+
+# Graphify
+graphify-out/
+
