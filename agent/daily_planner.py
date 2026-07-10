@@ -4,12 +4,10 @@ a fixed replay, which approved-but-quiet startups are worth a fresh look today �
 then schedules each one as a specific check at a specific time via Trigger.dev,
 spread across the day rather than firing all at once.
 
-This is the proactive half of self-scheduling; agent/signals_review.py's
-schedule_signal_check (reactive, at nightly review time, over today's raw
-signals) and agent/agent.py's schedule_followup (reactive, at the boss's
-request) are the other two entry points into the same agent/trigger_client.py
-primitive. This one looks at the portfolio-in-progress instead — approved
-startups nobody's checked on in a while.
+This is the proactive half of self-scheduling; agent/agent.py's schedule_followup
+(reactive, at the boss's request) is the other entry point into the same
+agent/trigger_client.py primitive. This one looks at the portfolio-in-progress
+instead — approved startups nobody's checked on in a while.
 
 Runs once daily via daily_planner_scheduled in modal_app.py.
 """
@@ -23,7 +21,7 @@ from supabase import create_client
 
 import llm
 import trigger_client
-from signals_scraper import gemma_filter
+from gemma_filter import gemma_filter
 
 MAX_CHECKS_PER_RUN = 5
 STALE_DAYS = 10  # only consider approved startups untouched this long
@@ -151,9 +149,8 @@ async def run_daily_planner() -> dict:
 
 async def run_daily_check(payload: dict) -> str | None:
     """Fired for a 'daily_check' task scheduled via Trigger.dev. One fresh Exa search
-    on the startup + one Gemma call (same pattern as signals_scraper.recheck_signal) to
-    decide if something genuinely changed; returns an SMS-worthy summary if so, None
-    otherwise (silent)."""
+    on the startup + one Gemma call to decide if something genuinely changed; returns
+    an SMS-worthy summary if so, None otherwise (silent)."""
     slug = payload.get("slug", "")
     if not slug:
         return None

@@ -8,7 +8,13 @@ import time
 import urllib.request
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext, ToolDefinition
-from pydantic_ai.messages import ModelMessagesTypeAdapter, ModelResponse, TextPart
+from pydantic_ai.messages import (
+    ModelMessagesTypeAdapter,
+    ModelRequest,
+    ModelResponse,
+    TextPart,
+    UserPromptPart,
+)
 from pydantic_ai.usage import UsageLimits
 
 from tools.exa import exa
@@ -31,7 +37,7 @@ ABSOLUTE_MAX_FOLLOWUP_MINUTES = 30 * 24 * 60  # 30 days, hard cap regardless
 model = llm.model
 
 RATE_LIMIT_REPLY = (
-    "models are getting hammered rn - give it a min and text again"
+    "models are getting hammered rn - give it a min and try again"
 )
 
 _CONVO_TTL_SECONDS = 24 * 3600
@@ -380,16 +386,6 @@ Common requests and exactly how to handle them:
 "what do you have scheduled" / "what's coming up" / "did you already schedule a check on X"
 → call list_scheduled_tasks() and summarize what's pending
 
-Where to crawl when the boss wants startups sourced (call crawl_for_startups):
-→ stealth startups and general LinkedIn/X sourcing: pass platforms=["linkedin","x"] and, if the boss
-  named a niche/industry, your own search_terms for it — otherwise the tool's default terms already
-  cover stealth-mode/launch/raise phrasing
-→ a specific accelerator's portfolio (e.g. "check YC's site for new AI companies"): pass
-  portfolio_urls=[that exact URL] — only ever a URL you were actually given or that you're confident
-  is real, never invent one
-→ this runs in the background and texts back what it finds — reply confirming you've started, don't
-  wait for results before replying
-
 Startups you already know (name | slug | status) — never re-save these:
 {known}
 
@@ -400,6 +396,77 @@ Patterns you've learned (seek/avoid):
 {preferences}
 
 {STYLE_RULES}
+"""
+
+
+WEB_CHAT_STYLE_RULES = """Style rules:
+- Be clear, concise, and friendly but not overly casual.
+- Plain text only — no markdown headers or bullet-heavy formatting.
+- Do NOT use emojis.
+- Do NOT greet the user or say "hey"/"hi" — treat this as a continuation of an ongoing chat."""
+
+
+async def web_chat_prompt(ctx: RunContext) -> str:
+    """Instructions for the website chat surface — same research/dealflow tool routing as
+    text_handler_prompt, minus the sections for tools this agent doesn't register
+    (schedule_followup/list_scheduled_tasks need a phone number, tapback needs iMessage)."""
+    thesis = await sm.load_thesis()
+    preferences = await sm.load_preferences()
+    known = await sm.known_startups_summary()
+    return f"""You're chatting with your boss (a pre-seed VC) through the dashboard's web chat and execute their requests fully before replying.
+
+Standing rule — only search/sweep when explicitly asked: do NOT call exa_deep_search_many or run a sweep
+in response to a casual mention or question (e.g. "what do you think of X") — answer from memory/knowledge
+instead. Only run a sweep when the boss clearly asks for one ("find me startups", "run a sweep", "scout for
+X"). When a sweep does run and turns up a genuine early-stage startup that isn't already in your known list
+and fits the thesis, call save_startups for it so it doesn't evaporate.
+
+Common requests and exactly how to handle them:
+
+"approve X" / "pass on X" / "mark X as [status]"
+→ call list_known_startups if you don't already have the slug
+→ call update_startup_statuses([{{slug, status, reason}}])
+→ call write_preferences([{{pattern, type}}]) with the distilled reason
+→ reply confirming what changed
+
+"delete X" / "remove X" / "forget about X" / "that was a duplicate/mistake"
+→ call list_known_startups if you don't already have the slug
+→ call delete_startups([slug])
+→ reply confirming it's gone
+→ do NOT use this for a startup the boss is just rejecting — use update_startup_statuses with 'passed' instead
+
+"that pattern/preference is wrong" / "stop avoiding X" / "we don't care about that anymore"
+→ call list_preferences to find the matching ID
+→ call delete_preferences([id])
+→ reply confirming what was removed
+
+"find me startups" / "run a sweep" / "scout for X"
+→ call exa_deep_search_many with 4-5 diverse queries in ONE call
+→ skip anything already in the known list below or with obvious major press coverage
+→ call save_startups in ONE batch call for all survivors
+→ reply with what you found and saved
+
+"what do you know about X" / "tell me about X"
+→ call supermemory_search FIRST (vc:startups container)
+→ if memory has useful info, reply from that
+→ only call exa_deep_search_many if memory has nothing
+
+"what's happening in AI / VC" / news questions
+→ call linkup_search or linkup_search_many
+
+"change our thesis to..." / "update criteria"
+→ call update_thesis with the full new content
+
+Startups you already know (name | slug | status) — never re-save these:
+{known}
+
+Investment thesis:
+{thesis}
+
+Patterns you've learned (seek/avoid):
+{preferences}
+
+{WEB_CHAT_STYLE_RULES}
 """
 
 
@@ -458,7 +525,6 @@ def register_tools(
     exa: bool = True,
     linkup_tools: bool = False,
     follow_up: bool = False,
-    crawl: bool = False,
     reflection_source: str,
 ):
     _T = "[tool timed out — skip this step and continue]"
@@ -702,8 +768,8 @@ def register_tools(
 
         @agent.tool(prepare=make_non_strict)
         async def list_scheduled_tasks(ctx: RunContext[AgentDeps]) -> str:
-            """List everything currently scheduled (follow-ups, signal re-checks, daily portfolio
-            checks, crawls) that hasn't fired yet, soonest first. Use this when the boss asks
+            """List everything currently scheduled (follow-ups, daily portfolio checks) that
+            hasn't fired yet, soonest first. Use this when the boss asks
             what's scheduled/pending, or to check for a duplicate before scheduling something new."""
             try:
                 pending = scheduled_tasks_log.list_pending()
@@ -717,52 +783,6 @@ def register_tools(
                     detail = payload.get("instructions") or payload.get("notes") or payload.get("reason") or ""
                     lines.append(f"- [{kind}] due {due}" + (f" — {detail}" if detail else ""))
                 return "\n".join(lines)
-            except Exception as e:
-                return _err(e)
-
-    if crawl:
-
-        @agent.tool(prepare=make_non_strict)
-        async def crawl_for_startups(
-            ctx: RunContext[AgentDeps],
-            platforms: list[str],
-            search_terms: list[str] | None = None,
-            portfolio_urls: list[str] | None = None,
-            notes: str = "",
-        ) -> str:
-            """Direct a background crawl for early-stage AI startups and text back what it
-            finds. Three places to point it: stealth founders and general LinkedIn/X
-            sourcing (platforms=["linkedin","x"], optionally your own search_terms for a
-            niche the boss named — otherwise sensible defaults, including stealth-mode
-            phrasing, are used); a specific accelerator/investor's portfolio page
-            (portfolio_urls=[exact URL] — only ever a URL you were actually given or are
-            confident is real, never invent one; platforms can be empty in this case).
-            notes: freeform context (e.g. the niche/industry) fed into the filtering.
-            Runs in the background — returns immediately, results arrive as a follow-up
-            text, so reply confirming you've started rather than waiting."""
-            deps = ctx.deps
-            sender = deps.phone_number if deps else None
-            if not sender:
-                return "[cannot crawl: no sender on this conversation]"
-            if not platforms and not portfolio_urls:
-                return "[need at least one of platforms or portfolio_urls to crawl]"
-            try:
-                due_at = datetime.now(timezone.utc) + timedelta(minutes=1)
-                ok = await trigger_client.schedule_check(
-                    "directed_crawl",
-                    {
-                        "sender": sender,
-                        "platforms": platforms,
-                        "search_terms": search_terms,
-                        "portfolio_urls": portfolio_urls,
-                        "notes": notes,
-                    },
-                    due_at,
-                )
-                if not ok:
-                    return "[failed to start crawl — trigger.dev call didn't succeed, try again]"
-                sources = ", ".join(platforms) if platforms else f"{len(portfolio_urls or [])} portfolio page(s)"
-                return f"Started crawling {sources}. I'll text you what I find."
             except Exception as e:
                 return _err(e)
 
@@ -812,7 +832,7 @@ def register_tools(
                 return f"Failed to send reaction: {e}"
 
 
-register_tools(text_agent, linkup_tools=True, follow_up=True, crawl=True, reflection_source="text")
+register_tools(text_agent, linkup_tools=True, follow_up=True, reflection_source="text")
 register_tools(
     feedback_agent,
     dealflow=True,
@@ -867,6 +887,56 @@ async def run_text_handler(message: str, slug: str = None, sender: str = None, m
                 if llm._is_rate_limit_error(e2):
                     return {"reply": RATE_LIMIT_REPLY}
                 raise
+        raise
+
+
+def _messages_to_history(messages: list[dict]) -> list:
+    """Convert the client-owned [{"role": "user"|"assistant", "content": str}, ...] array
+    into pydantic-ai message history. This is plain role/content pairs from the website,
+    not pydantic-ai's wire format, so it can't go through ModelMessagesTypeAdapter like
+    the phone-keyed cache in _load_history does."""
+    history = []
+    for m in messages or []:
+        content = (m.get("content") or "").strip()
+        if not content:
+            continue
+        if m.get("role") == "user":
+            history.append(ModelRequest(parts=[UserPromptPart(content=content)]))
+        elif m.get("role") == "assistant":
+            history.append(ModelResponse(parts=[TextPart(content=content)]))
+    return history
+
+
+async def run_web_chat(messages: list[dict]) -> str:
+    """Website chat entry point — a separate surface from the iMessage thread with no
+    shared memory. The client owns the full conversation, so this builds a fresh agent
+    per call from the messages array it's given (instead of the phone-keyed history in
+    cache.py) and returns only the new reply string. Same research/dealflow tools as the
+    text handler; follow_up and tapback are skipped since both need a phone number this
+    surface doesn't have."""
+    if not messages or messages[-1].get("role") != "user":
+        return ""
+
+    history = _messages_to_history(messages[:-1])
+    prompt = messages[-1].get("content", "")
+
+    chat_agent = Agent(
+        model,
+        instructions=CORE_RULES,
+        model_settings=llm.FINALIZE_SMS_SETTINGS,
+    )
+    chat_agent.instructions(web_chat_prompt)
+    register_tools(chat_agent, linkup_tools=True, tapback=False, reflection_source="web_chat")
+
+    try:
+        res = await agent_run_with_retry(
+            chat_agent, prompt,
+            message_history=history if history else None,
+        )
+        return res.output
+    except Exception as e:
+        if llm._is_rate_limit_error(e):
+            return RATE_LIMIT_REPLY
         raise
 
 

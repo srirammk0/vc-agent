@@ -3,8 +3,8 @@ import { callModal } from "./lib/modal";
 
 // No schedule — this is the one-off delayed-trigger target. Modal's
 // agent/trigger_client.py calls Trigger.dev's REST trigger endpoint for this
-// task id with a `delay`, for both signal re-checks and text follow-ups
-// (see agent/trigger_client.py, agent/signals_review.py, agent/agent.py).
+// task id with a `delay`, for both text follow-ups and daily portfolio checks
+// (see agent/trigger_client.py, agent/agent.py, agent/daily_planner.py).
 export const runScheduledCheck = task({
   id: "run-scheduled-check",
   run: async (payload: Record<string, unknown>) =>

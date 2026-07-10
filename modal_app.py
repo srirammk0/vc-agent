@@ -17,13 +17,6 @@ image = (
         "fastapi",
         "supabase",
         "supermemory==3.12.1",
-        "crawl4ai",
-        "fastembed",
-    )
-    .run_commands("python -m playwright install --with-deps chromium")
-    .run_commands(
-        "python -c \"from fastembed import TextEmbedding; "
-        "TextEmbedding(model_name='BAAI/bge-small-en-v1.5')\""
     )
     .add_local_dir("./agent", remote_path="/root/agent")
 )
@@ -234,36 +227,14 @@ def sync_scheduled(payload: dict):
     return {"status": "ok"}
 
 
-# --- Signals review: once daily, an agent curates whatever landed in the signals   ---
-# --- table that day via agent-directed crawls (deletes bad/duplicate/noise).       ---
-# --- Scheduling owned by Trigger.dev (cron 50 23 * * * America/New_York,           ---
-# --- src/trigger/signals-review.ts).                                              ---
+# --- Scheduled-check dispatch: fired by Trigger.dev's run-scheduled-check task ---
+# --- when a one-off delayed trigger comes due (follow-up texts, daily          ---
+# --- portfolio checks). This is how self-scheduling actually fires now — see   ---
+# --- agent/trigger_client.py for how these get scheduled.                      ---
 @app.function(
     image=image,
     secrets=[modal.Secret.from_name("vc-scout-secrets")],
     timeout=600,
-)
-@modal.fastapi_endpoint(method="POST")
-def signals_review_scheduled(payload: dict):
-    _check_scheduler_secret(payload)
-    import sys
-    import asyncio
-    sys.path.insert(0, "/root/agent")
-    from signals_review import run_signals_review
-    asyncio.run(run_signals_review())
-    return {"status": "ok"}
-
-
-# --- Scheduled-check dispatch: fired by Trigger.dev's run-scheduled-check task ---
-# --- when a one-off delayed trigger comes due (signal re-checks, follow-up     ---
-# --- texts, daily portfolio checks, agent-directed crawls). This is how        ---
-# --- self-scheduling actually fires now — see agent/trigger_client.py for how  ---
-# --- these get scheduled. timeout=1800 to give directed_crawl (the heaviest    ---
-# --- kind — full LinkedIn/X search + portfolio-page crawling) room to finish.  ---
-@app.function(
-    image=image,
-    secrets=[modal.Secret.from_name("vc-scout-secrets")],
-    timeout=1800,
 )
 @modal.fastapi_endpoint(method="POST")
 def run_scheduled_check(payload: dict):
@@ -279,29 +250,9 @@ def run_scheduled_check(payload: dict):
             instructions = payload.get("instructions")
             if sender and instructions:
                 chat_reply_background.spawn(instructions, sender)
-        elif kind == "signal_recheck":
-            from signals_scraper import recheck_signal
-            notify = asyncio.run(recheck_signal(payload))
-            if notify:
-                send_sms(notify)
-                run_agent({
-                    "mode": "append_alert",
-                    "message": notify,
-                    "recipients": notify_phone_numbers(),
-                })
         elif kind == "daily_check":
             from daily_planner import run_daily_check
             notify = asyncio.run(run_daily_check(payload))
-            if notify:
-                send_sms(notify)
-                run_agent({
-                    "mode": "append_alert",
-                    "message": notify,
-                    "recipients": notify_phone_numbers(),
-                })
-        elif kind == "directed_crawl":
-            from signals_scraper import run_directed_crawl
-            notify = asyncio.run(run_directed_crawl(payload))
             if notify:
                 send_sms(notify)
                 run_agent({
@@ -353,6 +304,26 @@ def sync_on_demand():
     sys.path.insert(0, "/root/agent")
     from sync import sync
     sync()
+
+
+# --- Web chat: separate chat surface for the dashboard website — no shared memory ---
+# --- with the iMessage thread. The client owns the full conversation; each call    ---
+# --- builds a fresh agent from the {"messages": [...]} array it's given.           ---
+@app.function(
+    image=image,
+    secrets=[modal.Secret.from_name("vc-scout-secrets")],
+    timeout=300,
+)
+@modal.fastapi_endpoint(method="POST")
+def run_web_chat(payload: dict):
+    import sys
+    import asyncio
+    sys.path.insert(0, "/root/agent")
+    from agent import run_web_chat as _run_web_chat
+
+    messages = payload.get("messages", [])
+    reply = asyncio.run(_run_web_chat(messages))
+    return {"reply": reply}
 
 
 # --- Enrichment: triggered by dashboard, writes directly to Supabase (no agent) ---
