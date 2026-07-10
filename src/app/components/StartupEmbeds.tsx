@@ -96,7 +96,7 @@ function LazySiteFrame({
 }
 
 function LinkedInPreview({ target }: { target: LinkedInTarget }) {
-  const previewSrc = `/api/embed-preview?url=${encodeURIComponent(target.url)}`;
+  const previewSrc = `/api/embed-preview?url=${encodeURIComponent(target.url)}&label=${encodeURIComponent(target.label)}`;
 
   return (
     <div className="startup-embed">

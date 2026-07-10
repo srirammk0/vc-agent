@@ -1,8 +1,13 @@
+import https from "node:https";
+import zlib from "node:zlib";
 import { hostLabel, toHref } from "../../../lib/urls";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 const ALLOWED_HOSTS = ["linkedin.com"];
+const USER_AGENT =
+  "Mozilla/5.0 (compatible; VCScout/1.0; +https://example.com) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36";
 
 function isAllowedTarget(url: string): boolean {
   try {
@@ -11,6 +16,66 @@ function isAllowedTarget(url: string): boolean {
   } catch {
     return false;
   }
+}
+
+function decompress(body: Buffer, encoding?: string): Buffer {
+  switch (encoding) {
+    case "gzip":
+      return zlib.gunzipSync(body);
+    case "br":
+      return zlib.brotliDecompressSync(body);
+    case "deflate":
+      return zlib.inflateSync(body);
+    default:
+      return body;
+  }
+}
+
+// Bypasses Next.js's dev-mode fetch instrumentation, which clones the response
+// via `new Response(body, { status })` and throws a RangeError for LinkedIn's
+// non-standard 999 bot-block status (outside the 200-599 range the Fetch spec allows).
+function fetchHtml(url: string, redirectsLeft = 4): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const req = https.get(
+      url,
+      {
+        headers: {
+          "User-Agent": USER_AGENT,
+          Accept: "text/html,application/xhtml+xml",
+          "Accept-Encoding": "gzip, deflate, br",
+        },
+        timeout: 8000,
+      },
+      (res) => {
+        const location = res.headers.location;
+        if (
+          location &&
+          res.statusCode &&
+          res.statusCode >= 300 &&
+          res.statusCode < 400 &&
+          redirectsLeft > 0
+        ) {
+          res.resume();
+          fetchHtml(new URL(location, url).toString(), redirectsLeft - 1).then(resolve, reject);
+          return;
+        }
+
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk) => chunks.push(chunk));
+        res.on("end", () => {
+          try {
+            const body = decompress(Buffer.concat(chunks), res.headers["content-encoding"]);
+            resolve(body.toString("utf-8"));
+          } catch (err) {
+            reject(err);
+          }
+        });
+        res.on("error", reject);
+      }
+    );
+    req.on("timeout", () => req.destroy(new Error("Request timed out")));
+    req.on("error", reject);
+  });
 }
 
 function pickMeta(html: string, property: string): string | null {
@@ -50,7 +115,8 @@ function escapeHtml(value: string): string {
 }
 
 export async function GET(req: Request) {
-  const raw = new URL(req.url).searchParams.get("url");
+  const params = new URL(req.url).searchParams;
+  const raw = params.get("url");
   if (!raw) {
     return new Response("Missing url", { status: 400 });
   }
@@ -60,22 +126,15 @@ export async function GET(req: Request) {
     return new Response("URL not allowed", { status: 400 });
   }
 
-  try {
-    const res = await fetch(target, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (compatible; VCScout/1.0; +https://example.com) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-        Accept: "text/html,application/xhtml+xml",
-      },
-      redirect: "follow",
-      cache: "no-store",
-    });
+  const fallbackLabel = params.get("label")?.trim();
 
-    const html = await res.text();
+  try {
+    const html = await fetchHtml(target);
     const title =
       pickMeta(html, "og:title") ??
       pickMeta(html, "twitter:title") ??
       pickTitle(html) ??
+      fallbackLabel ??
       hostLabel(target);
     const description =
       pickMeta(html, "og:description") ??
