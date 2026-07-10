@@ -2,10 +2,11 @@
 
 Automated pre-seed/seed AI startup scout. A set of Pydantic AI agents (Anthropic Claude Sonnet) research and
 save early-stage AI companies and text you about it — persisted to **Supermemory** (the agent's brain) and
-mirrored to **Supabase** for a live Next.js dashboard. All agentic work — LLM calls, SMS — runs on **Modal**;
+mirrored to **Supabase** for a live Next.js dashboard. Most agentic work — LLM calls, SMS — runs on **Modal**;
 **Trigger.dev** owns scheduling only (fixed crons and one-off delayed triggers), calling into Modal's HTTP
 endpoints at the right time. A separate web chat surface (dashboard-side, no shared memory with the iMessage
-thread) also talks to the same tool-registry agent via `run_web_chat`.
+thread) runs directly on Vercel instead (`api/chat.py`, streaming via `run_web_chat_stream`) — no Modal hop,
+no cold starts, real token streaming plus a live tool-call trace in the UI.
 
 **Live:** [startup-scout-agent.vercel.app](https://startup-scout-agent.vercel.app)
 
@@ -55,9 +56,10 @@ thread) also talks to the same tool-registry agent via `run_web_chat`.
    thesis, ask it to research something, ask what's currently scheduled, ask it to check back on something
    later (defaults to within 3 days unless you give it a specific longer timeframe), or cancel a scheduled
    check-in.
-4. **Web chat**: a separate dashboard-side chat surface (`run_web_chat`) with the same research/dealflow
-   tools as the SMS agent, minus follow-up scheduling and iMessage-specific tools. No shared memory with the
-   iMessage thread — the client owns the full conversation history.
+4. **Web chat**: a separate dashboard-side chat surface (`api/chat.py` on Vercel, `run_web_chat_stream`) with
+   the same research/dealflow tools as the SMS agent, minus follow-up scheduling and iMessage-specific tools.
+   No shared memory with the iMessage thread — the client owns the full conversation history. Streams tokens
+   and tool-call events over SSE; the dashboard shows a live "tool trace" dropdown per turn.
 5. **Dashboard**: approve/pass/enrich startups, all live via Supabase realtime.
 
 ## Scheduling (Trigger.dev)
@@ -97,7 +99,7 @@ enabled. `daily_planner_agent` is a separate, purpose-built agent (its own tool 
 | Agent | Trigger | Purpose |
 |---|---|---|
 | `text_agent` | Inbound SMS (SendBlue webhook) | Handles the boss's texts: approve/pass, delete, research a company, update the thesis, run an on-demand sweep, or schedule/cancel a future check-in. Has a standing rule to save any genuine startup it surfaces during research — not just on explicit sweep requests. |
-| `web_chat_agent` | Dashboard chat POST (`run_web_chat`) | Same research/dealflow tools as `text_agent`, minus follow-up scheduling and iMessage-specific tools (both need a phone number). Module-level singleton like `text_agent`; history is reconstructed per-call from the client-supplied message array, no server-side persistence. |
+| `web_chat_agent` | Dashboard chat POST, streamed (`api/chat.py` on Vercel, `run_web_chat_stream`) | Same research/dealflow tools as `text_agent`, minus follow-up scheduling and iMessage-specific tools (both need a phone number). Module-level singleton like `text_agent`; history is reconstructed per-call from the client-supplied message array, no server-side persistence. Runs directly on Vercel, not Modal. |
 | `daily_planner_agent` | Trigger.dev `daily-planner-scheduled` cron (6:00am ET) | Looks at approved startups nobody's checked on in a while and decides which deserve a fresh look today, scheduling each at a specific time. Built fresh per run (see `agent/daily_planner.py`). |
 | `feedback_agent` | Dashboard approve/pass reason submission | Distills a one-line dashboard reason into a reusable learning pattern. |
 
@@ -154,8 +156,9 @@ Next.js 16 + React 19 + Supabase, gated behind a single shared-password cookie (
 - **Command palette** (⌘K / Ctrl+K): fuzzy-search and jump to any startup.
 - **Startup detail page**: full assessment, enrichment data, and an "Enrich" button that kicks off an
   async Modal job (founder/social research via Exa) without blocking the dashboard.
-- **Chat**: a web chat tab talking to `run_web_chat` on Modal — same tool-registry agent as SMS, separate
-  conversation with no shared memory.
+- **Chat**: a web chat tab talking to `api/chat.py` directly on Vercel (streamed, no Modal hop) — same
+  tool-registry agent as SMS, separate conversation with no shared memory. Shows a live tool-call trace
+  dropdown per turn.
 - **Feedback**: approving/passing a startup from the dashboard can include a reason, which gets distilled
   into a learning pattern by `feedback_agent` and mirrored into Supermemory immediately (not just on the
   next periodic sync) so a quick dashboard click never gets silently reverted.
@@ -164,18 +167,23 @@ Next.js 16 + React 19 + Supabase, gated behind a single shared-password cookie (
 
 ## Orchestration (Modal + Trigger.dev)
 
-All agentic work lives in `modal_app.py`. Warm containers (`min_containers=1`) are kept on
+Most agentic work lives in `modal_app.py`. Warm containers (`min_containers=1`) are kept on
 interactive/scheduled endpoints to cut cold-start latency; timeouts are generous since agent turns involve
 real web research. Functions marked "Trigger.dev" below have no `schedule=` of their own — Trigger.dev
 calls them over HTTP at the right time (see [Scheduling](#scheduling-triggerdev)); all of them check
 `SCHEDULER_SHARED_SECRET`.
+
+Web chat is the one exception — it lives in `api/chat.py`, a Python function deployed alongside the
+Next.js app on Vercel (see `vercel.json`, `api/requirements.txt`), not in `modal_app.py`. It imports
+`agent/agent.py` directly (same `web_chat_agent` singleton and tool registry as the table below), streams
+its reply as SSE, and needs `ANTHROPIC_API_KEY`, `EXA_API_KEY`, `LINKUP_API_KEY`, `SUPERMEMORY_API_KEY`,
+`SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY` set as Vercel project env vars.
 
 | Function | Trigger | Timeout | Description |
 |---|---|---|---|
 | `daily_planner_scheduled` | Trigger.dev cron, daily 6:00am ET | 10 min | `daily_planner_agent` decides today's portfolio checks |
 | `run_scheduled_check` | Trigger.dev one-off delayed trigger | 10 min | Dispatches a due self-scheduled check by `kind` (`text_followup`/`daily_check`) |
 | `sync_scheduled` / `sync_on_demand` | Trigger.dev cron (30 min) / on-demand | 5 min | Mirrors Supermemory → Supabase |
-| `run_web_chat` | Dashboard POST | 5 min | Runs `web_chat_agent` on a client-supplied message array, returns the reply |
 | `enrich_startup` | Dashboard POST | 1 min | Kicks off `enrich_startup_job` in the background |
 | `submit_feedback` | Dashboard POST | 5 min | Runs `feedback_agent` on an approve/pass reason |
 | `sendblue_webhook` | SMS webhook | 20 min | Validates the sender, spawns `chat_reply_background` |

@@ -1,4 +1,5 @@
 import { readLocal, writeLocal } from "./persistedState";
+import type { ToolTraceEntry } from "./chatTypes";
 
 const STORE_KEY = "agent-web-chats-v2";
 const LEGACY_KEY = "agent-web-chat-history";
@@ -9,6 +10,7 @@ export type ChatMessage = {
   role: ChatRole;
   content: string;
   ts: number;
+  trace?: ToolTraceEntry[];
 };
 
 export type ChatThread = {

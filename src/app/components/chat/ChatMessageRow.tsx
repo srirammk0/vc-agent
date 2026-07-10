@@ -2,14 +2,17 @@
 
 import { memo } from "react";
 import { MessageContent } from "./generative";
+import ToolTrace from "./ToolTrace";
+import type { ToolTraceEntry } from "../../../lib/chatTypes";
 
 type Props = {
   role: "user" | "assistant";
   content: string;
+  trace?: ToolTraceEntry[];
   onAction?: (prompt: string) => void;
 };
 
-function ChatMessageRow({ role, content, onAction }: Props) {
+function ChatMessageRow({ role, content, trace, onAction }: Props) {
   if (role === "user") {
     return (
       <div className="chat-turn chat-turn-user">
@@ -20,6 +23,7 @@ function ChatMessageRow({ role, content, onAction }: Props) {
   return (
     <div className="chat-turn chat-turn-assistant">
       <MessageContent content={content} onAction={onAction} />
+      <ToolTrace trace={trace} />
     </div>
   );
 }

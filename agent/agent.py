@@ -9,6 +9,8 @@ import urllib.request
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext, ToolDefinition
 from pydantic_ai.messages import (
+    FunctionToolCallEvent,
+    FunctionToolResultEvent,
     ModelMessagesTypeAdapter,
     ModelRequest,
     ModelResponse,
@@ -900,7 +902,7 @@ register_tools(
 # registered tools are deps-bound (follow_up/tapback, the only ones that are, are
 # excluded here), so there's no per-request state to isolate by rebuilding. The "no
 # shared state between surfaces" requirement is about conversation history, which
-# still comes entirely from the caller-supplied message_history in run_web_chat —
+# still comes entirely from the caller-supplied message_history in run_web_chat_stream —
 # sharing this immutable Agent + tool-schema object is the same pattern text_agent
 # already uses across every phone number.
 web_chat_agent = Agent(
@@ -975,28 +977,80 @@ def _messages_to_history(messages: list[dict]) -> list:
     return history
 
 
-async def run_web_chat(messages: list[dict]) -> str:
+# keep in sync with src/lib/chatTypes.ts ChatSSEEvent
+async def run_web_chat_stream(messages: list[dict]):
     """Website chat entry point — a separate surface from the iMessage thread with no
     shared memory. The client owns the full conversation: history is reconstructed
     fresh from the messages array on every call (instead of the phone-keyed cache in
-    cache.py), and only the new reply string is returned. web_chat_agent itself is a
-    module-level singleton (see above) — no per-request state to isolate."""
+    cache.py). web_chat_agent itself is a module-level singleton (see above) — no
+    per-request state to isolate. Runs behind api/chat.py on Vercel, yielding
+    structured events (text deltas + tool-call trace) as they happen instead of
+    collecting one final reply string.
+
+    Retries on 429 only cover opening the run and pulling the first node, i.e. before
+    any event has been yielded to the caller. Once a byte has gone out over the wire,
+    a failure becomes a terminal {"type": "error"} event rather than a silent retry —
+    tools like save_startups have side effects, so replaying a partially-streamed turn
+    risks calling them twice.
+    """
     if not messages or messages[-1].get("role") != "user":
-        return ""
+        return
 
     history = _messages_to_history(messages[:-1])
     prompt = messages[-1].get("content", "")
 
-    try:
-        res = await agent_run_with_retry(
-            web_chat_agent, prompt,
-            message_history=history if history else None,
-        )
-        return res.output
-    except Exception as e:
-        if llm._is_rate_limit_error(e):
-            return RATE_LIMIT_REPLY
-        raise
+    max_attempts = 8
+    attempt = 0
+    started = False  # True once any event has been yielded to the caller — past
+    # this point a 429 can no longer be silently retried without risking duplicate
+    # tool side effects (e.g. save_startups), so it must surface as a terminal error.
+    while True:
+        try:
+            async with web_chat_agent.iter(
+                prompt,
+                message_history=history if history else None,
+                usage_limits=_USAGE_LIMITS,
+            ) as agent_run:
+                async for node in agent_run:
+                    if Agent.is_model_request_node(node):
+                        async with node.stream(agent_run.ctx) as request_stream:
+                            async for text in request_stream.stream_text(delta=True):
+                                started = True
+                                yield {"type": "text_delta", "text": text}
+                    elif Agent.is_call_tools_node(node):
+                        async with node.stream(agent_run.ctx) as handle_stream:
+                            async for event in handle_stream:
+                                if isinstance(event, FunctionToolCallEvent):
+                                    started = True
+                                    yield {
+                                        "type": "tool_call",
+                                        "tool_call_id": event.part.tool_call_id,
+                                        "tool_name": event.part.tool_name,
+                                        "args": event.part.args_as_dict()
+                                        if hasattr(event.part, "args_as_dict")
+                                        else event.part.args,
+                                    }
+                                elif isinstance(event, FunctionToolResultEvent):
+                                    started = True
+                                    yield {
+                                        "type": "tool_result",
+                                        "tool_call_id": event.tool_call_id,
+                                        "result": str(event.part.content),
+                                    }
+            break
+        except Exception as e:
+            if not started and llm._is_rate_limit_error(e) and attempt < max_attempts - 1:
+                delay = 3 * (2 ** attempt)
+                attempt += 1
+                await asyncio.sleep(delay)
+                continue
+            if llm._is_rate_limit_error(e):
+                yield {"type": "error", "message": RATE_LIMIT_REPLY, "retryable": not started}
+                return
+            yield {"type": "error", "message": str(e), "retryable": False}
+            return
+
+    yield {"type": "done"}
 
 
 async def run_feedback(slug: str, name: str, status: str, message: str) -> dict:

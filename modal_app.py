@@ -306,24 +306,9 @@ def sync_on_demand():
     sync()
 
 
-# --- Web chat: separate chat surface for the dashboard website — no shared memory ---
-# --- with the iMessage thread. The client owns the full conversation; each call    ---
-# --- builds a fresh agent from the {"messages": [...]} array it's given.           ---
-@app.function(
-    image=image,
-    secrets=[modal.Secret.from_name("vc-scout-secrets")],
-    timeout=300,
-)
-@modal.fastapi_endpoint(method="POST")
-def run_web_chat(payload: dict):
-    import sys
-    import asyncio
-    sys.path.insert(0, "/root/agent")
-    from agent import run_web_chat as _run_web_chat
-
-    messages = payload.get("messages", [])
-    reply = asyncio.run(_run_web_chat(messages))
-    return {"reply": reply}
+# Web chat now runs directly on Vercel (api/chat.py, streaming SSE via
+# agent.agent.run_web_chat_stream) instead of through a Modal endpoint —
+# removes a full network hop and Modal's cold starts from this path.
 
 
 # --- Enrichment: triggered by dashboard, writes directly to Supabase (no agent) ---

@@ -810,6 +810,88 @@ a {
   background: var(--accent);
 }
 
+/* ── Tool-call trace dropdown ─────────────────────────── */
+
+.chat-trace {
+  margin-top: 6px;
+}
+
+.chat-trace-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: none;
+  padding: 3px 2px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--label);
+  cursor: pointer;
+}
+
+.chat-trace-toggle:hover {
+  color: var(--heading);
+}
+
+.chat-trace-chevron {
+  transition: transform 0.15s ease;
+}
+
+.chat-trace-chevron-open {
+  transform: rotate(180deg);
+}
+
+.chat-trace-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.chat-trace-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chat-trace-row + .chat-trace-row {
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.chat-trace-row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-trace-tool-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--heading);
+  font-family: ui-monospace, monospace;
+}
+
+.chat-trace-args {
+  margin: 0;
+  font-size: 11.5px;
+  font-family: ui-monospace, monospace;
+  color: var(--label);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-trace-result {
+  font-size: 12.5px;
+  color: var(--body);
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
 .chat-composer {
   flex-shrink: 0;
   padding: 10px 0 28px;

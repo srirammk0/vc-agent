@@ -17,6 +17,7 @@ import {
   type ChatStore,
   type ChatThread,
 } from "../../lib/chatSessions";
+import type { ChatSSEEvent, ToolTraceEntry } from "../../lib/chatTypes";
 import { useScrollMemory } from "../hooks/useScrollMemory";
 
 const SUGGESTIONS = [
@@ -45,6 +46,7 @@ export default function AgentChat() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [streamTick, setStreamTick] = useState(0);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const pinBottomRef = useRef(false);
   const switchingRef = useRef(false);
@@ -54,7 +56,7 @@ export default function AgentChat() {
 
   const { ref: scrollerRef, saveNow, scrollToBottom, restoreSaved } = useScrollMemory(
     active?.id ?? "none",
-    [messages.length, sending, active?.id],
+    [messages.length, sending, active?.id, streamTick],
     { shouldPinBottom: pinBottomRef.current, enabled: Boolean(active) }
   );
 
@@ -137,6 +139,39 @@ export default function AgentChat() {
     requestAnimationFrame(() => scrollToBottom("smooth"));
 
     setSending(true);
+
+    const threadId = active.id;
+    const assistantTs = Date.now();
+    let content = "";
+    const trace: ToolTraceEntry[] = [];
+
+    function flush() {
+      setStore((prev) => {
+        if (!prev) return prev;
+        const thread = prev.threads.find((t) => t.id === threadId);
+        if (!thread) return prev;
+        const last = thread.messages[thread.messages.length - 1];
+        const base = last && last.ts === assistantTs ? thread.messages.slice(0, -1) : thread.messages;
+        const assistantMsg: ChatMessage = {
+          role: "assistant",
+          content,
+          ts: assistantTs,
+          trace: trace.length ? [...trace] : undefined,
+        };
+        const finalMessages = [...base, assistantMsg];
+        const finalThread: ChatThread = {
+          ...thread,
+          messages: finalMessages,
+          title: threadTitle(finalMessages),
+          updatedAt: Date.now(),
+        };
+        const next = upsertThread(prev, finalThread);
+        saveChatStore(next);
+        return next;
+      });
+      setStreamTick((t) => t + 1);
+    }
+
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -145,27 +180,56 @@ export default function AgentChat() {
           messages: withUser.map(({ role, content }) => ({ role, content })),
         }),
       });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || "Chat request failed");
+      if (!res.ok || !res.body) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json?.error || "Chat request failed");
+      }
 
-      const assistantMsg: ChatMessage = {
-        role: "assistant",
-        content: json.reply ?? "",
-        ts: Date.now(),
-      };
-      const finalMessages = [...withUser, assistantMsg];
-      const finalThread: ChatThread = {
-        ...titled,
-        messages: finalMessages,
-        title: threadTitle(finalMessages),
-        updatedAt: Date.now(),
-      };
-      setStore((prev) => {
-        if (!prev) return prev;
-        const next = upsertThread(selectThread(prev, active.id), finalThread);
-        saveChatStore(next);
-        return next;
-      });
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const frames = buffer.split("\n\n");
+        buffer = frames.pop() ?? "";
+
+        for (const frame of frames) {
+          const line = frame.trim();
+          if (!line.startsWith("data:")) continue;
+          let event: ChatSSEEvent;
+          try {
+            event = JSON.parse(line.slice(5).trim());
+          } catch {
+            continue;
+          }
+
+          if (event.type === "text_delta") {
+            content += event.text;
+            flush();
+          } else if (event.type === "tool_call") {
+            trace.push({
+              id: event.tool_call_id,
+              toolName: event.tool_name,
+              args: event.args,
+              status: "running",
+            });
+            flush();
+          } else if (event.type === "tool_result") {
+            const entry = trace.find((t) => t.id === event.tool_call_id);
+            if (entry) {
+              entry.status = "done";
+              entry.result = event.result;
+            }
+            flush();
+          } else if (event.type === "error") {
+            setError(event.message);
+          }
+        }
+      }
+
       pinBottomRef.current = true;
       requestAnimationFrame(() => scrollToBottom("smooth"));
     } catch (e) {
@@ -278,10 +342,11 @@ export default function AgentChat() {
                   key={`${m.ts}-${i}`}
                   role={m.role}
                   content={m.content}
+                  trace={m.trace}
                   onAction={send}
                 />
               ))}
-              {sending && (
+              {sending && messages[messages.length - 1]?.role !== "assistant" && (
                 <div className="chat-turn chat-turn-assistant">
                   <div className="chat-thinking">
                     <span className="live-dot chat-thinking-dot" />
