@@ -135,7 +135,7 @@ function StartupCard({ data }: { data: Record<string, unknown> }) {
   const status = asString(data.status);
   const website = asString(data.website);
   const assessment = asString(data.assessment);
-  const showEmbed = asBool(data.embed, Boolean(website));
+  const showEmbed = data.embed !== false && Boolean(website);
   const badgeStatus =
     status === "new" || status === "approved" || status === "passed" ? status : undefined;
 
@@ -384,17 +384,31 @@ function LinkCard({ data }: { data: Record<string, unknown> }) {
   const url = asString(data.url);
   const title = asString(data.title) ?? url;
   const description = asString(data.description) ?? asString(data.subtitle);
+  const showEmbed = data.embed !== false && Boolean(url);
   if (!url || !title) return null;
 
   return (
-    <a className="gen-link-card animate-scale-in" href={toHref(url)} target="_blank" rel="noreferrer">
-      <div className="gen-link-card-top">
-        <div className="gen-link-card-title">{title}</div>
-        <ExternalLink size={13} strokeWidth={2.25} className="gen-link-card-arrow" />
-      </div>
-      {description && <div className="gen-link-card-desc">{description}</div>}
-      <div className="gen-link-card-url">{url.replace(/^https?:\/\//, "")}</div>
-    </a>
+    <div className="gen-stack animate-scale-in">
+      <a className="gen-link-card" href={toHref(url)} target="_blank" rel="noreferrer">
+        <div className="gen-link-card-top">
+          <div className="gen-link-card-title">{title}</div>
+          <ExternalLink size={13} strokeWidth={2.25} className="gen-link-card-arrow" />
+        </div>
+        {description && <div className="gen-link-card-desc">{description}</div>}
+        <div className="gen-link-card-url">{url.replace(/^https?:\/\//, "")}</div>
+      </a>
+      {showEmbed && (
+        <div className="gen-iframe" style={{ height: 280 }}>
+          <iframe
+            src={toHref(url)}
+            title={title}
+            loading="lazy"
+            referrerPolicy="no-referrer"
+            sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
+          />
+        </div>
+      )}
+    </div>
   );
 }
 

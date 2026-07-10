@@ -687,13 +687,13 @@ a {
   max-width: 100%;
   margin: 0 auto;
   width: 100%;
-  padding: 0 clamp(24px, 9vw, 160px);
+  padding: 0 clamp(32px, 14vw, 240px);
 }
 
 .chat-messages {
   flex: 1;
   overflow-y: auto;
-  padding: 64px 0 140px;
+  padding: 64px 0 200px;
   scrollbar-width: thin;
   scrollbar-color: rgba(0, 0, 0, 0.12) transparent;
 }
@@ -701,7 +701,7 @@ a {
 .chat-thread {
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 30px;
   padding-bottom: 8px;
   width: 100%;
 }
@@ -798,7 +798,7 @@ a {
   font-size: 13px;
   font-weight: 500;
   color: var(--label);
-  padding: 4px 0;
+  padding: 4px 0 32px;
 }
 
 .chat-thinking-dot {
@@ -943,7 +943,7 @@ a {
 }
 
 .chat-composer-inner {
-  max-width: 680px;
+  max-width: 600px;
   margin: 0 auto;
   width: 100%;
   pointer-events: auto;
@@ -1033,7 +1033,7 @@ a {
 .gen-stack {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
   width: 100%;
 }
 
