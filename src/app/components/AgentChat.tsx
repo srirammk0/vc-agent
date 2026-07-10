@@ -142,6 +142,7 @@ export default function AgentChat() {
 
     const threadId = active.id;
     const assistantTs = Date.now();
+    const baseLength = withUser.length; // messages before the streaming reply — never inferred from ts, which can collide with userMsg.ts at ms resolution
     let content = "";
     const trace: ToolTraceEntry[] = [];
 
@@ -150,8 +151,7 @@ export default function AgentChat() {
         if (!prev) return prev;
         const thread = prev.threads.find((t) => t.id === threadId);
         if (!thread) return prev;
-        const last = thread.messages[thread.messages.length - 1];
-        const base = last && last.ts === assistantTs ? thread.messages.slice(0, -1) : thread.messages;
+        const base = thread.messages.slice(0, baseLength);
         const assistantMsg: ChatMessage = {
           role: "assistant",
           content,
@@ -365,26 +365,28 @@ export default function AgentChat() {
             send();
           }}
         >
-          {error && <div className="chat-error">{error}</div>}
-          <div className="chat-composer-shell">
-            <textarea
-              ref={inputRef}
-              value={input}
-              onChange={onInputChange}
-              onKeyDown={onKeyDown}
-              placeholder="Message the agent…"
-              disabled={sending}
-              rows={1}
-              className="chat-input"
-            />
-            <button
-              type="submit"
-              disabled={sending || !input.trim()}
-              className="chat-send"
-              aria-label="Send"
-            >
-              <ArrowUp size={17} strokeWidth={2.5} />
-            </button>
+          <div className="chat-composer-inner">
+            {error && <div className="chat-error">{error}</div>}
+            <div className="chat-composer-shell">
+              <textarea
+                ref={inputRef}
+                value={input}
+                onChange={onInputChange}
+                onKeyDown={onKeyDown}
+                placeholder="Message the agent…"
+                disabled={sending}
+                rows={1}
+                className="chat-input"
+              />
+              <button
+                type="submit"
+                disabled={sending || !input.trim()}
+                className="chat-send"
+                aria-label="Send"
+              >
+                <ArrowUp size={17} strokeWidth={2.5} />
+              </button>
+            </div>
           </div>
         </form>
       </div>

@@ -1,5 +1,21 @@
 "use client";
 
+import type { ComponentType } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import {
+  BarChart3,
+  Building2,
+  CircleCheckBig,
+  CircleX,
+  ExternalLink,
+  Globe,
+  Info,
+  ListChecks,
+  Sparkles,
+  Table2,
+  TriangleAlert,
+} from "lucide-react";
 import StatusBadge from "../StatusBadge";
 
 export type UiBlock =
@@ -17,6 +33,11 @@ export type MessagePart =
   | { type: "ui"; block: UiBlock };
 
 const UI_BLOCK_RE = /```ui:([a-z0-9-]+)\n([\s\S]*?)```/g;
+// Matches an opening ui-block fence with no closing ``` yet — i.e. the model is
+// still mid-stream on this block. We hide everything from here on so the raw
+// ```ui:kind / JSON never flashes on screen; it resolves into a real card the
+// moment the closing fence lands and this text gets reparsed on the next render.
+const OPEN_UI_FENCE_RE = /```ui:[a-z0-9-]+\n/;
 
 const KNOWN_KINDS = new Set([
   "startup",
@@ -51,8 +72,10 @@ export function parseMessageParts(content: string): MessagePart[] {
     last = match.index + match[0].length;
   }
 
-  const rest = content.slice(last).trim();
-  if (rest) parts.push({ type: "text", text: rest });
+  const tail = content.slice(last);
+  const openFence = tail.match(OPEN_UI_FENCE_RE);
+  const visibleTail = (openFence ? tail.slice(0, openFence.index) : tail).trim();
+  if (visibleTail) parts.push({ type: "text", text: visibleTail });
   return parts;
 }
 
@@ -72,6 +95,40 @@ function asBool(v: unknown, fallback = false): boolean {
   return typeof v === "boolean" ? v : fallback;
 }
 
+function Kicker({
+  icon: Icon,
+  children,
+}: {
+  icon: ComponentType<{ size?: number; strokeWidth?: number }>;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="gen-card-kicker gen-card-kicker-icon">
+      <Icon size={12} strokeWidth={2.25} />
+      <span>{children}</span>
+    </div>
+  );
+}
+
+function Prose({ text }: { text: string }) {
+  return (
+    <div className="gen-prose">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          a: ({ href, children, ...props }) => (
+            <a href={href} target="_blank" rel="noreferrer" {...props}>
+              {children}
+            </a>
+          ),
+        }}
+      >
+        {text}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
 function StartupCard({ data }: { data: Record<string, unknown> }) {
   const name = asString(data.name) ?? "Untitled";
   const oneLiner = asString(data.one_liner);
@@ -85,9 +142,14 @@ function StartupCard({ data }: { data: Record<string, unknown> }) {
   return (
     <div className="gen-card gen-startup animate-scale-in">
       <div className="gen-startup-top">
-        <div>
-          <div className="gen-card-title">{name}</div>
-          {oneLiner && <p className="gen-card-body">{oneLiner}</p>}
+        <div className="gen-startup-heading">
+          <span className="gen-startup-icon">
+            <Building2 size={14} strokeWidth={2.25} />
+          </span>
+          <div>
+            <div className="gen-card-title">{name}</div>
+            {oneLiner && <p className="gen-card-body">{oneLiner}</p>}
+          </div>
         </div>
         {badgeStatus ? (
           <StatusBadge status={badgeStatus} />
@@ -98,6 +160,7 @@ function StartupCard({ data }: { data: Record<string, unknown> }) {
       {assessment && <p className="gen-card-note">{assessment}</p>}
       {website && (
         <a className="gen-link" href={toHref(website)} target="_blank" rel="noreferrer">
+          <ExternalLink size={11} strokeWidth={2.25} />
           {website.replace(/^https?:\/\//, "")}
         </a>
       )}
@@ -124,7 +187,7 @@ function IframeCard({ data }: { data: Record<string, unknown> }) {
 
   return (
     <div className="gen-card animate-scale-in">
-      <div className="gen-card-kicker">{title}</div>
+      <Kicker icon={Globe}>{title}</Kicker>
       <div className="gen-iframe" style={{ height }}>
         <iframe
           src={toHref(url)}
@@ -145,7 +208,7 @@ function MetricsCard({ data }: { data: Record<string, unknown> }) {
 
   return (
     <div className="gen-card animate-scale-in">
-      {title && <div className="gen-card-kicker">{title}</div>}
+      {title && <Kicker icon={BarChart3}>{title}</Kicker>}
       <div className="gen-metrics">
         {items.map((item, i) => {
           if (!item || typeof item !== "object") return null;
@@ -173,7 +236,7 @@ function ListCard({ data }: { data: Record<string, unknown> }) {
 
   return (
     <div className="gen-card animate-scale-in">
-      {title && <div className="gen-card-kicker">{title}</div>}
+      {title && <Kicker icon={ListChecks}>{title}</Kicker>}
       <ul className="gen-list">
         {items.map((item, i) => {
           if (typeof item === "string") {
@@ -218,7 +281,12 @@ function ActionsCard({
 
   return (
     <div className="gen-actions-wrap animate-scale-in">
-      {title && <div className="gen-card-kicker" style={{ marginBottom: 8 }}>{title}</div>}
+      {title && (
+        <div className="gen-card-kicker gen-card-kicker-icon" style={{ marginBottom: 8 }}>
+          <Sparkles size={12} strokeWidth={2.25} />
+          <span>{title}</span>
+        </div>
+      )}
       <div className="gen-actions">
         {items.map((item, i) => {
           if (!item || typeof item !== "object") return null;
@@ -242,16 +310,29 @@ function ActionsCard({
   );
 }
 
+const STATUS_ICONS: Record<string, ComponentType<{ size?: number; strokeWidth?: number }>> = {
+  info: Info,
+  success: CircleCheckBig,
+  warning: TriangleAlert,
+  danger: CircleX,
+};
+
 function StatusCard({ data }: { data: Record<string, unknown> }) {
   const tone = asString(data.tone) ?? "info";
   const title = asString(data.title);
   const body = asString(data.body) ?? asString(data.message);
   if (!title && !body) return null;
+  const Icon = STATUS_ICONS[tone] ?? Info;
 
   return (
     <div className={`gen-status gen-status-${tone} animate-scale-in`}>
-      {title && <div className="gen-status-title">{title}</div>}
-      {body && <div className="gen-status-body">{body}</div>}
+      <span className="gen-status-icon">
+        <Icon size={15} strokeWidth={2.25} />
+      </span>
+      <div>
+        {title && <div className="gen-status-title">{title}</div>}
+        {body && <div className="gen-status-body">{body}</div>}
+      </div>
     </div>
   );
 }
@@ -267,8 +348,9 @@ function TableCard({ data }: { data: Record<string, unknown> }) {
   return (
     <div className="gen-card animate-scale-in" style={{ overflow: "hidden", padding: 0 }}>
       {title && (
-        <div className="gen-card-kicker" style={{ padding: "12px 14px 0" }}>
-          {title}
+        <div className="gen-card-kicker gen-card-kicker-icon" style={{ padding: "12px 14px 0" }}>
+          <Table2 size={12} strokeWidth={2.25} />
+          <span>{title}</span>
         </div>
       )}
       <div className="gen-table-scroll">
@@ -306,7 +388,10 @@ function LinkCard({ data }: { data: Record<string, unknown> }) {
 
   return (
     <a className="gen-link-card animate-scale-in" href={toHref(url)} target="_blank" rel="noreferrer">
-      <div className="gen-link-card-title">{title}</div>
+      <div className="gen-link-card-top">
+        <div className="gen-link-card-title">{title}</div>
+        <ExternalLink size={13} strokeWidth={2.25} className="gen-link-card-arrow" />
+      </div>
       {description && <div className="gen-link-card-desc">{description}</div>}
       <div className="gen-link-card-url">{url.replace(/^https?:\/\//, "")}</div>
     </a>
@@ -356,9 +441,7 @@ export function MessageContent({
     <div className="gen-stack">
       {parts.map((part, i) =>
         part.type === "text" ? (
-          <p key={i} className="gen-prose">
-            {part.text}
-          </p>
+          <Prose key={i} text={part.text} />
         ) : (
           <GenerativeBlock key={i} block={part.block} onAction={onAction} />
         )
