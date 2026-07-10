@@ -49,6 +49,8 @@ def sync():
 
     docs = sm.documents.list(container_tags=["vc:startups"], include_content=True, limit=500)
     sm_slugs = set()
+    update_rows = []
+    insert_rows = []
     for doc in getattr(docs, "memories", []):
         meta = doc.metadata or {}
         content = getattr(doc, "content", "") or ""
@@ -69,26 +71,30 @@ def sync():
         }
 
         if slug in existing_slugs:
-            # Sync agent-owned content ONLY. Dashboard UI and agent both write status directly
-            # to Supabase on change, so we never clobber an existing dashboard status here.
-            sb.table("startups").update({
-                **content_fields,
-            }).eq("slug", slug).execute()
+            update_rows.append({"slug": slug, **content_fields})
         else:
-            inserted_at = _now()
-            sb.table("startups").insert({
+            insert_rows.append({
                 "slug": slug,
                 "status": meta.get("status", "new"),
                 "found_date": meta.get("found_date"),
-                "updated_at": inserted_at,
+                "updated_at": _now(),
                 **content_fields,
-            }).execute()
+            })
+
+    # Batched upsert for existing rows, content fields only — merge-duplicates upsert
+    # only writes the columns present in each payload, so status/enrichment columns
+    # (owned by the dashboard/agent-mirror, not listed here) are left untouched on
+    # conflict, same guarantee the old per-row .update() gave.
+    if update_rows:
+        sb.table("startups").upsert(update_rows, on_conflict="slug").execute()
+    if insert_rows:
+        sb.table("startups").insert(insert_rows).execute()
 
     # Supermemory is the source of truth: rows that exist in Supabase but are no
     # longer in Supermemory (e.g. deleted via delete_startups) are orphans — drop them.
     orphan_slugs = existing_slugs - sm_slugs
-    for slug in orphan_slugs:
-        sb.table("startups").delete().eq("slug", slug).execute()
+    if orphan_slugs:
+        sb.table("startups").delete().in_("slug", list(orphan_slugs)).execute()
 
     # Sync thesis too
     thesis_docs = sm.documents.list(container_tags=["vc:thesis"], include_content=True)

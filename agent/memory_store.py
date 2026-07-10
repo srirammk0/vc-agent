@@ -3,7 +3,7 @@ import hashlib
 import os
 from datetime import datetime, timezone
 
-from supermemory import Supermemory
+from supermemory import NotFoundError, Supermemory
 
 try:
     import cache as _cache_mod
@@ -11,6 +11,11 @@ except ImportError:
     _cache_mod = None
 
 _STARTUP_LIST_TTL = 5 * 60  # 5 minutes — short enough to reflect new saves within a run
+_THESIS_TTL = 5 * 60  # boss-initiated only — same 5-minute window as the startup list
+_PREFERENCES_TTL = 5 * 60
+
+_THESIS_CACHE_KEY = "sm:thesis"
+_PREFERENCES_CACHE_KEY = "sm:preferences"
 
 _client = None
 _SM_TIMEOUT = 30.0
@@ -36,6 +41,13 @@ def truncate_text(text: str, max_chars: int) -> str:
 
 
 async def load_thesis() -> str:
+    """Boss-initiated changes only (update_thesis) — cached for 5 minutes so every
+    agent turn doesn't round-trip Supermemory for something that almost never changes.
+    update_thesis busts this cache on write."""
+    if _cache_mod:
+        cached = await _cache_mod.cache_get(_THESIS_CACHE_KEY, _THESIS_TTL)
+        if cached is not None:
+            return cached
     try:
         res = await asyncio.wait_for(
             asyncio.to_thread(
@@ -47,14 +59,22 @@ async def load_thesis() -> str:
             timeout=_SM_TIMEOUT,
         )
         results = getattr(res, "results", [])
-        if results:
-            return truncate_text(_result_text(results[0]) or "No thesis configured.", 3500)
+        text = truncate_text(_result_text(results[0]) or "No thesis configured.", 3500) if results else "No thesis configured."
+        if _cache_mod:
+            await _cache_mod.cache_set(_THESIS_CACHE_KEY, text)
+        return text
     except Exception as e:
         print("Failed to load thesis from Supermemory:", e)
     return "No thesis configured."
 
 
 async def load_preferences() -> str:
+    """Same 5-minute cache as load_thesis — preferences only change via
+    write_preference/delete_preference, both of which bust this cache on write."""
+    if _cache_mod:
+        cached = await _cache_mod.cache_get(_PREFERENCES_CACHE_KEY, _PREFERENCES_TTL)
+        if cached is not None:
+            return cached
     try:
         res = await asyncio.wait_for(
             asyncio.to_thread(
@@ -66,12 +86,23 @@ async def load_preferences() -> str:
             timeout=_SM_TIMEOUT,
         )
         results = getattr(res, "results", [])
-        if results:
-            text = "\n".join(_result_text(r) for r in results if _result_text(r))
-            return truncate_text(text, 2500)
+        text = truncate_text("\n".join(_result_text(r) for r in results if _result_text(r)), 2500) if results else "No preferences yet."
+        if _cache_mod:
+            await _cache_mod.cache_set(_PREFERENCES_CACHE_KEY, text)
+        return text
     except Exception as e:
         print("Failed to load preferences from Supermemory:", e)
     return "No preferences yet."
+
+
+async def _bust_thesis_cache() -> None:
+    if _cache_mod:
+        await _cache_mod.cache_delete(_THESIS_CACHE_KEY)
+
+
+async def _bust_preferences_cache() -> None:
+    if _cache_mod:
+        await _cache_mod.cache_delete(_PREFERENCES_CACHE_KEY)
 
 
 async def semantic_search(query: str, container_tag: str, limit: int = 10) -> str:
@@ -255,20 +286,6 @@ async def known_startups_summary() -> str:
     )
 
 
-async def _find_doc(container_tag: str, custom_id: str):
-    """Look up a document by custom_id within a container. Returns the doc or None."""
-    docs = await asyncio.wait_for(
-        asyncio.to_thread(
-            get_client().documents.list, container_tags=[container_tag]
-        ),
-        timeout=_SM_TIMEOUT,
-    )
-    for doc in getattr(docs, "memories", []):
-        if getattr(doc, "custom_id", None) == custom_id:
-            return doc
-    return None
-
-
 def _sb_client():
     try:
         from supabase import create_client
@@ -282,17 +299,18 @@ def _sb_client():
 
 
 async def update_startup_status(slug: str, status: str) -> str:
-    doc = await _find_doc("vc:startups", slug)
-    if doc is None:
+    # Direct by-custom_id update — the API accepts custom_id as the path id, and merges
+    # metadata server-side rather than replacing it, so there's no need to fetch the
+    # existing doc first just to preserve its other metadata fields.
+    try:
+        await asyncio.wait_for(
+            asyncio.to_thread(
+                lambda: get_client().documents.update(slug, metadata={"status": status})
+            ),
+            timeout=_SM_TIMEOUT,
+        )
+    except NotFoundError:
         return f"Startup {slug} not found in memory."
-
-    meta = {**(doc.metadata or {}), "status": status}
-    await asyncio.wait_for(
-        asyncio.to_thread(
-            lambda: get_client().documents.update(doc.id, metadata=meta)
-        ),
-        timeout=_SM_TIMEOUT,
-    )
 
     # Mirror immediately to Supabase so the dashboard reflects the change without
     # waiting for the next scheduled sync.
@@ -316,14 +334,13 @@ async def update_startup_status(slug: str, status: str) -> str:
 
 
 async def delete_startup(slug: str) -> str:
-    doc = await _find_doc("vc:startups", slug)
-    if doc is None:
+    try:
+        await asyncio.wait_for(
+            asyncio.to_thread(get_client().documents.delete, slug),
+            timeout=_SM_TIMEOUT,
+        )
+    except NotFoundError:
         return f"Startup {slug} not found in memory."
-
-    await asyncio.wait_for(
-        asyncio.to_thread(get_client().documents.delete, doc.id),
-        timeout=_SM_TIMEOUT,
-    )
 
     # Mirror immediately to Supabase so the dashboard stops showing it without
     # waiting for the next scheduled sync.
@@ -375,6 +392,7 @@ async def write_preference(pattern: str, pattern_type: str):
         ),
         timeout=_SM_TIMEOUT,
     )
+    await _bust_preferences_cache()
 
 
 async def list_preferences() -> str:
@@ -397,13 +415,14 @@ async def list_preferences() -> str:
 
 
 async def delete_preference(pattern_id: str) -> str:
-    doc = await _find_doc("vc:preferences", pattern_id)
-    if doc is None:
+    try:
+        await asyncio.wait_for(
+            asyncio.to_thread(get_client().documents.delete, pattern_id),
+            timeout=_SM_TIMEOUT,
+        )
+    except NotFoundError:
         return f"Preference {pattern_id} not found in memory."
-    await asyncio.wait_for(
-        asyncio.to_thread(get_client().documents.delete, doc.id),
-        timeout=_SM_TIMEOUT,
-    )
+    await _bust_preferences_cache()
     return f"Deleted preference {pattern_id}"
 
 
@@ -477,3 +496,4 @@ async def update_thesis(new_content: str):
         ),
         timeout=_SM_TIMEOUT,
     )
+    await _bust_thesis_cache()

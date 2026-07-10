@@ -3,7 +3,7 @@ import { defineConfig } from "@trigger.dev/sdk";
 // Trigger.dev's only job in this project is scheduling: every task here is a
 // thin fetch() forwarding call into a Modal HTTP endpoint at the right time
 // (fixed cron or a one-off delayed trigger). All agentic work — LLM calls,
-// the signals crawler, Supermemory/Supabase writes, SMS — stays on Modal.
+// Supermemory/Supabase writes, SMS — stays on Modal.
 // See README.md "Scheduling (Trigger.dev)" and modal_app.py.
 export default defineConfig({
   project: "proj_zkqctocaqceqitxjtbar",
