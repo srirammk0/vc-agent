@@ -4,9 +4,6 @@
   "description": "VC research agent — Pydantic AI + Cerebras, Exa, Supabase, SendBlue, Modal, Trigger.dev",
   "type": "module",
   "scripts": {
-    "build:theme": "astryx theme build src/lib/astryxTheme.ts -o src/lib/astryx-theme.css",
-    "predev": "npm run build:theme",
-    "prebuild": "npm run build:theme",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
@@ -15,7 +12,6 @@
     "trigger:deploy": "npx trigger.dev@4.5.1 deploy"
   },
   "dependencies": {
-    "@astryxdesign/core": "^0.1.4",
     "@supabase/supabase-js": "^2.45.4",
     "@tailwindcss/postcss": "^4.3.1",
     "@trigger.dev/sdk": "^4.5.1",
@@ -25,7 +21,6 @@
     "react-dom": "^19.2.7"
   },
   "devDependencies": {
-    "@astryxdesign/cli": "^0.1.4",
     "@types/node": "^20.0.0",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",

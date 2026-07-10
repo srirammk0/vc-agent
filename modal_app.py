@@ -435,40 +435,6 @@ def submit_feedback(payload: dict):
     return result
 
 
-# --- Send Signal to Agent ---
-@app.function(
-    image=image,
-    secrets=[modal.Secret.from_name("vc-scout-secrets")],
-    timeout=300,
-)
-@modal.fastapi_endpoint(method="POST")
-def send_signal_to_agent(payload: dict):
-    signal_id = payload.get("id")
-    if not signal_id:
-        return {"error": "signal id required"}
-
-    import os
-    from supabase import create_client
-    
-    sb = create_client(
-        os.environ["SUPABASE_URL"],
-        os.environ["SUPABASE_SERVICE_ROLE_KEY"],
-    )
-    
-    resp = sb.table("signals").select("*").eq("id", signal_id).single().execute()
-    signal = resp.data
-    
-    if not signal:
-        return {"error": "signal not found"}
-
-    message = f"Please research this startup: {signal['title']}. Source: {signal['source_url']}. Snippet: {signal['snippet']}"
-
-    # Spawn in background so dashboard doesn't wait
-    chat_reply_background.spawn(message, os.environ.get("ALERT_PHONE_NUMBER", ""))
-    
-    return {"status": "sent"}
-
-
 # --- Background task: SendBlue reply ---
 @app.function(
     image=image,

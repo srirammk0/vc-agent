@@ -325,25 +325,23 @@ def _start_typing(deps: AgentDeps | None) -> None:
     deps.typing_thread.start()
 
 
-@text_agent.instructions
-async def text_handler_prompt(ctx: RunContext) -> str:
-    thesis = await sm.load_thesis()
-    preferences = await sm.load_preferences()
-    known = await sm.known_startups_summary()
-    return f"""You handle inbound texts from your boss (a pre-seed VC) and execute their requests fully before replying.
-
-Standing rule — only search/sweep when explicitly asked: do NOT call exa_deep_search_many or run a sweep
+_SWEEP_STANDING_RULE = """Standing rule — only search/sweep when explicitly asked: do NOT call exa_deep_search_many or run a sweep
 in response to a casual mention or question (e.g. "what do you think of X") — answer from memory/knowledge
 instead. Only run a sweep when the boss clearly asks for one ("find me startups", "run a sweep", "scout for
 X"). When a sweep does run and turns up a genuine early-stage startup that isn't already in your known list
-and fits the thesis, call save_startups for it so it doesn't evaporate.
+and fits the thesis, call save_startups for it so it doesn't evaporate."""
 
-Common requests and exactly how to handle them:
+
+def _common_routing_table(*, followups: bool) -> str:
+    """Tool-routing rules shared by text_handler_prompt and web_chat_prompt — the two
+    surfaces differ only in framing/style and in whether follow-up scheduling exists
+    (it needs a phone number, which web chat doesn't have)."""
+    table = """Common requests and exactly how to handle them:
 
 "approve X" / "pass on X" / "mark X as [status]"
 → call list_known_startups if you don't already have the slug
-→ call update_startup_statuses([{{slug, status, reason}}])
-→ call write_preferences([{{pattern, type}}]) with the distilled reason
+→ call update_startup_statuses([{slug, status, reason}])
+→ call write_preferences([{pattern, type}]) with the distilled reason
 → reply confirming what changed
 
 "delete X" / "remove X" / "forget about X" / "that was a duplicate/mistake"
@@ -372,7 +370,10 @@ Common requests and exactly how to handle them:
 → call linkup_search or linkup_search_many
 
 "change our thesis to..." / "update criteria"
-→ call update_thesis with the full new content
+→ call update_thesis with the full new content"""
+
+    if followups:
+        table += """
 
 "check back on X in [timeframe]" / "remind me about this later" / "follow up on this in a week"
 → call schedule_followup(due_in_minutes, instructions) — convert whatever timeframe the boss gave you
@@ -385,6 +386,26 @@ Common requests and exactly how to handle them:
 
 "what do you have scheduled" / "what's coming up" / "did you already schedule a check on X"
 → call list_scheduled_tasks() and summarize what's pending
+
+"cancel that check-in" / "never mind on X" / "don't bother following up on that"
+→ call list_scheduled_tasks() if you don't already have the task id
+→ call delete_scheduled_task(task_id)
+→ reply confirming it's canceled"""
+
+    return table
+
+
+@text_agent.instructions
+async def text_handler_prompt(ctx: RunContext) -> str:
+    thesis = await sm.load_thesis()
+    preferences = await sm.load_preferences()
+    known = await sm.known_startups_summary()
+    routing = _common_routing_table(followups=True)
+    return f"""You handle inbound texts from your boss (a pre-seed VC) and execute their requests fully before replying.
+
+{_SWEEP_STANDING_RULE}
+
+{routing}
 
 Startups you already know (name | slug | status) — never re-save these:
 {known}
@@ -401,61 +422,64 @@ Patterns you've learned (seek/avoid):
 
 WEB_CHAT_STYLE_RULES = """Style rules:
 - Be clear, concise, and friendly but not overly casual.
-- Plain text only — no markdown headers or bullet-heavy formatting.
+- Prefer short prose. Do NOT use markdown headers, bold, or bullet-heavy formatting in plain text.
+- When listing startups, metrics, comparisons, or follow-up choices, use generative UI blocks (below) instead of dumping raw text.
 - Do NOT use emojis.
 - Do NOT greet the user or say "hey"/"hi" — treat this as a continuation of an ongoing chat."""
 
 
+WEB_CHAT_UI_BLOCKS = """Generative UI (web chat only):
+Embed structured cards inline with fenced blocks. Keep a short prose lead-in, then the block(s). Valid JSON only inside fences.
+
+```ui:startup
+{"name":"Acme","one_liner":"…","status":"new|approved|passed","website":"https://…","assessment":"optional","embed":false}
+```
+
+```ui:metrics
+{"title":"Pipeline","items":[{"label":"New","value":"12"},{"label":"Approved","value":"4","hint":"optional"}]}
+```
+
+```ui:list
+{"title":"Approved","items":[{"title":"Acme","subtitle":"one-liner","meta":"approved"}]}
+```
+
+```ui:table
+{"title":"Compare","columns":["Name","Status","Note"],"rows":[["Acme","new","…"]]}
+```
+
+```ui:actions
+{"title":"Next","actions":[{"label":"Dig deeper","prompt":"Research Acme more deeply"},{"label":"Mark approved","prompt":"Approve Acme"}]}
+```
+
+```ui:status
+{"tone":"info|success|warning|danger","title":"Saved","body":"Acme is now approved."}
+```
+
+```ui:link
+{"title":"Site","url":"https://…","description":"optional"}
+```
+
+```ui:iframe
+{"url":"https://…","title":"Preview","height":320}
+```
+
+Use ui:startup for a single company, ui:list for several, ui:metrics for counts, ui:actions when offering clear next steps the user can tap. Prefer embed:false unless they ask to preview a site."""
+
+
 async def web_chat_prompt(ctx: RunContext) -> str:
     """Instructions for the website chat surface — same research/dealflow tool routing as
-    text_handler_prompt, minus the sections for tools this agent doesn't register
-    (schedule_followup/list_scheduled_tasks need a phone number, tapback needs iMessage)."""
+    text_handler_prompt via _common_routing_table, minus the sections for tools this
+    agent doesn't register (schedule_followup/list_scheduled_tasks/delete_scheduled_task
+    need a phone number, tapback needs iMessage)."""
     thesis = await sm.load_thesis()
     preferences = await sm.load_preferences()
     known = await sm.known_startups_summary()
+    routing = _common_routing_table(followups=False)
     return f"""You're chatting with your boss (a pre-seed VC) through the dashboard's web chat and execute their requests fully before replying.
 
-Standing rule — only search/sweep when explicitly asked: do NOT call exa_deep_search_many or run a sweep
-in response to a casual mention or question (e.g. "what do you think of X") — answer from memory/knowledge
-instead. Only run a sweep when the boss clearly asks for one ("find me startups", "run a sweep", "scout for
-X"). When a sweep does run and turns up a genuine early-stage startup that isn't already in your known list
-and fits the thesis, call save_startups for it so it doesn't evaporate.
+{_SWEEP_STANDING_RULE}
 
-Common requests and exactly how to handle them:
-
-"approve X" / "pass on X" / "mark X as [status]"
-→ call list_known_startups if you don't already have the slug
-→ call update_startup_statuses([{{slug, status, reason}}])
-→ call write_preferences([{{pattern, type}}]) with the distilled reason
-→ reply confirming what changed
-
-"delete X" / "remove X" / "forget about X" / "that was a duplicate/mistake"
-→ call list_known_startups if you don't already have the slug
-→ call delete_startups([slug])
-→ reply confirming it's gone
-→ do NOT use this for a startup the boss is just rejecting — use update_startup_statuses with 'passed' instead
-
-"that pattern/preference is wrong" / "stop avoiding X" / "we don't care about that anymore"
-→ call list_preferences to find the matching ID
-→ call delete_preferences([id])
-→ reply confirming what was removed
-
-"find me startups" / "run a sweep" / "scout for X"
-→ call exa_deep_search_many with 4-5 diverse queries in ONE call
-→ skip anything already in the known list below or with obvious major press coverage
-→ call save_startups in ONE batch call for all survivors
-→ reply with what you found and saved
-
-"what do you know about X" / "tell me about X"
-→ call supermemory_search FIRST (vc:startups container)
-→ if memory has useful info, reply from that
-→ only call exa_deep_search_many if memory has nothing
-
-"what's happening in AI / VC" / news questions
-→ call linkup_search or linkup_search_many
-
-"change our thesis to..." / "update criteria"
-→ call update_thesis with the full new content
+{routing}
 
 Startups you already know (name | slug | status) — never re-save these:
 {known}
@@ -467,6 +491,8 @@ Patterns you've learned (seek/avoid):
 {preferences}
 
 {WEB_CHAT_STYLE_RULES}
+
+{WEB_CHAT_UI_BLOCKS}
 """
 
 
@@ -769,20 +795,47 @@ def register_tools(
         @agent.tool(prepare=make_non_strict)
         async def list_scheduled_tasks(ctx: RunContext[AgentDeps]) -> str:
             """List everything currently scheduled (follow-ups, daily portfolio checks) that
-            hasn't fired yet, soonest first. Use this when the boss asks
-            what's scheduled/pending, or to check for a duplicate before scheduling something new."""
+            hasn't fired yet, soonest first. Use this when the boss asks what's
+            scheduled/pending, to check for a duplicate before scheduling something new, or
+            to find the id to pass to delete_scheduled_task."""
             try:
                 pending = scheduled_tasks_log.list_pending()
                 if not pending:
                     return "Nothing currently scheduled."
                 lines = []
                 for t in pending:
+                    tid = t.get("id", "?")
                     due = t.get("due_at", "?")
                     kind = t.get("kind", "?")
                     payload = t.get("payload") or {}
                     detail = payload.get("instructions") or payload.get("notes") or payload.get("reason") or ""
-                    lines.append(f"- [{kind}] due {due}" + (f" — {detail}" if detail else ""))
+                    lines.append(f"- [{tid}] [{kind}] due {due}" + (f" — {detail}" if detail else ""))
                 return "\n".join(lines)
+            except Exception as e:
+                return _err(e)
+
+        @agent.tool(prepare=make_non_strict)
+        async def delete_scheduled_task(ctx: RunContext[AgentDeps], task_id: str) -> str:
+            """Cancel a pending scheduled task (a follow-up or portfolio check that hasn't
+            fired yet) so it genuinely won't happen — not just removed from the list.
+            task_id is the bracketed id shown by list_scheduled_tasks; call that first if
+            you don't have it."""
+            try:
+                task = scheduled_tasks_log.get_task(task_id)
+                if not task:
+                    return f"[no scheduled task found with id {task_id} — call list_scheduled_tasks to check]"
+                run_id = (task.get("payload") or {}).get("_trigger_run_id")
+                if run_id:
+                    ok = await trigger_client.cancel_check(run_id)
+                    if not ok:
+                        return "[failed to cancel — trigger.dev call didn't succeed, try again]"
+                    scheduled_tasks_log.delete_task(task_id)
+                    return "Canceled that scheduled task."
+                scheduled_tasks_log.delete_task(task_id)
+                return (
+                    "Removed it from the schedule, but this one predates run tracking so I "
+                    "can't confirm the underlying job was actually stopped — keep an eye out."
+                )
             except Exception as e:
                 return _err(e)
 
@@ -842,6 +895,21 @@ register_tools(
     linkup_tools=False,
     reflection_source="feedback",
 )
+
+# Built once like text_agent/feedback_agent above, not per-request: none of its
+# registered tools are deps-bound (follow_up/tapback, the only ones that are, are
+# excluded here), so there's no per-request state to isolate by rebuilding. The "no
+# shared state between surfaces" requirement is about conversation history, which
+# still comes entirely from the caller-supplied message_history in run_web_chat —
+# sharing this immutable Agent + tool-schema object is the same pattern text_agent
+# already uses across every phone number.
+web_chat_agent = Agent(
+    model,
+    instructions=CORE_RULES,
+    model_settings=llm.FINALIZE_SMS_SETTINGS,
+)
+web_chat_agent.instructions(web_chat_prompt)
+register_tools(web_chat_agent, linkup_tools=True, tapback=False, reflection_source="web_chat")
 
 
 # --- MAIN LOGIC ENTRANCES ---
@@ -909,28 +977,19 @@ def _messages_to_history(messages: list[dict]) -> list:
 
 async def run_web_chat(messages: list[dict]) -> str:
     """Website chat entry point — a separate surface from the iMessage thread with no
-    shared memory. The client owns the full conversation, so this builds a fresh agent
-    per call from the messages array it's given (instead of the phone-keyed history in
-    cache.py) and returns only the new reply string. Same research/dealflow tools as the
-    text handler; follow_up and tapback are skipped since both need a phone number this
-    surface doesn't have."""
+    shared memory. The client owns the full conversation: history is reconstructed
+    fresh from the messages array on every call (instead of the phone-keyed cache in
+    cache.py), and only the new reply string is returned. web_chat_agent itself is a
+    module-level singleton (see above) — no per-request state to isolate."""
     if not messages or messages[-1].get("role") != "user":
         return ""
 
     history = _messages_to_history(messages[:-1])
     prompt = messages[-1].get("content", "")
 
-    chat_agent = Agent(
-        model,
-        instructions=CORE_RULES,
-        model_settings=llm.FINALIZE_SMS_SETTINGS,
-    )
-    chat_agent.instructions(web_chat_prompt)
-    register_tools(chat_agent, linkup_tools=True, tapback=False, reflection_source="web_chat")
-
     try:
         res = await agent_run_with_retry(
-            chat_agent, prompt,
+            web_chat_agent, prompt,
             message_history=history if history else None,
         )
         return res.output

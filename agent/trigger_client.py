@@ -16,6 +16,7 @@ import httpx
 import scheduled_tasks_log
 
 _TRIGGER_TRIGGER_URL = "https://api.trigger.dev/api/v1/tasks/run-scheduled-check/trigger"
+_TRIGGER_RUNS_URL = "https://api.trigger.dev/api/v2/runs"
 
 
 async def schedule_check(
@@ -63,7 +64,40 @@ async def schedule_check(
                 json=body,
             )
             res.raise_for_status()
+            # Stash the run id into the logged row (best-effort) so a later
+            # cancel_check(task_id) call can actually stop this run, not just
+            # delete our own visibility-log row.
+            if task_id:
+                try:
+                    run_id = res.json().get("id")
+                    if run_id:
+                        scheduled_tasks_log.attach_run_id(task_id, run_id)
+                except Exception as e:
+                    print(f"trigger_client: failed to read run id for kind={kind}:", e)
             return True
     except Exception as e:
         print(f"trigger_client: schedule_check failed for kind={kind}:", e)
+        return False
+
+
+async def cancel_check(run_id: str) -> bool:
+    """Cancel a Trigger.dev run before it fires (POST /api/v2/runs/{runId}/cancel).
+    Never raises — best-effort, same as schedule_check."""
+    secret = os.environ.get("TRIGGER_SECRET_KEY", "")
+    if not secret or not run_id:
+        return False
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            res = await client.post(
+                f"{_TRIGGER_RUNS_URL}/{run_id}/cancel",
+                headers={
+                    "Authorization": f"Bearer {secret}",
+                    "Content-Type": "application/json",
+                },
+            )
+            res.raise_for_status()
+            return True
+    except Exception as e:
+        print(f"trigger_client: cancel_check failed for run_id={run_id}:", e)
         return False

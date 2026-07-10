@@ -1,297 +1,328 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent, type MouseEvent } from "react";
+import Link from "next/link";
+import { ArrowUp, MessageSquarePlus, PanelLeft, Trash2, X } from "lucide-react";
+import ChatMessageRow from "./chat/ChatMessageRow";
 import {
-  Avatar,
-  Badge,
-  Button,
-  Card,
-  ChatComposer,
-  ChatLayout,
-  ChatMessage,
-  ChatMessageBubble,
-  ChatMessageList,
-  ChatMessageMetadata,
-  EmptyState,
-  Link,
-  Markdown,
-  Spinner,
-  Stack,
-  Text,
-  Timestamp,
-} from "@astryxdesign/core";
+  createThread,
+  deleteThread,
+  getActiveThread,
+  loadChatStore,
+  saveChatStore,
+  selectThread,
+  threadTitle,
+  upsertThread,
+  type ChatMessage,
+  type ChatStore,
+  type ChatThread,
+} from "../../lib/chatSessions";
+import { useScrollMemory } from "../hooks/useScrollMemory";
 
-const STORAGE_KEY = "agent-web-chat-history";
+const SUGGESTIONS = [
+  { label: "What's new?", prompt: "What's new in dealflow?" },
+  { label: "Approved pipeline", prompt: "Summarize the approved startups." },
+  { label: "Research a company", prompt: "Help me research a startup — ask me which one." },
+  { label: "Thesis check", prompt: "Remind me of our investment thesis in one short paragraph." },
+];
 
-type Role = "user" | "assistant";
-type ChatMsg = { role: Role; content: string; ts: number };
-
-// Generative UI contract: assistant replies may embed fenced blocks like
-// ```ui:startup\n{"name": "...", "website": "...", ...}\n``` or
-// ```ui:iframe\n{"url": "...", "title": "..."}\n``` alongside normal markdown.
-// Everything outside those blocks renders as plain Markdown.
-type Segment =
-  | { kind: "text"; value: string }
-  | { kind: "startup"; data: Record<string, unknown> }
-  | { kind: "iframe"; data: Record<string, unknown> };
-
-const UI_BLOCK_RE = /```ui:([a-z0-9-]+)\n([\s\S]*?)```/g;
-
-function parseSegments(content: string): Segment[] {
-  const segments: Segment[] = [];
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  UI_BLOCK_RE.lastIndex = 0;
-  while ((match = UI_BLOCK_RE.exec(content)) !== null) {
-    if (match.index > lastIndex) {
-      segments.push({ kind: "text", value: content.slice(lastIndex, match.index) });
-    }
-    const [, blockType, rawBody] = match;
-    try {
-      const data = JSON.parse(rawBody);
-      if (blockType === "startup") segments.push({ kind: "startup", data });
-      else if (blockType === "iframe") segments.push({ kind: "iframe", data });
-      else segments.push({ kind: "text", value: match[0] });
-    } catch {
-      segments.push({ kind: "text", value: match[0] });
-    }
-    lastIndex = match.index + match[0].length;
+function formatWhen(ts: number): string {
+  const d = new Date(ts);
+  const now = new Date();
+  const sameDay =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
+  if (sameDay) {
+    return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   }
-  if (lastIndex < content.length) {
-    segments.push({ kind: "text", value: content.slice(lastIndex) });
-  }
-  return segments;
-}
-
-function toHref(url: string): string {
-  return url.startsWith("http://") || url.startsWith("https://") ? url : `https://${url}`;
-}
-
-const STATUS_VARIANT: Record<string, "info" | "success" | "error" | "neutral"> = {
-  new: "info",
-  approved: "success",
-  passed: "error",
-};
-
-function StartupPreviewCard({ data }: { data: Record<string, unknown> }) {
-  const name = typeof data.name === "string" ? data.name : "Untitled";
-  const oneLiner = typeof data.one_liner === "string" ? data.one_liner : undefined;
-  const status = typeof data.status === "string" ? data.status : undefined;
-  const website = typeof data.website === "string" ? data.website : undefined;
-  const showEmbed = typeof data.embed === "boolean" ? data.embed : Boolean(website);
-
-  return (
-    <Card padding={3} maxWidth={380}>
-      <Stack direction="vertical" hAlign="stretch" gap={2}>
-        <Stack direction="horizontal" hAlign="between" vAlign="center" gap={2}>
-          <Text type="label" size="sm" weight="semibold">
-            {name}
-          </Text>
-          {status && <Badge label={status} variant={STATUS_VARIANT[status] ?? "neutral"} />}
-        </Stack>
-        {oneLiner && (
-          <Text type="body" size="xsm" color="secondary">
-            {oneLiner}
-          </Text>
-        )}
-        {website && (
-          <Link href={toHref(website)} target="_blank" rel="noreferrer">
-            {website.replace(/^https?:\/\//, "")}
-          </Link>
-        )}
-        {website && showEmbed && (
-          <div
-            style={{
-              borderRadius: 8,
-              overflow: "hidden",
-              border: "1px solid var(--color-border)",
-              height: 160,
-              background: "var(--color-background-surface)",
-            }}
-          >
-            <iframe
-              src={toHref(website)}
-              title={name}
-              loading="lazy"
-              referrerPolicy="no-referrer"
-              sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
-              style={{ width: "100%", height: "100%", border: "none" }}
-            />
-          </div>
-        )}
-      </Stack>
-    </Card>
-  );
-}
-
-function IframeCard({ data }: { data: Record<string, unknown> }) {
-  const url = typeof data.url === "string" ? data.url : undefined;
-  const title = typeof data.title === "string" ? data.title : url ?? "Preview";
-  const height = typeof data.height === "number" ? data.height : 220;
-  if (!url) return null;
-
-  return (
-    <Card padding={1} maxWidth={420}>
-      <Stack direction="vertical" gap={1}>
-        <Text type="supporting" size="xsm">
-          {title}
-        </Text>
-        <div
-          style={{
-            borderRadius: 6,
-            overflow: "hidden",
-            border: "1px solid var(--color-border)",
-            height,
-          }}
-        >
-          <iframe
-            src={toHref(url)}
-            title={title}
-            loading="lazy"
-            referrerPolicy="no-referrer"
-            sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
-            style={{ width: "100%", height: "100%", border: "none" }}
-          />
-        </div>
-      </Stack>
-    </Card>
-  );
-}
-
-function AssistantContent({ content }: { content: string }) {
-  const segments = useMemo(() => parseSegments(content), [content]);
-  return (
-    <Stack direction="vertical" gap={2}>
-      {segments.map((seg, i) => {
-        if (seg.kind === "text") {
-          return seg.value.trim() ? <Markdown key={i}>{seg.value}</Markdown> : null;
-        }
-        if (seg.kind === "startup") return <StartupPreviewCard key={i} data={seg.data} />;
-        return <IframeCard key={i} data={seg.data} />;
-      })}
-    </Stack>
-  );
+  return d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
 export default function AgentChat() {
-  const [messages, setMessages] = useState<ChatMsg[]>([]);
+  const [store, setStore] = useState<ChatStore | null>(null);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const pinBottomRef = useRef(false);
+  const switchingRef = useRef(false);
+
+  const active = store ? getActiveThread(store) : null;
+  const messages = active?.messages ?? [];
+
+  const { ref: scrollerRef, saveNow, scrollToBottom, restoreSaved } = useScrollMemory(
+    active?.id ?? "none",
+    [messages.length, sending, active?.id],
+    { shouldPinBottom: pinBottomRef.current, enabled: Boolean(active) }
+  );
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) setMessages(JSON.parse(raw));
-    } catch {
-      // ignore malformed/unavailable storage
-    }
+    setStore(loadChatStore());
   }, []);
 
-  function persist(next: ChatMsg[]) {
-    setMessages(next);
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-    } catch {
-      // ignore storage quota/availability errors
-    }
-  }
+  useEffect(() => {
+    if (!drawerOpen) return;
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "Escape") setDrawerOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [drawerOpen]);
 
-  async function send(value: string) {
-    const text = value.trim();
-    if (!text || sending) return;
+  const commit = useCallback((next: ChatStore) => {
+    setStore(next);
+    saveChatStore(next);
+  }, []);
+
+  function handleNewChat() {
+    if (!store) return;
+    saveNow();
+    pinBottomRef.current = false;
+    switchingRef.current = true;
+    const next = createThread(store);
+    commit(next);
     setInput("");
     setError(null);
-    const next = [...messages, { role: "user" as const, content: text, ts: Date.now() }];
-    persist(next);
+    setDrawerOpen(false);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }
+
+  function handleSelectThread(id: string) {
+    if (!store || id === store.activeId) {
+      setDrawerOpen(false);
+      return;
+    }
+    saveNow();
+    pinBottomRef.current = false;
+    switchingRef.current = true;
+    commit(selectThread(store, id));
+    setError(null);
+    setDrawerOpen(false);
+    requestAnimationFrame(() => {
+      restoreSaved();
+      switchingRef.current = false;
+    });
+  }
+
+  function handleDeleteThread(id: string, e: MouseEvent) {
+    e.stopPropagation();
+    if (!store) return;
+    if (!window.confirm("Delete this chat?")) return;
+    saveNow();
+    const next = deleteThread(store, id);
+    pinBottomRef.current = false;
+    switchingRef.current = true;
+    commit(next);
+    requestAnimationFrame(() => {
+      restoreSaved();
+      switchingRef.current = false;
+    });
+  }
+
+  async function send(value?: string) {
+    const text = (value ?? input).trim();
+    if (!text || sending || !store || !active) return;
+    setInput("");
+    setError(null);
+    if (inputRef.current) inputRef.current.style.height = "auto";
+
+    const userMsg: ChatMessage = { role: "user", content: text, ts: Date.now() };
+    const withUser = [...active.messages, userMsg];
+    const titled = { ...active, messages: withUser, title: threadTitle(withUser), updatedAt: Date.now() };
+    commit(upsertThread(selectThread(store, active.id), titled));
+
+    pinBottomRef.current = true;
+    requestAnimationFrame(() => scrollToBottom("smooth"));
+
     setSending(true);
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: next.map(({ role, content }) => ({ role, content })) }),
+        body: JSON.stringify({
+          messages: withUser.map(({ role, content }) => ({ role, content })),
+        }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Chat request failed");
-      persist([...next, { role: "assistant" as const, content: json.reply ?? "", ts: Date.now() }]);
+
+      const assistantMsg: ChatMessage = {
+        role: "assistant",
+        content: json.reply ?? "",
+        ts: Date.now(),
+      };
+      const finalMessages = [...withUser, assistantMsg];
+      const finalThread: ChatThread = {
+        ...titled,
+        messages: finalMessages,
+        title: threadTitle(finalMessages),
+        updatedAt: Date.now(),
+      };
+      setStore((prev) => {
+        if (!prev) return prev;
+        const next = upsertThread(selectThread(prev, active.id), finalThread);
+        saveChatStore(next);
+        return next;
+      });
+      pinBottomRef.current = true;
+      requestAnimationFrame(() => scrollToBottom("smooth"));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
     } finally {
       setSending(false);
+      inputRef.current?.focus();
     }
   }
 
-  function clearChat() {
-    persist([]);
-    try {
-      localStorage.removeItem(STORAGE_KEY);
-    } catch {
-      // ignore
+  function onInputChange(e: ChangeEvent<HTMLTextAreaElement>) {
+    setInput(e.target.value);
+    const el = e.target;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }
+
+  function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      send();
     }
   }
+
+  const hydrated = store !== null;
+  const empty = hydrated && messages.length === 0 && !sending;
 
   return (
-    <Stack direction="vertical" gap={0} style={{ height: "calc(100vh - 220px)", minHeight: 420 }}>
-      <Stack direction="horizontal" hAlign="between" vAlign="center" gap={2} style={{ marginBottom: 8 }}>
-        <Text type="supporting" size="xsm">
-          Separate from iMessage — this thread lives only in this browser.
-        </Text>
-        <Button variant="ghost" size="sm" label="Clear chat" clickAction={clearChat} />
-      </Stack>
+    <div className="chat-page">
+      {drawerOpen && (
+        <>
+          <button
+            type="button"
+            className="chat-drawer-backdrop"
+            onClick={() => setDrawerOpen(false)}
+            aria-label="Close chats"
+          />
+          <div className="chat-drawer animate-fade-in">
+            <button type="button" className="chat-thread-card chat-thread-card-new" onClick={handleNewChat}>
+              <MessageSquarePlus size={15} strokeWidth={2} />
+              <span>New chat</span>
+            </button>
+            {(store?.threads ?? []).map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                className={`chat-thread-card${t.id === store?.activeId ? " chat-thread-card-active" : ""}`}
+                onClick={() => handleSelectThread(t.id)}
+              >
+                <span className="chat-thread-card-title">{t.title}</span>
+                <span className="chat-thread-card-meta">
+                  {t.messages.length > 0 ? formatWhen(t.updatedAt) : "Empty"}
+                </span>
+                {store && store.threads.length > 1 && (
+                  <span
+                    role="button"
+                    tabIndex={-1}
+                    className="chat-thread-card-delete"
+                    onClick={(e) => handleDeleteThread(t.id, e)}
+                    aria-label="Delete chat"
+                  >
+                    <Trash2 size={12} strokeWidth={2} />
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
 
-      <ChatLayout
-        density="balanced"
-        emptyState={
-          <EmptyState
-            title="Ask the agent anything"
-            description="Dealflow questions, startup lookups, quick research — this chat is scoped to your browser."
-          />
-        }
-        composer={
-          <ChatComposer
-            value={input}
-            onChange={setInput}
-            onSubmit={send}
-            placeholder="Message the agent…"
-            isDisabled={sending}
-            status={error ? { type: "error", message: error } : undefined}
-          />
-        }
-      >
-        {messages.length === 0 && !sending ? null : (
-        <ChatMessageList density="balanced">
-          {messages.map((m, i) => (
-            <ChatMessage
-              key={i}
-              sender={m.role}
-              avatar={m.role === "assistant" ? <Avatar name="Agent" size="small" /> : undefined}
-            >
-              {m.role === "assistant" ? (
-                <ChatMessageBubble
-                  variant="ghost"
-                  metadata={<ChatMessageMetadata timestamp={<Timestamp value={m.ts} format="time" />} />}
-                >
-                  <AssistantContent content={m.content} />
-                </ChatMessageBubble>
-              ) : (
-                <ChatMessageBubble
-                  metadata={<ChatMessageMetadata timestamp={<Timestamp value={m.ts} format="time" />} />}
-                >
-                  {m.content}
-                </ChatMessageBubble>
+      <div className="chat-chrome">
+        <button
+          type="button"
+          className="chat-icon-btn"
+          onClick={() => setDrawerOpen((v) => !v)}
+          aria-label="Other chats"
+          title="Other chats"
+        >
+          <PanelLeft size={16} strokeWidth={2} />
+        </button>
+        <Link href="/" className="chat-icon-btn" aria-label="Exit chat" title="Exit chat">
+          <X size={16} strokeWidth={2} />
+        </Link>
+      </div>
+
+      <div className="chat-page-main">
+        <div className="chat-messages" ref={scrollerRef}>
+          {!hydrated ? null : empty ? (
+            <div className="chat-empty">
+              <div className="chat-empty-brand">VC Scout</div>
+              <h1 className="chat-empty-title">Ask the agent</h1>
+              <p className="chat-empty-sub">Dealflow, research, and pipeline — right here.</p>
+              <div className="chat-suggestions">
+                {SUGGESTIONS.map((s) => (
+                  <button
+                    key={s.label}
+                    type="button"
+                    className="chat-suggestion"
+                    onClick={() => send(s.prompt)}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="chat-thread">
+              {messages.map((m, i) => (
+                <ChatMessageRow
+                  key={`${m.ts}-${i}`}
+                  role={m.role}
+                  content={m.content}
+                  onAction={send}
+                />
+              ))}
+              {sending && (
+                <div className="chat-turn chat-turn-assistant">
+                  <div className="chat-thinking">
+                    <span className="live-dot chat-thinking-dot" />
+                    <span>Working</span>
+                  </div>
+                </div>
               )}
-            </ChatMessage>
-          ))}
-          {sending && (
-            <ChatMessage sender="assistant" avatar={<Avatar name="Agent" size="small" />}>
-              <ChatMessageBubble variant="ghost">
-                <Spinner size="sm" />
-              </ChatMessageBubble>
-            </ChatMessage>
+            </div>
           )}
-        </ChatMessageList>
-        )}
-      </ChatLayout>
-    </Stack>
+        </div>
+
+        <form
+          className="chat-composer"
+          onSubmit={(e) => {
+            e.preventDefault();
+            send();
+          }}
+        >
+          {error && <div className="chat-error">{error}</div>}
+          <div className="chat-composer-shell">
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={onInputChange}
+              onKeyDown={onKeyDown}
+              placeholder="Message the agent…"
+              disabled={sending}
+              rows={1}
+              className="chat-input"
+            />
+            <button
+              type="submit"
+              disabled={sending || !input.trim()}
+              className="chat-send"
+              aria-label="Send"
+            >
+              <ArrowUp size={17} strokeWidth={2.5} />
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
