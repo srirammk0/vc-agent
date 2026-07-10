@@ -95,29 +95,22 @@ function LazySiteFrame({
   );
 }
 
-function LinkedInPreview({ target }: { target: LinkedInTarget }) {
-  const previewSrc = `/api/embed-preview?url=${encodeURIComponent(target.url)}&label=${encodeURIComponent(target.label)}`;
-
+export function LinkedInPreview({
+  target,
+  height = 320,
+}: {
+  target: LinkedInTarget;
+  height?: number;
+}) {
   return (
-    <div className="startup-embed">
-      <div className="startup-embed-head">
-        <div>
-          <div className="startup-embed-title">{target.label}</div>
-          <div className="startup-embed-sub">{hostLabel(target.url)}</div>
-        </div>
-        <a className="startup-embed-open" href={target.url} target="_blank" rel="noreferrer">
-          Open
-        </a>
-      </div>
-      <div className="startup-embed-frame startup-embed-frame-linkedin">
-        <iframe
-          src={previewSrc}
-          title={`${target.label} on LinkedIn`}
-          loading="lazy"
-          referrerPolicy="no-referrer"
-          sandbox="allow-scripts allow-same-origin allow-popups"
-        />
-      </div>
+    <div className="startup-embed-frame startup-embed-frame-linkedin" style={{ height }}>
+      <iframe
+        src={target.url}
+        title={`${target.label} on LinkedIn`}
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        sandbox="allow-scripts allow-same-origin allow-popups"
+      />
     </div>
   );
 }
@@ -125,9 +118,9 @@ function LinkedInPreview({ target }: { target: LinkedInTarget }) {
 export default function StartupEmbeds({ website, founders, enrichmentFields }: Props) {
   const enriched = hasEnrichmentData(enrichmentFields);
   const siteUrl = websiteEmbedUrl(website);
-  const linkedin = collectLinkedInTargets(founders, website);
+  const companyLinkedIn = collectLinkedInTargets(founders, website).filter((t) => t.kind === "company");
 
-  if (!enriched || (!siteUrl && linkedin.length === 0)) return null;
+  if (!enriched || (!siteUrl && companyLinkedIn.length === 0)) return null;
 
   return (
     <section className="startup-embeds">
@@ -139,7 +132,7 @@ export default function StartupEmbeds({ website, founders, enrichmentFields }: P
           height={400}
         />
       )}
-      {linkedin.map((target) => (
+      {companyLinkedIn.map((target) => (
         <LinkedInPreview key={target.url} target={target} />
       ))}
     </section>
