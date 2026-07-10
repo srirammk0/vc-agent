@@ -1,6 +1,6 @@
 "use client";
 
-import type { ComponentType } from "react";
+import { useState, type ComponentType } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -15,6 +15,7 @@ import {
   Sparkles,
   Table2,
   TriangleAlert,
+  ChevronDown,
 } from "lucide-react";
 import StatusBadge from "../StatusBadge";
 
@@ -135,7 +136,7 @@ function StartupCard({ data }: { data: Record<string, unknown> }) {
   const status = asString(data.status);
   const website = asString(data.website);
   const assessment = asString(data.assessment);
-  const showEmbed = data.embed !== false && Boolean(website);
+  const [showIframe, setShowIframe] = useState(false);
   const badgeStatus =
     status === "new" || status === "approved" || status === "passed" ? status : undefined;
 
@@ -158,14 +159,26 @@ function StartupCard({ data }: { data: Record<string, unknown> }) {
         ) : null}
       </div>
       {assessment && <p className="gen-card-note">{assessment}</p>}
+      
       {website && (
-        <a className="gen-link" href={toHref(website)} target="_blank" rel="noreferrer">
-          <ExternalLink size={11} strokeWidth={2.25} />
-          {website.replace(/^https?:\/\//, "")}
-        </a>
+        <div className="gen-startup-actions" style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap", marginTop: "8px" }}>
+          <a className="gen-link" href={toHref(website)} target="_blank" rel="noreferrer" style={{ marginTop: 0 }}>
+            <ExternalLink size={11} strokeWidth={2.25} />
+            {website.replace(/^https?:\/\//, "")}
+          </a>
+          <button
+            type="button"
+            className="gen-iframe-toggle"
+            onClick={() => setShowIframe(!showIframe)}
+          >
+            <span>{showIframe ? "Hide preview" : "Preview website"}</span>
+            <ChevronDown size={12} className={`gen-iframe-chevron${showIframe ? " gen-iframe-chevron-open" : ""}`} />
+          </button>
+        </div>
       )}
-      {website && showEmbed && (
-        <div className="gen-iframe" style={{ height: 280 }}>
+      
+      {website && showIframe && (
+        <div className="gen-iframe" style={{ height: 320, marginTop: 12 }}>
           <iframe
             src={toHref(website)}
             title={name}
