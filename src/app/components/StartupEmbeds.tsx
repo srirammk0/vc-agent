@@ -1,19 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { Founder } from "../../lib/supabase";
-import { hasEnrichmentData } from "../../lib/enrichment";
-import {
-  collectLinkedInTargets,
-  websiteEmbedUrl,
-  type LinkedInTarget,
-} from "../../lib/startupEmbeds";
+import { websiteEmbedUrl } from "../../lib/startupEmbeds";
 import { hostLabel, toHref } from "../../lib/urls";
 
 type Props = {
   website: string | null;
-  founders: Founder[] | null;
-  enrichmentFields: Parameters<typeof hasEnrichmentData>[0];
 };
 
 type FrameState = "idle" | "loading" | "ready";
@@ -95,46 +87,13 @@ function LazySiteFrame({
   );
 }
 
-export function LinkedInPreview({
-  target,
-  height = 320,
-}: {
-  target: LinkedInTarget;
-  height?: number;
-}) {
-  return (
-    <div className="startup-embed-frame startup-embed-frame-linkedin" style={{ height }}>
-      <iframe
-        src={target.url}
-        title={`${target.label} on LinkedIn`}
-        loading="lazy"
-        referrerPolicy="no-referrer"
-        sandbox="allow-scripts allow-same-origin allow-popups"
-      />
-    </div>
-  );
-}
-
-export default function StartupEmbeds({ website, founders, enrichmentFields }: Props) {
-  const enriched = hasEnrichmentData(enrichmentFields);
+export default function StartupEmbeds({ website }: Props) {
   const siteUrl = websiteEmbedUrl(website);
-  const companyLinkedIn = collectLinkedInTargets(founders, website).filter((t) => t.kind === "company");
-
-  if (!enriched || (!siteUrl && companyLinkedIn.length === 0)) return null;
+  if (!siteUrl) return null;
 
   return (
     <section className="startup-embeds">
-      {siteUrl && (
-        <LazySiteFrame
-          src={siteUrl}
-          title="Website"
-          subtitle={hostLabel(siteUrl)}
-          height={400}
-        />
-      )}
-      {companyLinkedIn.map((target) => (
-        <LinkedInPreview key={target.url} target={target} />
-      ))}
+      <LazySiteFrame src={siteUrl} title="Website" subtitle={hostLabel(siteUrl)} height={400} />
     </section>
   );
 }

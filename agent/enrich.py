@@ -16,6 +16,14 @@ class EnrichmentResult(BaseModel):
     company_description: str = Field(
         description="2-3 concise sentences on what the company does and why it matters"
     )
+    website: Optional[str] = Field(
+        default=None,
+        description=(
+            "The company's own official homepage URL, if one of the search result "
+            "URLs is clearly the company's primary site (not a news article, "
+            "directory listing, or social profile). Omit if unsure."
+        ),
+    )
     founded: Optional[str] = None
     location: Optional[str] = None
     team_size: Optional[str] = None
@@ -31,7 +39,10 @@ _enrich_agent = Agent(
         "You structure raw web search results into clean VC diligence notes. "
         "Be factual, concise, and only include fields you can support from the source text. "
         "Ignore unrelated companies with similar names. "
-        "Founder names must be real people, not page titles or company names."
+        "Founder names must be real people, not page titles or company names. "
+        "If one of the source URLs is clearly the company's own official homepage "
+        "(not a news article, funding database, directory, or social profile), "
+        "extract it as the website."
     ),
     model_settings=llm.ENRICH_SETTINGS,
 )

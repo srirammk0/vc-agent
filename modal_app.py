@@ -356,6 +356,9 @@ def enrich_startup_job(slug: str, name: str):
     )
 
     try:
+        existing = sb.table("startups").select("website").eq("slug", slug).single().execute()
+        has_website = bool(((existing.data or {}).get("website") or "").strip())
+
         company = asyncio.run(search_company(f"{name} startup company"))
         people = asyncio.run(search_people(f"founder CEO {name}"))
 
@@ -376,7 +379,7 @@ def enrich_startup_job(slug: str, name: str):
             for f in structured.founders[:5]
         ]
 
-        sb.table("startups").update({
+        update = {
             "company_description": structured.company_description[:1500],
             "founded": structured.founded,
             "location": structured.location,
@@ -385,7 +388,11 @@ def enrich_startup_job(slug: str, name: str):
             "raised": structured.raised,
             "founders": founders,
             "enrichment_status": "complete",
-        }).eq("slug", slug).execute()
+        }
+        if not has_website and structured.website:
+            update["website"] = structured.website.strip()
+
+        sb.table("startups").update(update).eq("slug", slug).execute()
     except Exception as e:
         sb.table("startups").update({"enrichment_status": "pending"}).eq("slug", slug).execute()
         return {"status": "error", "slug": slug, "error": str(e)}

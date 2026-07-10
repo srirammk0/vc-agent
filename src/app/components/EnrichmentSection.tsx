@@ -5,8 +5,6 @@ import { useRouter } from "next/navigation";
 import type { Founder, Startup } from "../../lib/supabase";
 import { hasEnrichmentData } from "../../lib/enrichment";
 import { getBrowserClient } from "../../lib/supabaseBrowser";
-import { toHref } from "../../lib/urls";
-import { LinkedInPreview } from "./StartupEmbeds";
 
 type Props = {
   startup: Pick<Startup, "slug" | "enrichment_status"> & EnrichmentFields;
@@ -228,58 +226,45 @@ export default function EnrichmentSection({ startup }: Props) {
                   <div
                     key={i}
                     style={{
-                      display: "flex",
-                      flexWrap: "wrap",
-                      gap: 14,
                       border: "1px solid var(--border)",
                       borderRadius: 8,
                       padding: "14px 16px",
                       background: "var(--surface)",
                     }}
                   >
-                    <div style={{ flex: "1 1 220px", minWidth: 0 }}>
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                          gap: 12,
-                          marginBottom: f.background ? 6 : 0,
-                        }}
-                      >
-                        <span style={{ fontSize: 14, fontWeight: 600, color: "var(--heading)" }}>
-                          {f.name || "Unknown"}
-                        </span>
-                        {f.linkedin && (
-                          <a
-                            href={f.linkedin.startsWith("http://") || f.linkedin.startsWith("https://") || f.linkedin.startsWith("//") ? f.linkedin : `https://${f.linkedin}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            style={{
-                              fontSize: 12,
-                              color: "var(--accent)",
-                              textDecoration: "none",
-                              whiteSpace: "nowrap",
-                              opacity: 0.8,
-                            }}
-                          >
-                            LinkedIn →
-                          </a>
-                        )}
-                      </div>
-                      {f.background && (
-                        <p style={{ fontSize: 13, lineHeight: "20px", color: "var(--label)", margin: 0 }}>
-                          {f.background}
-                        </p>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        gap: 12,
+                        marginBottom: f.background ? 6 : 0,
+                      }}
+                    >
+                      <span style={{ fontSize: 14, fontWeight: 600, color: "var(--heading)" }}>
+                        {f.name || "Unknown"}
+                      </span>
+                      {f.linkedin && (
+                        <a
+                          href={f.linkedin.startsWith("http://") || f.linkedin.startsWith("https://") || f.linkedin.startsWith("//") ? f.linkedin : `https://${f.linkedin}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{
+                            fontSize: 12,
+                            color: "var(--accent)",
+                            textDecoration: "none",
+                            whiteSpace: "nowrap",
+                            opacity: 0.8,
+                          }}
+                        >
+                          LinkedIn →
+                        </a>
                       )}
                     </div>
-                    {f.linkedin && (
-                      <div style={{ flex: "0 0 260px", width: 260 }}>
-                        <LinkedInPreview
-                          target={{ label: f.name?.trim() || "Founder", url: toHref(f.linkedin), kind: "founder" }}
-                          height={220}
-                        />
-                      </div>
+                    {f.background && (
+                      <p style={{ fontSize: 13, lineHeight: "20px", color: "var(--label)", margin: 0 }}>
+                        {f.background}
+                      </p>
                     )}
                   </div>
                 ))}

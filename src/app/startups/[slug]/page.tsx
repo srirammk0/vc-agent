@@ -114,19 +114,7 @@ export default async function StartupDetail({
           </div>
         </div>
 
-        <StartupEmbeds
-          website={s.website}
-          founders={s.founders}
-          enrichmentFields={{
-            company_description: s.company_description,
-            founders: s.founders,
-            stage: s.stage,
-            raised: s.raised,
-            location: s.location,
-            founded: s.founded,
-            team_size: s.team_size,
-          }}
-        />
+        <StartupEmbeds website={s.website} />
 
         {/* Assessment */}
         <Section title="Assessment">
