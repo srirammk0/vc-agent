@@ -412,3 +412,12 @@ a {
   transform: translateY(0) scale(0.98);
 }
 
+/* ── Row selection checkbox ────────────────────────── */
+
+.row-checkbox {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-accent, #007aff);
+  cursor: pointer;
+}
+

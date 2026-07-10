@@ -7,5 +7,3 @@ logfire[pydantic-ai]==4.37.0
 python-dotenv==1.2.2
 modal
 fastapi
-crawl4ai
-fastembed

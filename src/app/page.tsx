@@ -6,31 +6,17 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export default async function Home() {
-  const [startupsRes, signalsRes] = await Promise.all([
-    supabase
-      .from("startups")
-      .select("*"),
-    supabase
-      .from("signals")
-      .select("*")
-      .order("scraped_at", { ascending: false })
-  ]);
-
-  const startups = startupsRes.data;
-  const signals = signalsRes.data;
-  const startupsError = startupsRes.error;
-  const signalsError = signalsRes.error;
+  const { data: startups, error: startupsError } = await supabase
+    .from("startups")
+    .select("*");
 
   if (startupsError) {
     console.error(startupsError);
   }
-  if (signalsError) {
-    console.error(signalsError);
-  }
 
   return (
     <main className="main-container">
-      <Dashboard initial={sortStartups((startups ?? []) as Startup[])} initialSignals={signals ?? []} />
+      <Dashboard initial={sortStartups((startups ?? []) as Startup[])} />
     </main>
   );
 }

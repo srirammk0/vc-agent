@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { MoreVertical } from "lucide-react";
+import { Button, IconButton, Popover, Stack, TextArea } from "@astryxdesign/core";
 import { useEnrichmentPoll } from "../hooks/useEnrichmentPoll";
 import { showEnrichButton } from "../../lib/enrichment";
 import type { Founder } from "../../lib/supabase";
@@ -17,10 +19,10 @@ type Props = {
   founders: Founder[] | null;
 };
 
-const MENU_ITEMS: { value: Status; label: string; accent: string }[] = [
-  { value: "approved", label: "Mark approved", accent: "var(--success)" },
-  { value: "passed", label: "Mark passed", accent: "var(--danger)" },
-  { value: "new", label: "Mark new", accent: "var(--label)" },
+const MENU_ITEMS: { value: Status; label: string }[] = [
+  { value: "approved", label: "Mark approved" },
+  { value: "passed", label: "Mark passed" },
+  { value: "new", label: "Mark new" },
 ];
 
 export default function StartupActions({
@@ -32,44 +34,20 @@ export default function StartupActions({
   founders,
 }: Props) {
   const router = useRouter();
-  const [isPending, startTransition] = useTransition();
   const [busy, setBusy] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [feedbackFor, setFeedbackFor] = useState<Status | null>(null);
   const [feedback, setFeedback] = useState("");
-  const menuRef = useRef<HTMLDivElement>(null);
 
   useEnrichmentPoll(slug, enrichmentStatus);
 
-  function closeMenu() {
-    setMenuOpen(false);
-    setFeedbackFor(null);
-    setFeedback("");
-  }
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const card = menuRef.current?.closest("[data-startup-card]");
-    if (card instanceof HTMLElement) {
-      card.style.zIndex = "100";
-      card.style.position = "relative";
-      return () => {
-        card.style.zIndex = "";
-        card.style.position = "";
-      };
+  function closeMenu(open: boolean) {
+    setMenuOpen(open);
+    if (!open) {
+      setFeedbackFor(null);
+      setFeedback("");
     }
-  }, [menuOpen]);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onClick = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        closeMenu();
-      }
-    };
-    document.addEventListener("mousedown", onClick);
-    return () => document.removeEventListener("mousedown", onClick);
-  }, [menuOpen]);
+  }
 
   const enrichVisible = showEnrichButton({
     status,
@@ -84,7 +62,7 @@ export default function StartupActions({
   });
 
   async function setStatusQuick(next: Status) {
-    closeMenu();
+    closeMenu(false);
     setBusy(next);
     await fetch(`/api/startup/${slug}`, {
       method: "PATCH",
@@ -92,13 +70,7 @@ export default function StartupActions({
       body: JSON.stringify({ status: next }),
     });
     setBusy(null);
-    startTransition(() => router.refresh());
-  }
-
-  function openFeedback(next: Status) {
-    setFeedbackFor(next);
-    setFeedback("");
-    setMenuOpen(true);
+    router.refresh();
   }
 
   function handleStatusClick(next: Status) {
@@ -106,7 +78,8 @@ export default function StartupActions({
       setStatusQuick(next);
       return;
     }
-    openFeedback(next);
+    setFeedbackFor(next);
+    setFeedback("");
   }
 
   async function skipFeedback() {
@@ -128,8 +101,8 @@ export default function StartupActions({
       }),
     });
     setBusy(null);
-    closeMenu();
-    startTransition(() => router.refresh());
+    closeMenu(false);
+    router.refresh();
   }
 
   async function enrich() {
@@ -140,215 +113,82 @@ export default function StartupActions({
       body: JSON.stringify({ slug, name }),
     });
     setBusy(null);
-    startTransition(() => router.refresh());
+    router.refresh();
   }
 
-  const disabled = isPending || busy !== null;
-  const menuRaised = menuOpen;
+  const disabled = busy !== null;
 
   return (
-    <div style={{ display: "flex", gap: 7, alignItems: "center" }}>
+    <Stack direction="horizontal" gap={2} vAlign="center">
       {enrichVisible && (
-        <button
-          onClick={enrich}
-          disabled={disabled}
-          style={{
-            height: 32,
-            padding: "0 13px",
-            borderRadius: 5,
-            border: "none",
-            background: "var(--accent)",
-            color: "#fff",
-            fontSize: 12.5,
-            fontWeight: 500,
-            cursor: disabled ? "not-allowed" : "pointer",
-            opacity: disabled ? 0.55 : 1,
-            boxShadow: "0 2px 8px rgba(0,122,255,0.25)",
-            transition: "opacity 0.15s ease, box-shadow 0.15s ease",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {busy === "enrich" ? "Enriching…" : "Enrich"}
-        </button>
+        <Button
+          label={busy === "enrich" ? "Enriching…" : "Enrich"}
+          variant="primary"
+          size="sm"
+          isDisabled={disabled}
+          isLoading={busy === "enrich"}
+          clickAction={enrich}
+        />
       )}
 
-      <div
-        ref={menuRef}
-        style={{ position: "relative", zIndex: menuRaised ? 1000 : undefined }}
-      >
-        <button
-          onClick={() => {
-            if (menuOpen) closeMenu();
-            else setMenuOpen(true);
-          }}
-          disabled={disabled}
-          aria-label="Change status"
-          style={{
-            width: 32,
-            height: 32,
-            borderRadius: 5,
-            border: "1px solid var(--border)",
-            background: menuOpen ? "rgba(0,122,255,0.06)" : "rgba(255,255,255,0.7)",
-            color: menuOpen ? "var(--accent)" : "var(--label)",
-            cursor: disabled ? "not-allowed" : "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            opacity: disabled ? 0.5 : 1,
-            transition: "background 0.15s ease, color 0.15s ease",
-            flexShrink: 0,
-          }}
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-            <circle cx="12" cy="5" r="1.8" />
-            <circle cx="12" cy="12" r="1.8" />
-            <circle cx="12" cy="19" r="1.8" />
-          </svg>
-        </button>
-
-        {menuOpen && (
-          <div
-            className="menu-pop"
-            style={{
-              position: "absolute",
-              right: 0,
-              top: 38,
-              width: feedbackFor ? 220 : 176,
-              background: "var(--card-bg)",
-              border: "1px solid var(--border)",
-              borderRadius: 8,
-              boxShadow: "0 8px 24px rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.06)",
-              padding: feedbackFor ? "8px" : 5,
-            }}
-          >
-            {feedbackFor ? (
-              <>
-                <div
-                  style={{
-                    fontSize: 10.5,
-                    color: "var(--muted)",
-                    padding: "4px 8px 6px",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.08em",
-                    fontWeight: 500,
-                  }}
-                >
-                  Why {feedbackFor}?
-                </div>
-                <textarea
-                  value={feedback}
-                  onChange={(e) => setFeedback(e.target.value)}
-                  placeholder={
-                    feedbackFor === "approved"
-                      ? "quick reason…"
-                      : "why passing…"
-                  }
-                  rows={2}
-                  disabled={busy === "feedback"}
-                  style={{
-                    width: "100%",
-                    resize: "none",
-                    padding: "8px 9px",
-                    borderRadius: 6,
-                    border: "1px solid var(--border)",
-                    background: "rgba(255,255,255,0.8)",
-                    fontSize: 12.5,
-                    lineHeight: 1.45,
-                    color: "var(--body)",
-                    fontFamily: "inherit",
-                    outline: "none",
-                    boxSizing: "border-box",
-                  }}
+      <Popover
+        isOpen={menuOpen}
+        onOpenChange={closeMenu}
+        label={feedbackFor ? `Why ${feedbackFor}?` : "Change status"}
+        placement="below"
+        alignment="end"
+        content={
+          feedbackFor ? (
+            <Stack direction="vertical" gap={2} style={{ width: 220 }}>
+              <TextArea
+                label={`Why ${feedbackFor}?`}
+                isLabelHidden
+                value={feedback}
+                changeAction={(v) => setFeedback(v)}
+                placeholder={feedbackFor === "approved" ? "quick reason…" : "why passing…"}
+                size="sm"
+                isDisabled={busy === "feedback"}
+              />
+              <Stack direction="horizontal" hAlign="end" gap={2}>
+                <Button
+                  label="Skip"
+                  variant="ghost"
+                  size="sm"
+                  clickAction={skipFeedback}
+                  isDisabled={busy === "feedback"}
                 />
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 6,
-                    padding: "8px 4px 2px",
-                    justifyContent: "flex-end",
-                  }}
-                >
-                  <button
-                    type="button"
-                    className="menu-item"
-                    onClick={skipFeedback}
-                    disabled={busy === "feedback"}
-                    style={{
-                      width: "auto",
-                      padding: "6px 10px",
-                      fontSize: 12,
-                      color: "var(--label)",
-                    }}
-                  >
-                    Skip
-                  </button>
-                  <button
-                    type="button"
-                    onClick={sendFeedback}
-                    disabled={busy === "feedback" || !feedback.trim()}
-                    style={{
-                      height: 28,
-                      padding: "0 10px",
-                      borderRadius: 5,
-                      border: "none",
-                      background: "var(--accent)",
-                      color: "#fff",
-                      fontSize: 12,
-                      fontWeight: 500,
-                      cursor:
-                        busy === "feedback" || !feedback.trim()
-                          ? "not-allowed"
-                          : "pointer",
-                      opacity:
-                        busy === "feedback" || !feedback.trim() ? 0.5 : 1,
-                    }}
-                  >
-                    {busy === "feedback" ? "…" : "Send"}
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <div
-                  style={{
-                    fontSize: 10.5,
-                    color: "var(--muted)",
-                    padding: "5px 10px 3px",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.08em",
-                    fontWeight: 500,
-                  }}
-                >
-                  Change status
-                </div>
-                {MENU_ITEMS.filter((m) => m.value !== status).map((m) => (
-                  <button
-                    key={m.value}
-                    className="menu-item"
-                    onClick={() => handleStatusClick(m.value)}
-                    style={{
-                      color: m.accent,
-                      fontSize: 13,
-                      fontWeight: 400,
-                    }}
-                  >
-                    <span
-                      style={{
-                        width: 7,
-                        height: 7,
-                        borderRadius: 999,
-                        background: m.accent,
-                        flexShrink: 0,
-                      }}
-                    />
-                    {m.label}
-                  </button>
-                ))}
-              </>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
+                <Button
+                  label={busy === "feedback" ? "Sending…" : "Send"}
+                  variant="primary"
+                  size="sm"
+                  clickAction={sendFeedback}
+                  isDisabled={busy === "feedback" || !feedback.trim()}
+                />
+              </Stack>
+            </Stack>
+          ) : (
+            <Stack direction="vertical" gap={0} style={{ width: 176 }}>
+              {MENU_ITEMS.filter((m) => m.value !== status).map((m) => (
+                <Button
+                  key={m.value}
+                  label={m.label}
+                  variant="ghost"
+                  size="sm"
+                  clickAction={() => handleStatusClick(m.value)}
+                />
+              ))}
+            </Stack>
+          )
+        }
+      >
+        <IconButton
+          label="Change status"
+          icon={<MoreVertical size={14} />}
+          variant="ghost"
+          size="sm"
+          isDisabled={disabled}
+        />
+      </Popover>
+    </Stack>
   );
 }
