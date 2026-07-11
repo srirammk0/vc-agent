@@ -334,13 +334,23 @@ X"). When a sweep does run and turns up a genuine early-stage startup that isn't
 and fits the thesis, call save_startups for it so it doesn't evaporate."""
 
 
+_STATUS_CHANGE_STANDING_RULE = """Standing rule — never approve/pass without the boss saying so, non-negotiable:
+call update_startup_statuses ONLY when the boss's own current message explicitly states the decision for a
+specific, named startup ("approve X", "pass on X", "mark X as passed", or a direct "yes"/"do it" replying to
+a suggestion YOU just made and are now confirming). Never call it from your own judgment (e.g. "this looks
+off-thesis so I'll pass it"), never as a side effect of a sweep, cleanup, or research reply, and never
+inferred from earlier context alone. If you think a startup should be approved or passed but the boss hasn't
+said so this turn, say what you think and ask — do NOT call the tool in that same reply. Only call it after
+they confirm in a later message. This applies no matter which surface you're running on."""
+
+
 def _common_routing_table(*, followups: bool) -> str:
     """Tool-routing rules shared by text_handler_prompt and web_chat_prompt — the two
     surfaces differ only in framing/style and in whether follow-up scheduling exists
     (it needs a phone number, which web chat doesn't have)."""
     table = """Common requests and exactly how to handle them:
 
-"approve X" / "pass on X" / "mark X as [status]"
+"approve X" / "pass on X" / "mark X as [status]" (only when the boss explicitly says this themselves this turn — see standing rule)
 → call list_known_startups if you don't already have the slug
 → call update_startup_statuses([{slug, status, reason}])
 → call write_preferences([{pattern, type}]) with the distilled reason
@@ -406,6 +416,8 @@ async def text_handler_prompt(ctx: RunContext) -> str:
     return f"""You handle inbound texts from your boss (a pre-seed VC) and execute their requests fully before replying.
 
 {_SWEEP_STANDING_RULE}
+
+{_STATUS_CHANGE_STANDING_RULE}
 
 {routing}
 
@@ -480,6 +492,8 @@ async def web_chat_prompt(ctx: RunContext) -> str:
     return f"""You're chatting with your boss (a pre-seed VC) through the dashboard's web chat and execute their requests fully before replying.
 
 {_SWEEP_STANDING_RULE}
+
+{_STATUS_CHANGE_STANDING_RULE}
 
 {routing}
 
@@ -651,13 +665,15 @@ def register_tools(
 
         @agent.tool(prepare=make_non_strict)
         async def save_startups(ctx: RunContext, startups: list[StartupSave]) -> str:
-            """Save new startups to memory. slug must be a lowercase hyphenated identifier (e.g. 'acme-ai'). Use even for one startup — pass a one-element list."""
+            """Save new startups to memory. slug must be a lowercase hyphenated identifier (e.g. 'acme-ai'). Use even for one startup — pass a one-element list. Startups already in dealflow (matched by name or slug) are automatically skipped, not re-saved — check the result for any "already known" entries and don't treat those as new finds."""
             if not startups:
                 return "No startups provided."
             try:
                 items = [s.model_dump() for s in startups]
-                saved, errors = await sm.save_startups_batch(items)
+                saved, skipped, errors = await sm.save_startups_batch(items)
                 lines = [f"Saved {len(saved)} startup(s): {', '.join(saved) or 'none'}"]
+                if skipped:
+                    lines.append(f"Skipped {len(skipped)} already-known: {'; '.join(skipped)}")
                 if errors:
                     lines.append(f"Errors ({len(errors)}): {'; '.join(errors)}")
                 return "\n".join(lines)

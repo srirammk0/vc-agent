@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import os
+import re
 from datetime import datetime, timezone
 
 from supermemory import NotFoundError, Supermemory
@@ -160,13 +161,36 @@ async def save_startup(
     )
 
 
+def _normalize_name(name: str) -> str:
+    """Collapse a startup name to bare alnum for duplicate matching (e.g. 'Acme, Inc.'
+    and 'acme-ai' both normalize to comparable forms) — case/punctuation/spacing shouldn't
+    let the same company get saved twice under a different slug."""
+    return re.sub(r"[^a-z0-9]", "", (name or "").lower())
+
+
 async def save_startups_batch(
     items: list[dict],
-) -> tuple[list[str], list[str]]:
-    """Save many startups in parallel. Returns (saved_slugs, errors)."""
+) -> tuple[list[str], list[str], list[str]]:
+    """Save many startups in parallel, skipping any that are already known (by normalized
+    name or slug) instead of silently re-saving/duplicating them. Returns (saved_slugs,
+    skipped_messages, errors)."""
 
-    async def _save_one(item: dict) -> tuple[str, str | None]:
+    try:
+        existing = await list_startups()
+    except Exception:
+        existing = []
+    existing_by_name = {_normalize_name(s["name"]): s for s in existing if s.get("name")}
+    existing_by_slug = {s["slug"]: s for s in existing if s.get("slug")}
+
+    async def _save_one(item: dict) -> tuple[str, str | None, str | None]:
         slug = item["slug"]
+        match = existing_by_slug.get(slug) or existing_by_name.get(_normalize_name(item["name"]))
+        if match:
+            skip_msg = (
+                f"{item['name']}: already known as '{match['slug']}' "
+                f"(status: {match.get('status', 'new')}) — not re-saved"
+            )
+            return slug, skip_msg, None
         try:
             await save_startup(
                 slug=slug,
@@ -176,16 +200,17 @@ async def save_startups_batch(
                 assessment=item["assessment"],
                 signal_urls=item.get("signal_urls") or [],
             )
-            return slug, None
+            return slug, None, None
         except Exception as e:
-            return slug, str(e)
+            return slug, None, str(e)
 
     results = await asyncio.gather(*[_save_one(item) for item in items])
-    saved = [slug for slug, err in results if err is None]
-    errors = [f"{slug}: {err}" for slug, err in results if err is not None]
+    saved = [slug for slug, skip, err in results if skip is None and err is None]
+    skipped = [skip for _, skip, _ in results if skip is not None]
+    errors = [f"{slug}: {err}" for slug, _, err in results if err is not None]
     if saved:
         await _bust_list_cache()
-    return saved, errors
+    return saved, skipped, errors
 
 
 async def update_startup_statuses_batch(
