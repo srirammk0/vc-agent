@@ -21,7 +21,6 @@ from supabase import create_client
 
 import llm
 import trigger_client
-from gemma_filter import gemma_filter
 
 MAX_CHECKS_PER_RUN = 5
 STALE_DAYS = 10  # only consider approved startups untouched this long
@@ -32,7 +31,11 @@ last update). Decide which of these — if any — are worth a fresh look today 
 have changed since the boss last looked), and schedule each with schedule_check, picking a specific hour
 today to spread the load rather than firing everything at once. Be selective: most days this should be
 0-3 startups, not all of them — only ones where something plausibly changed. Everything you don't
-schedule is left alone, there's always tomorrow."""
+schedule is left alone, there's always tomorrow.
+
+Your final reply is texted directly to the boss so they know what you're doing — keep it short, lowercase,
+casual, no markdown, like a text. Name which startups (if any) you're checking on today and why in one
+line each, or say plainly that nothing needed a look today."""
 
 
 def _make_non_strict(ctx: RunContext, tool_def: ToolDefinition) -> ToolDefinition:
@@ -121,8 +124,9 @@ def _build_agent() -> Agent:
 async def run_daily_planner() -> dict:
     rows = _load_stale_approved()
     if not rows:
-        print("daily_planner: nothing stale to plan for.")
-        return {"planned": 0}
+        msg = "daily check-in: nothing stale enough to warrant a fresh look today."
+        print("daily_planner:", msg)
+        return {"planned": 0, "reply": msg}
 
     items_text = "\n".join(
         f"[slug={r['slug']}] {r.get('name', '')} — {r.get('one_liner', '')} "
@@ -148,9 +152,11 @@ async def run_daily_planner() -> dict:
 
 
 async def run_daily_check(payload: dict) -> str | None:
-    """Fired for a 'daily_check' task scheduled via Trigger.dev. One fresh Exa search
-    on the startup + one Gemma call to decide if something genuinely changed; returns
-    an SMS-worthy summary if so, None otherwise (silent)."""
+    """Fired for a 'daily_check' task scheduled via Trigger.dev. Runs one fresh Exa
+    search on the startup and always reports back — the daily planner already decided
+    this one was worth a look, so this doesn't second-guess that with another model
+    call, it just surfaces what it found. Returns None only on a genuine internal
+    failure (missing data, can't reach Supabase), never as a silent "nothing to report"."""
     slug = payload.get("slug", "")
     if not slug:
         return None
@@ -178,33 +184,14 @@ async def run_daily_check(payload: dict) -> str | None:
                 exa.search,
                 f"{name} startup funding launch news",
                 num_results=3,
-                contents={"text": {"max_characters": 1500}, "max_age_hours": 24 * STALE_DAYS},
+                contents={"text": {"max_characters": 500}, "max_age_hours": 24 * STALE_DAYS},
             ),
             timeout=30.0,
         )
-        findings = "\n".join(
-            f"Title: {r.title}\nURL: {r.url}\nContent: {getattr(r, 'text', '') or ''}\n---"
-            for r in getattr(exa_res, "results", [])
-        ) or "No new results found."
+        top = next(iter(getattr(exa_res, "results", [])), None)
     except Exception as e:
         print(f"daily_planner: Exa search failed for {name}: {e}")
-        return None
-
-    candidate = {
-        "platform": "daily_check", "title": name,
-        "signal_type": "Portfolio re-check", "score": 0,
-        "snippet": findings[:1500],
-    }
-    approved = await gemma_filter([candidate], strict_hard_filters=False, blocked_names=None)
-    if not approved:
-        return None
-
-    conviction = approved[0].get("score", 0)
-    # Defense in depth: gemini_reasoning ends up verbatim in an SMS to the boss below —
-    # never let it carry more than a short plain-text summary.
-    reasoning = " ".join(str(approved[0].get("gemini_reasoning", "")).split())[:200]
-    if not isinstance(conviction, int) or conviction < 7:
-        return None
+        return f"portfolio check on {name}: search failed, couldn't check today."
 
     try:
         sb.table("startups").update({
@@ -213,4 +200,10 @@ async def run_daily_check(payload: dict) -> str | None:
     except Exception as e:
         print(f"daily_planner: failed to bump updated_at for {slug}:", e)
 
-    return f"portfolio check on {name}: {reasoning}"
+    if not top:
+        return f"portfolio check on {name}: nothing new turned up."
+    title = (getattr(top, "title", "") or "").strip()
+    url = (getattr(top, "url", "") or "").strip()
+    if not title:
+        return f"portfolio check on {name}: found something but no clean summary — worth a manual look."
+    return f"portfolio check on {name}: {title}" + (f" — {url}" if url else "")

@@ -71,23 +71,36 @@ async def load_thesis() -> str:
 
 async def load_preferences() -> str:
     """Same 5-minute cache as load_thesis — preferences only change via
-    write_preference/delete_preference, both of which bust this cache on write."""
+    write_preference/delete_preference, both of which bust this cache on write.
+
+    Fetches the full preference list via documents.list rather than a similarity
+    search — a fixed-query semantic search capped at N results silently drops
+    preferences that happen to score low against that generic query once there are
+    more than a handful saved, which is exactly the kind of thing that should never
+    silently vanish from context (a "don't touch fintech" rule needs to show up every
+    time, not just when it's semantically close to "startup patterns preferences")."""
     if _cache_mod:
         cached = await _cache_mod.cache_get(_PREFERENCES_CACHE_KEY, _PREFERENCES_TTL)
         if cached is not None:
             return cached
     try:
-        res = await asyncio.wait_for(
+        docs = await asyncio.wait_for(
             asyncio.to_thread(
-                get_client().search.memories,
-                q="startup patterns preferences",
-                container_tag="vc:preferences",
-                limit=20,
+                get_client().documents.list,
+                container_tags=["vc:preferences"],
+                include_content=True,
+                limit=200,
             ),
             timeout=_SM_TIMEOUT,
         )
-        results = getattr(res, "results", [])
-        text = truncate_text("\n".join(_result_text(r) for r in results if _result_text(r)), 2500) if results else "No preferences yet."
+        lines = []
+        for doc in getattr(docs, "memories", []):
+            content = (getattr(doc, "content", "") or "").strip()
+            if not content:
+                continue
+            meta = doc.metadata or {}
+            lines.append(f"- ({meta.get('type', '?')}) {content}")
+        text = truncate_text("\n".join(lines), 3000) if lines else "No preferences yet."
         if _cache_mod:
             await _cache_mod.cache_set(_PREFERENCES_CACHE_KEY, text)
         return text
@@ -166,6 +179,15 @@ def _normalize_name(name: str) -> str:
     and 'acme-ai' both normalize to comparable forms) — case/punctuation/spacing shouldn't
     let the same company get saved twice under a different slug."""
     return re.sub(r"[^a-z0-9]", "", (name or "").lower())
+
+
+def _normalize_pattern(text: str) -> str:
+    """Collapse case/punctuation/whitespace differences before hashing a preference's
+    custom_id, so restating the same rule ("avoid fintech" vs "Avoid fintech.") reinforces
+    the same memory doc instead of silently creating a near-duplicate entry that bloats
+    the preference list and pushes older entries further from view."""
+    text = re.sub(r"[^\w\s]", "", (text or "").lower())
+    return re.sub(r"\s+", " ", text).strip()
 
 
 async def save_startups_batch(
@@ -297,18 +319,23 @@ async def _bust_list_cache() -> None:
 
 
 async def known_startups_summary() -> str:
-    """Compact list of all saved startups with slug and status, for agent deduplication."""
+    """Compact list of all saved startups with slug and status, injected into every
+    prompt as a soft dedup hint. Capped so this doesn't grow unbounded as dealflow
+    accumulates — safe to truncate because it's only a hint, not the dedup guarantee
+    itself: save_startups_batch always re-checks the full list server-side regardless
+    of what's in this text."""
     try:
         startups = await list_startups()
     except Exception:
         return "None yet."
     if not startups:
         return "None yet."
-    return "\n".join(
+    lines = "\n".join(
         f"- {s['name']} (slug: {s['slug']}, status: {s['status']})"
         for s in startups
         if s["name"] or s["slug"]
     )
+    return truncate_text(lines, 4000)
 
 
 def _sb_client():
@@ -405,7 +432,7 @@ async def delete_startups_batch(slugs: list[str]) -> tuple[list[str], list[str]]
 
 
 async def write_preference(pattern: str, pattern_type: str):
-    h = hashlib.md5(pattern.encode()).hexdigest()[:8]
+    h = hashlib.md5(_normalize_pattern(pattern).encode()).hexdigest()[:8]
     await asyncio.wait_for(
         asyncio.to_thread(
             lambda: get_client().add(

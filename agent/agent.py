@@ -3,8 +3,6 @@ import json
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
-import threading
-import time
 import urllib.request
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext, ToolDefinition
@@ -28,7 +26,10 @@ import trigger_client
 import scheduled_tasks_log
 
 _EXA_DEEP_TTL_SECONDS = 6 * 3600
-_USAGE_LIMITS = UsageLimits(request_limit=40)
+# Ceiling on model round-trips within a single run — a normal sweep/reply is a
+# handful of tool calls, so this is the worst-case blast radius if a tool loop
+# ever goes bad, not a normal-case budget.
+_USAGE_LIMITS = UsageLimits(request_limit=20)
 
 # schedule_followup bounds: default ceiling keeps the agent's own judgment calls
 # short-term; boss_specified_duration=True (only when the boss stated an explicit
@@ -155,13 +156,6 @@ class AgentDeps:
     sb_key: str
     sb_secret: str
     message_handle: str = None
-    typing_thread: threading.Thread = None
-    stop_typing: threading.Event = None
-
-
-from pydantic_ai.capabilities import Hooks
-
-hooks = Hooks()
 
 
 STYLE_RULES = """Style rules:
@@ -195,7 +189,7 @@ Tool routing — follow this exactly:
 - Fetch a known URL → linkup_fetch
 - Look up something you already know → supermemory_search (FIRST before any web search)
 - Status change (approve/pass) → update_startup_statuses. If you don't have the slug, call list_known_startups FIRST to find it.
-- Save new startups → save_startups (batch). Skip anything with significant existing press coverage — use your own judgment based on what you found in research.
+- Save new startups → save_startups (batch). Nothing checks your work here — you are the only filter, so hold every candidate against the thesis yourself before calling this (right stage, right sector, right geography, no significant existing press coverage). Don't pass through anything you're not confident actually fits.
 - Permanently remove a startup (duplicate, mistake, bad data) → delete_startups. If you don't have the slug, call list_known_startups FIRST. Do NOT use this for a startup the boss is just rejecting — that's update_startup_statuses with 'passed'.
 - Learn a pattern → write_preferences; record a reflection → write_reflection
 - Wrong or outdated learned pattern → list_preferences to find its ID, then delete_preferences
@@ -217,7 +211,6 @@ Task discipline — non-negotiable:
 text_agent = Agent(
     model,
     deps_type=AgentDeps,
-    capabilities=[hooks],
     instructions=CORE_RULES,
     model_settings=llm.FINALIZE_SMS_SETTINGS,
 )
@@ -246,23 +239,6 @@ feedback_agent = Agent(
 )
 
 
-@hooks.on.before_run
-def start_typing_indicator(ctx: RunContext[AgentDeps]):
-    _start_typing(ctx.deps)
-
-
-@hooks.on.after_run
-def stop_typing_indicator(ctx: RunContext[AgentDeps], *, result):
-    _stop_typing(ctx.deps)
-    return result
-
-
-@hooks.on.run_error
-def stop_typing_on_error(ctx: RunContext[AgentDeps], *, error):
-    _stop_typing(ctx.deps)
-    raise error
-
-
 def _e164(phone: str | None) -> str | None:
     if not phone or phone == "system":
         return None
@@ -275,56 +251,6 @@ def _e164(phone: str | None) -> str | None:
     if len(digits) == 11 and digits.startswith("1"):
         return f"+{digits}"
     return f"+{digits}" if digits else None
-
-
-def _stop_typing(deps: AgentDeps | None) -> None:
-    if not deps:
-        return
-    if deps.stop_typing:
-        deps.stop_typing.set()
-    if deps.typing_thread:
-        deps.typing_thread.join()
-        deps.typing_thread = None
-
-
-def _start_typing(deps: AgentDeps | None) -> None:
-    if not deps or not deps.phone_number or not deps.sb_key or not deps.sb_secret:
-        return
-    if deps.typing_thread and deps.typing_thread.is_alive():
-        return
-
-    deps.stop_typing = threading.Event()
-    headers = {
-        "sb-api-key-id": deps.sb_key,
-        "sb-api-secret-key": deps.sb_secret,
-        "Content-Type": "application/json",
-    }
-    recipient = deps.phone_number
-    sender = deps.from_number
-
-    def typing_loop():
-        while not deps.stop_typing.is_set():
-            try:
-                urllib.request.urlopen(urllib.request.Request(
-                    "https://api.sendblue.co/api/send-typing-indicator",
-                    data=json.dumps({
-                        "number": recipient,
-                        "from_number": sender,
-                        "state": "start",
-                        "max_duration_ms": 60000,
-                    }).encode("utf-8"),
-                    headers=headers,
-                    method="POST",
-                ))
-            except Exception as e:
-                print("typing indicator failed:", e)
-            for _ in range(30):
-                if deps.stop_typing.is_set():
-                    break
-                time.sleep(0.1)
-
-    deps.typing_thread = threading.Thread(target=typing_loop, daemon=True)
-    deps.typing_thread.start()
 
 
 _SWEEP_STANDING_RULE = """Standing rule — only search/sweep when explicitly asked: do NOT call exa_deep_search_many or run a sweep
@@ -369,7 +295,9 @@ def _common_routing_table(*, followups: bool) -> str:
 
 "find me startups" / "run a sweep" / "scout for X"
 → call exa_deep_search_many with 4-5 diverse queries in ONE call
-→ skip anything already in the known list below or with obvious major press coverage
+→ nothing else checks your work — before calling save_startups, hold every candidate against the thesis
+  below yourself: skip anything already in the known list below, with obvious major press coverage, wrong
+  stage, wrong sector, or otherwise off-thesis. If you're not confident it fits, don't save it.
 → call save_startups in ONE batch call for all survivors
 → reply with what you found and saved
 
@@ -674,7 +602,7 @@ def register_tools(
 
         @agent.tool(prepare=make_non_strict)
         async def save_startups(ctx: RunContext, startups: list[StartupSave]) -> str:
-            """Save new startups to memory. slug must be a lowercase hyphenated identifier (e.g. 'acme-ai'). Use even for one startup — pass a one-element list. Startups already in dealflow (matched by name or slug) are automatically skipped, not re-saved — check the result for any "already known" entries and don't treat those as new finds."""
+            """Save new startups to memory. slug must be a lowercase hyphenated identifier (e.g. 'acme-ai'). Use even for one startup — pass a one-element list. No automated filter runs on these — you are the only check, so only pass candidates you've already held against the thesis yourself. Startups already in dealflow (matched by name or slug) are automatically skipped, not re-saved — check the result for any "already known" entries and don't treat those as new finds."""
             if not startups:
                 return "No startups provided."
             try:

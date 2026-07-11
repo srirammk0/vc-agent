@@ -290,7 +290,15 @@ def daily_planner_scheduled(payload: dict):
     import asyncio
     sys.path.insert(0, "/root/agent")
     from daily_planner import run_daily_planner
-    asyncio.run(run_daily_planner())
+    result = asyncio.run(run_daily_planner())
+    reply = result.get("reply")
+    if reply:
+        send_sms(reply)
+        run_agent({
+            "mode": "append_alert",
+            "message": reply,
+            "recipients": notify_phone_numbers(),
+        })
     return {"status": "ok"}
 
 
