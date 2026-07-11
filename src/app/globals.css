@@ -1312,6 +1312,60 @@ a {
   display: block;
 }
 
+/* Skeleton Loading Placeholder */
+.gen-skeleton {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px 20px;
+  box-shadow: 0 1px 2px rgba(6, 31, 0, 0.03);
+  animation: pulse 1.6s ease-in-out infinite;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.gen-skeleton-bone {
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 4px;
+}
+
+.gen-skeleton-title {
+  height: 16px;
+  width: 140px;
+}
+
+.gen-skeleton-text {
+  height: 12px;
+  width: 100%;
+}
+
+.gen-skeleton-text-half {
+  height: 12px;
+  width: 50%;
+}
+
+.gen-skeleton-text-short {
+  height: 12px;
+  width: 30%;
+}
+
+.gen-skeleton-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.gen-skeleton-pill {
+  width: 64px;
+  height: 18px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+
 .gen-metrics {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));

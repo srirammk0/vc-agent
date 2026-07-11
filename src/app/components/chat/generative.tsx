@@ -31,14 +31,14 @@ export type UiBlock =
 
 export type MessagePart =
   | { type: "text"; text: string }
-  | { type: "ui"; block: UiBlock };
+  | { type: "ui"; block: UiBlock }
+  | { type: "loading-ui"; kind: string };
 
 const UI_BLOCK_RE = /```ui:([a-z0-9-]+)\n([\s\S]*?)```/g;
 // Matches an opening ui-block fence with no closing ``` yet — i.e. the model is
-// still mid-stream on this block. We hide everything from here on so the raw
-// ```ui:kind / JSON never flashes on screen; it resolves into a real card the
-// moment the closing fence lands and this text gets reparsed on the next render.
-const OPEN_UI_FENCE_RE = /```ui:[a-z0-9-]+\n/;
+// still mid-stream on this block. We show a skeleton loading placeholder
+// instead of letting raw code flash.
+const OPEN_UI_FENCE_RE = /```ui:([a-z0-9-]+)\n/;
 
 const KNOWN_KINDS = new Set([
   "startup",
@@ -75,8 +75,19 @@ export function parseMessageParts(content: string): MessagePart[] {
 
   const tail = content.slice(last);
   const openFence = tail.match(OPEN_UI_FENCE_RE);
-  const visibleTail = (openFence ? tail.slice(0, openFence.index) : tail).trim();
-  if (visibleTail) parts.push({ type: "text", text: visibleTail });
+  if (openFence) {
+    const beforeOpenFence = tail.slice(0, openFence.index).trim();
+    if (beforeOpenFence) {
+      parts.push({ type: "text", text: beforeOpenFence });
+    }
+    const kind = openFence[1];
+    parts.push({ type: "loading-ui", kind });
+  } else {
+    const visibleTail = tail.trim();
+    if (visibleTail) {
+      parts.push({ type: "text", text: visibleTail });
+    }
+  }
   return parts;
 }
 
@@ -454,6 +465,87 @@ export function GenerativeBlock({
   }
 }
 
+export function SkeletonLoader({ kind }: { kind: string }) {
+  if (kind === "startup") {
+    return (
+      <div className="gen-skeleton">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <div className="gen-skeleton-bone gen-skeleton-icon" />
+            <div className="gen-skeleton-bone gen-skeleton-title" style={{ width: 100 }} />
+          </div>
+          <div className="gen-skeleton-bone gen-skeleton-pill" />
+        </div>
+        <div className="gen-skeleton-bone gen-skeleton-text" style={{ marginTop: 8 }} />
+        <div className="gen-skeleton-bone gen-skeleton-text-half" />
+      </div>
+    );
+  }
+
+  if (kind === "metrics") {
+    return (
+      <div className="gen-skeleton" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
+        {[1, 2, 3].map((i) => (
+          <div key={i} style={{ border: "1px solid var(--border)", borderRadius: 10, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+            <div className="gen-skeleton-bone gen-skeleton-text-short" />
+            <div className="gen-skeleton-bone gen-skeleton-title" style={{ height: 22, width: 60 }} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (kind === "list") {
+    return (
+      <div className="gen-skeleton">
+        <div className="gen-skeleton-bone gen-skeleton-title" />
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 4 }}>
+          {[1, 2].map((i) => (
+            <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
+                <div className="gen-skeleton-bone gen-skeleton-text-half" style={{ height: 14 }} />
+                <div className="gen-skeleton-bone gen-skeleton-text-short" />
+              </div>
+              <div className="gen-skeleton-bone gen-skeleton-pill" />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (kind === "table") {
+    return (
+      <div className="gen-skeleton">
+        <div className="gen-skeleton-bone gen-skeleton-title" style={{ marginBottom: 4 }} />
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ display: "flex", gap: 10, borderBottom: "1px solid var(--border)", paddingBottom: 6 }}>
+            <div className="gen-skeleton-bone gen-skeleton-text-short" style={{ flex: 1 }} />
+            <div className="gen-skeleton-bone gen-skeleton-text-short" style={{ flex: 1 }} />
+            <div className="gen-skeleton-bone gen-skeleton-text-short" style={{ flex: 1 }} />
+          </div>
+          {[1, 2].map((i) => (
+            <div key={i} style={{ display: "flex", gap: 10 }}>
+              <div className="gen-skeleton-bone gen-skeleton-text-half" style={{ flex: 1 }} />
+              <div className="gen-skeleton-bone gen-skeleton-text-short" style={{ flex: 1 }} />
+              <div className="gen-skeleton-bone gen-skeleton-text" style={{ flex: 1 }} />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // Default fallback loader
+  return (
+    <div className="gen-skeleton">
+      <div className="gen-skeleton-bone gen-skeleton-title" />
+      <div className="gen-skeleton-bone gen-skeleton-text" style={{ marginTop: 8 }} />
+      <div className="gen-skeleton-bone gen-skeleton-text-half" />
+    </div>
+  );
+}
+
 export function MessageContent({
   content,
   onAction,
@@ -466,13 +558,16 @@ export function MessageContent({
 
   return (
     <div className="gen-stack">
-      {parts.map((part, i) =>
-        part.type === "text" ? (
-          <Prose key={i} text={part.text} />
-        ) : (
-          <GenerativeBlock key={i} block={part.block} onAction={onAction} />
-        )
-      )}
+      {parts.map((part, i) => {
+        if (part.type === "text") {
+          return <Prose key={i} text={part.text} />;
+        } else if (part.type === "ui") {
+          return <GenerativeBlock key={i} block={part.block} onAction={onAction} />;
+        } else if (part.type === "loading-ui") {
+          return <SkeletonLoader key={i} kind={part.kind} />;
+        }
+        return null;
+      })}
     </div>
   );
 }

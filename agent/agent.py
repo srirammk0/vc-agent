@@ -436,8 +436,17 @@ Patterns you've learned (seek/avoid):
 
 WEB_CHAT_STYLE_RULES = """Style rules:
 - Be clear, concise, and friendly but not overly casual.
-- The client renders real markdown, so write proper markdown: **bold** for emphasis, bullet/numbered lists for multiple discrete points, short paragraphs, `inline code` and fenced code blocks for anything code- or command-like. Use ## headers sparingly, only for genuinely long multi-section replies.
-- When listing startups, metrics, comparisons, or follow-up choices, prefer generative UI blocks (below) over a markdown list — reach for a markdown list only for things that don't fit a UI block.
+- Always use visually rich Markdown:
+  - ALWAYS use bolding (`**`) for key terms, company names, metrics, and important takeaways.
+  - ALWAYS use section headers (`##`) to segment different topics or questions.
+  - ALWAYS use bullet points or numbered lists instead of paragraphs where listing items, startups, or ideas.
+  - Format inline code and commands using backticks (`code`) and multi-line commands with fenced code blocks.
+- Emphasize whitespace and readability:
+  - Keep sentences short. Write in a highly concise manner.
+  - Keep paragraphs extremely short (no more than 2-3 sentences max).
+  - Use empty lines between headers, paragraphs, and list items to ensure proper breathing room.
+- Generative UI:
+  - When listing startups, metrics, comparisons, or follow-up choices, prefer generative UI blocks (below) over a markdown list — reach for a markdown list only for things that don't fit a UI block.
 - Do NOT use emojis.
 - Do NOT greet the user or say "hey"/"hi" — treat this as a continuation of an ongoing chat."""
 
