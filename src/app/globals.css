@@ -1618,20 +1618,14 @@ a {
   }
 }
 
-.chat-stop {
+.chat-send.chat-stop {
   background: #ff3b30 !important;
   color: #ffffff !important;
   opacity: 1 !important;
+  cursor: pointer !important;
 }
 
-.chat-stop:hover {
+.chat-send.chat-stop:hover {
   background: #ff453a !important;
 }
 
-.chat-stop-icon {
-  display: inline-block;
-  width: 9px;
-  height: 9px;
-  background: currentColor;
-  border-radius: 2px;
-}

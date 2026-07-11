@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent, type MouseEvent } from "react";
 import Link from "next/link";
-import { ArrowUp, MessageSquarePlus, PanelLeft, Trash2, X } from "lucide-react";
+import { ArrowUp, MessageSquarePlus, PanelLeft, Trash2, X, Square } from "lucide-react";
 import ChatMessageRow from "./chat/ChatMessageRow";
 import {
   createThread,
@@ -401,7 +401,7 @@ export default function AgentChat() {
                   className="chat-send chat-stop"
                   aria-label="Stop generating"
                 >
-                  <span className="chat-stop-icon" />
+                  <Square size={12} fill="currentColor" strokeWidth={0} />
                 </button>
               ) : (
                 <button
