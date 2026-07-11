@@ -50,6 +50,13 @@ export default function AgentChat() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const pinBottomRef = useRef(false);
   const switchingRef = useRef(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  function stop() {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+  }
 
   const active = store ? getActiveThread(store) : null;
   const messages = active?.messages ?? [];
@@ -172,6 +179,9 @@ export default function AgentChat() {
       setStreamTick((t) => t + 1);
     }
 
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -179,6 +189,7 @@ export default function AgentChat() {
         body: JSON.stringify({
           messages: withUser.map(({ role, content }) => ({ role, content })),
         }),
+        signal: controller.signal,
       });
       if (!res.ok || !res.body) {
         const json = await res.json().catch(() => ({}));
@@ -233,8 +244,13 @@ export default function AgentChat() {
       pinBottomRef.current = true;
       requestAnimationFrame(() => scrollToBottom("smooth"));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong");
+      if (e instanceof Error && e.name === "AbortError") {
+        // Request aborted by user
+      } else {
+        setError(e instanceof Error ? e.message : "Something went wrong");
+      }
     } finally {
+      abortControllerRef.current = null;
       setSending(false);
       inputRef.current?.focus();
     }
@@ -378,14 +394,25 @@ export default function AgentChat() {
                 rows={1}
                 className="chat-input"
               />
-              <button
-                type="submit"
-                disabled={sending || !input.trim()}
-                className="chat-send"
-                aria-label="Send"
-              >
-                <ArrowUp size={17} strokeWidth={2.5} />
-              </button>
+              {sending ? (
+                <button
+                  type="button"
+                  onClick={stop}
+                  className="chat-send chat-stop"
+                  aria-label="Stop generating"
+                >
+                  <span className="chat-stop-icon" />
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={!input.trim()}
+                  className="chat-send"
+                  aria-label="Send"
+                >
+                  <ArrowUp size={17} strokeWidth={2.5} />
+                </button>
+              )}
             </div>
           </div>
         </form>
