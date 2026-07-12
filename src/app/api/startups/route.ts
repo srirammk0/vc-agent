@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "../../../lib/supabase";
 import { sortStartups } from "../../../lib/sortStartups";
-import { updateSupermemoryStartupStatus } from "../../../lib/supermemory";
 
 export const dynamic = "force-dynamic";
 
@@ -34,16 +33,6 @@ export async function PATCH(req: NextRequest) {
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-
-  await Promise.all(
-    slugs.map(async (slug) => {
-      try {
-        await updateSupermemoryStartupStatus(slug, status);
-      } catch (e) {
-        console.error(`Supermemory status mirror failed for ${slug}:`, e);
-      }
-    })
-  );
 
   return NextResponse.json({ ok: true });
 }

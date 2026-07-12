@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { supabase, type Startup } from "../../../lib/supabase";
 import StatusBadge from "../../components/StatusBadge";
+import OutreachBadges from "../../components/OutreachBadges";
 import StartupActions from "../../components/StartupActions";
 import EnrichmentSection from "../../components/EnrichmentSection";
 import StartupEmbeds from "../../components/StartupEmbeds";
@@ -70,6 +71,11 @@ export default async function StartupDetail({
                   {s.name}
                 </h1>
                 <StatusBadge status={s.status} />
+                <OutreachBadges
+                  stealth={s.stealth}
+                  linkedinStatus={s.linkedin_status}
+                  emailStatus={s.email_status}
+                />
               </div>
               {s.one_liner && (
                 <p
@@ -109,6 +115,9 @@ export default async function StartupDetail({
                 enrichmentStatus={s.enrichment_status}
                 companyDescription={s.company_description}
                 founders={s.founders}
+                stealth={s.stealth}
+                linkedinStatus={s.linkedin_status}
+                emailStatus={s.email_status}
               />
             </div>
           </div>

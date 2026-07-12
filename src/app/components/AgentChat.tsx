@@ -199,6 +199,10 @@ export default function AgentChat() {
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let sawTerminal = false; // true once a "done" or "error" event arrives — if the
+      // stream ends without one, the connection dropped mid-response (e.g. a server-side
+      // timeout that killed the connection before it could send anything), and the user
+      // should see that instead of a chat that silently "just stopped."
 
       while (true) {
         const { done, value } = await reader.read();
@@ -236,9 +240,16 @@ export default function AgentChat() {
             }
             flush();
           } else if (event.type === "error") {
+            sawTerminal = true;
             setError(event.message);
+          } else if (event.type === "done") {
+            sawTerminal = true;
           }
         }
+      }
+
+      if (!sawTerminal) {
+        setError("connection dropped mid-response — try again");
       }
 
       pinBottomRef.current = true;

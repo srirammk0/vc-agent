@@ -10,11 +10,13 @@ Batch API: not used — scout, SMS, and digest jobs need synchronous replies.
 import os
 import asyncio
 
+import httpx
 from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
 from pydantic_ai.providers.anthropic import AnthropicProvider
 
 SONNET_MODEL = "claude-sonnet-5"
+HAIKU_MODEL = "claude-haiku-4-5-20251001"
 
 
 def _cache_base() -> dict:
@@ -48,6 +50,26 @@ def _is_rate_limit_error(exc: BaseException) -> bool:
     return False
 
 
+_TRANSIENT_HTTP_STATUSES = {429, 500, 502, 503, 529}
+
+
+def _is_transient_error(exc: BaseException) -> bool:
+    """Broader than _is_rate_limit_error — also covers other 5xx/529 upstream errors
+    and network-level timeouts, which are just as retryable as a 429 but weren't
+    being retried before. This is an infra-level retry, distinct from the
+    prompt-level "[tool error]" self-healing rule in CORE_RULES that governs how the
+    *model* reacts to a tool call failing — that's the model recovering from a bad
+    tool result, this is recovering from the transport/API layer itself misbehaving."""
+    if isinstance(exc, ModelHTTPError) and exc.status_code in _TRANSIENT_HTTP_STATUSES:
+        return True
+    if isinstance(exc, (httpx.TimeoutException, httpx.TransportError)):
+        return True
+    cause = exc.__cause__
+    if cause is not None and cause is not exc:
+        return _is_transient_error(cause)
+    return False
+
+
 def is_broken_history_error(exc: BaseException) -> bool:
     """True when cached message_history is malformed for the model API."""
     if isinstance(exc, ModelHTTPError) and exc.status_code == 400:
@@ -66,14 +88,24 @@ def _anthropic_model(model_name: str) -> AnthropicModel:
 
 
 def build_finalize_model() -> AnthropicModel:
-    """Sonnet 5 — all agents."""
+    """Sonnet 5 — research/decision-critical agents (text_agent, web_chat_agent,
+    daily_planner)."""
     return _anthropic_model(SONNET_MODEL)
+
+
+def build_fast_model() -> AnthropicModel:
+    """Haiku 4.5 — narrow, mechanical tasks that don't need Sonnet's judgment.
+    Currently just feedback_agent (distill a dashboard approve/pass reason into a
+    preference string and optionally call one status-update tool) — real
+    effort-tiering instead of the previous fast_model = finalize_model alias, which
+    had no actual tiering despite the name."""
+    return _anthropic_model(HAIKU_MODEL)
 
 
 finalize_model = build_finalize_model()
 
 model = finalize_model
-fast_model = finalize_model
+fast_model = build_fast_model()
 
 
 async def run_with_retry(agent, prompt: str, *, max_attempts: int = 8, **kwargs):
@@ -81,11 +113,11 @@ async def run_with_retry(agent, prompt: str, *, max_attempts: int = 8, **kwargs)
         try:
             return await agent.run(prompt, **kwargs)
         except Exception as e:
-            if not _is_rate_limit_error(e) or attempt == max_attempts - 1:
+            if not _is_transient_error(e) or attempt == max_attempts - 1:
                 raise
             delay = 3 * (2 ** attempt)
             print(
-                f"rate limited, retrying in {delay}s "
+                f"transient error ({type(e).__name__}), retrying in {delay}s "
                 f"(attempt {attempt + 1}/{max_attempts})"
             )
             await asyncio.sleep(delay)

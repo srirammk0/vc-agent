@@ -14,6 +14,14 @@ from starlette.routing import Route
 # to agent/agent.py (shadowing the `agent` package) instead of the empty
 # agent/__init__.py.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "agent"))
+
+# Trace this path too — main.py (the SMS/Modal path) already does this, but the
+# web-chat path, which is the one reported as sometimes hanging/timing out, had
+# zero tracing until now.
+import logfire  # noqa: E402
+logfire.configure(send_to_logfire="if-token-present")
+logfire.instrument_pydantic_ai()
+
 from agent import run_web_chat_stream  # noqa: E402
 
 

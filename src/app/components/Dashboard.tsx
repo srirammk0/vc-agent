@@ -10,6 +10,7 @@ import { sortStartups } from "../../lib/sortStartups";
 import { readSession, writeSession } from "../../lib/persistedState";
 import { useLiveStartups } from "../hooks/useLiveStartups";
 import StatusBadge from "./StatusBadge";
+import OutreachBadges from "./OutreachBadges";
 import StartupActions from "./StartupActions";
 import CommandPalette from "./CommandPalette";
 
@@ -99,7 +100,7 @@ function HeroLoader() {
   );
 }
 
-type DashUiState = { tab: Tab; query: string };
+type DashUiState = { tab: Tab; query: string; needsEmail: boolean };
 
 const DASH_UI_KEY = "dealflow-ui";
 
@@ -109,6 +110,7 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
   const savedUi = readSession<Partial<DashUiState>>(DASH_UI_KEY, {});
   const [tab, setTab] = useState<Tab>((savedUi.tab as Tab) ?? "all");
   const [query, setQuery] = useState(savedUi.query ?? "");
+  const [needsEmail, setNeedsEmail] = useState(savedUi.needsEmail ?? false);
   const [booting, setBooting] = useState(() => !readSession<boolean>("dealflow-seen", false));
   const [isMac, setIsMac] = useState(true);
   const [selectedSlugs, setSelectedSlugs] = useState<Set<string>>(new Set());
@@ -152,8 +154,8 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
   }, []);
 
   useEffect(() => {
-    writeSession(DASH_UI_KEY, { tab, query });
-  }, [tab, query]);
+    writeSession(DASH_UI_KEY, { tab, query, needsEmail });
+  }, [tab, query, needsEmail]);
 
   const counts = useMemo(
     () => ({
@@ -169,6 +171,7 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
     const q = query.trim().toLowerCase();
     const rows = startups
       .filter((s) => (tab === "all" ? true : s.status === tab))
+      .filter((s) => (needsEmail ? !s.stealth && s.email_status === "not_contacted" : true))
       .filter((s) =>
         q
           ? s.name.toLowerCase().includes(q) ||
@@ -177,7 +180,7 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
           : true
       );
     return sortStartups(rows);
-  }, [startups, tab, query]);
+  }, [startups, tab, query, needsEmail]);
 
   const showLoader = booting;
 
@@ -277,6 +280,28 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
                 <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
                 <path d="M16 16h5v5" />
               </svg>
+            </button>
+            <button
+              onClick={() => setNeedsEmail((v) => !v)}
+              title="Approved, not stealth, not yet emailed"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                height: 32,
+                padding: "0 12px",
+                borderRadius: 6,
+                border: needsEmail ? "1px solid rgba(0,122,255,0.3)" : "1px solid var(--border)",
+                background: needsEmail ? "rgba(0,122,255,0.08)" : "rgba(255,255,255,0.7)",
+                color: needsEmail ? "var(--accent)" : "var(--label)",
+                fontSize: 12.5,
+                fontWeight: 500,
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+                transition: "all 0.15s ease",
+              }}
+            >
+              Needs email
             </button>
             <SearchBar query={query} setQuery={setQuery} isMac={isMac} />
           </div>
@@ -454,6 +479,11 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
                           {s.name}
                         </Link>
                         <StatusBadge status={s.status} />
+                        <OutreachBadges
+                          stealth={s.stealth}
+                          linkedinStatus={s.linkedin_status}
+                          emailStatus={s.email_status}
+                        />
                         {isEnriching && (
                           <span
                             style={{
@@ -523,6 +553,9 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
                         enrichmentStatus={s.enrichment_status}
                         companyDescription={s.company_description}
                         founders={s.founders}
+                        stealth={s.stealth}
+                        linkedinStatus={s.linkedin_status}
+                        emailStatus={s.email_status}
                       />
                     </div>
                   </div>

@@ -209,9 +209,11 @@ def _stop_typing_loop(
         send_typing(recipient, "stop")
 
 
-# --- Sync: mirror Supermemory -> Supabase. Scheduling owned by Trigger.dev ---
-# --- (cron */30 * * * *, src/trigger/sync.ts) — this is now a plain hardened  ---
-# --- HTTP endpoint, not a Modal cron.                                        ---
+# --- Sync: mirror Supermemory's thesis -> Supabase (startups are no longer  ---
+# --- mirrored here — they live directly in Supabase, see                    ---
+# --- agent/startups_store.py). Scheduling owned by Trigger.dev              ---
+# --- (cron 0 */4 * * *, src/trigger/sync.ts) — this is a plain hardened      ---
+# --- HTTP endpoint, not a Modal cron.                                       ---
 @app.function(
     image=image,
     secrets=[modal.Secret.from_name("vc-scout-secrets")],

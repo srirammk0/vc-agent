@@ -60,13 +60,16 @@ function summarizeArgs(args: unknown): string | null {
 
 export default function ToolTrace({ trace }: { trace?: ToolTraceEntry[] }) {
   const [open, setOpen] = useState(false);
-  const autoOpenedRef = useRef(false);
+  const lastAutoOpenedIdRef = useRef<string | null>(null);
 
   const running = trace?.find((t) => t.status === "running");
 
+  // Re-open whenever a *new* tool starts running, not just the first one ever —
+  // otherwise once the user (or a fast turn) collapses this, every later tool call
+  // in the same or a later turn runs silently hidden under the closed dropdown.
   useEffect(() => {
-    if (!autoOpenedRef.current && running) {
-      autoOpenedRef.current = true;
+    if (running && lastAutoOpenedIdRef.current !== running.id) {
+      lastAutoOpenedIdRef.current = running.id;
       setOpen(true);
     }
   }, [running]);

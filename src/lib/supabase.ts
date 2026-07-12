@@ -31,4 +31,7 @@ export type Startup = {
   stage: string | null;
   raised: string | null;
   founders: Founder[] | null;
+  stealth: boolean;
+  linkedin_status: "not_contacted" | "contacted" | "replied";
+  email_status: "not_contacted" | "contacted" | "replied";
 };

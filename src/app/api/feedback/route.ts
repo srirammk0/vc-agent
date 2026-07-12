@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "../../../lib/supabase";
-import { updateSupermemoryStartupStatus } from "../../../lib/supermemory";
 
 export async function POST(req: NextRequest) {
   const { slug, name, status, message } = await req.json();
@@ -25,12 +24,6 @@ export async function POST(req: NextRequest) {
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-
-    try {
-      await updateSupermemoryStartupStatus(slug, nextStatus);
-    } catch (e) {
-      console.error("Supermemory status mirror failed:", e);
     }
   }
 

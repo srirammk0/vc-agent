@@ -7,6 +7,7 @@ import { showEnrichButton } from "../../lib/enrichment";
 import type { Founder } from "../../lib/supabase";
 
 type Status = "new" | "approved" | "passed";
+type ChannelStatus = "not_contacted" | "contacted" | "replied";
 
 type Props = {
   slug: string;
@@ -15,6 +16,9 @@ type Props = {
   enrichmentStatus: "pending" | "running" | "complete";
   companyDescription: string | null;
   founders: Founder[] | null;
+  stealth: boolean;
+  linkedinStatus: ChannelStatus;
+  emailStatus: ChannelStatus;
 };
 
 const MENU_ITEMS: { value: Status; label: string; accent: string }[] = [
@@ -23,6 +27,18 @@ const MENU_ITEMS: { value: Status; label: string; accent: string }[] = [
   { value: "new", label: "Mark new", accent: "var(--label)" },
 ];
 
+const NEXT_CHANNEL_STATUS: Record<ChannelStatus, ChannelStatus> = {
+  not_contacted: "contacted",
+  contacted: "replied",
+  replied: "not_contacted",
+};
+
+const CHANNEL_LABEL: Record<ChannelStatus, string> = {
+  not_contacted: "Not contacted",
+  contacted: "Contacted",
+  replied: "Replied",
+};
+
 export default function StartupActions({
   slug,
   name,
@@ -30,6 +46,9 @@ export default function StartupActions({
   enrichmentStatus,
   companyDescription,
   founders,
+  stealth,
+  linkedinStatus,
+  emailStatus,
 }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -93,6 +112,25 @@ export default function StartupActions({
     });
     setBusy(null);
     startTransition(() => router.refresh());
+  }
+
+  async function patchOutreach(body: Record<string, unknown>, busyKey: string) {
+    setBusy(busyKey);
+    await fetch(`/api/startup/${slug}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    setBusy(null);
+    startTransition(() => router.refresh());
+  }
+
+  function toggleStealth() {
+    patchOutreach({ stealth: !stealth }, "stealth");
+  }
+
+  function cycleChannel(channel: "linkedin_status" | "email_status", current: ChannelStatus) {
+    patchOutreach({ [channel]: NEXT_CHANNEL_STATUS[current] }, channel);
   }
 
   function openFeedback(next: Status) {
@@ -213,7 +251,7 @@ export default function StartupActions({
               position: "absolute",
               right: 0,
               top: 38,
-              width: feedbackFor ? 220 : 176,
+              width: feedbackFor ? 220 : 200,
               background: "var(--card-bg)",
               border: "1px solid var(--border)",
               borderRadius: 8,
@@ -344,6 +382,75 @@ export default function StartupActions({
                     {m.label}
                   </button>
                 ))}
+
+                <div
+                  style={{
+                    fontSize: 10.5,
+                    color: "var(--muted)",
+                    padding: "8px 8px 3px",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.08em",
+                    fontWeight: 500,
+                    borderTop: "1px solid var(--border)",
+                    marginTop: 4,
+                  }}
+                >
+                  Outreach
+                </div>
+                <button
+                  type="button"
+                  className="menu-item"
+                  onClick={toggleStealth}
+                  disabled={busy === "stealth"}
+                  style={{ fontSize: 13, fontWeight: 400 }}
+                >
+                  <span
+                    style={{
+                      width: 7,
+                      height: 7,
+                      borderRadius: 999,
+                      background: stealth ? "#8e44ad" : "var(--label)",
+                      flexShrink: 0,
+                    }}
+                  />
+                  {stealth ? "Unmark stealth" : "Mark stealth"}
+                </button>
+                <button
+                  type="button"
+                  className="menu-item"
+                  onClick={() => cycleChannel("linkedin_status", linkedinStatus)}
+                  disabled={busy === "linkedin_status"}
+                  style={{ fontSize: 13, fontWeight: 400 }}
+                >
+                  <span
+                    style={{
+                      width: 7,
+                      height: 7,
+                      borderRadius: 999,
+                      background: "var(--label)",
+                      flexShrink: 0,
+                    }}
+                  />
+                  LinkedIn: {CHANNEL_LABEL[linkedinStatus]}
+                </button>
+                <button
+                  type="button"
+                  className="menu-item"
+                  onClick={() => cycleChannel("email_status", emailStatus)}
+                  disabled={busy === "email_status"}
+                  style={{ fontSize: 13, fontWeight: 400 }}
+                >
+                  <span
+                    style={{
+                      width: 7,
+                      height: 7,
+                      borderRadius: 999,
+                      background: "var(--label)",
+                      flexShrink: 0,
+                    }}
+                  />
+                  Email: {CHANNEL_LABEL[emailStatus]}
+                </button>
               </>
             )}
           </div>

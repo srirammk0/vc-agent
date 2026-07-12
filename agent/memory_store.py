@@ -1,6 +1,5 @@
 import asyncio
 import hashlib
-import os
 import re
 from datetime import datetime, timezone
 
@@ -11,8 +10,7 @@ try:
 except ImportError:
     _cache_mod = None
 
-_STARTUP_LIST_TTL = 5 * 60  # 5 minutes — short enough to reflect new saves within a run
-_THESIS_TTL = 5 * 60  # boss-initiated only — same 5-minute window as the startup list
+_THESIS_TTL = 5 * 60  # boss-initiated only
 _PREFERENCES_TTL = 5 * 60
 
 _THESIS_CACHE_KEY = "sm:thesis"
@@ -138,49 +136,6 @@ async def semantic_search(query: str, container_tag: str, limit: int = 10) -> st
         return f"[MEMORY UNAVAILABLE: {e} — proceed without memory context]"
 
 
-async def save_startup(
-    slug: str,
-    name: str,
-    website: str,
-    one_liner: str,
-    assessment: str,
-    signal_urls: list[str],
-    status: str = "new",
-):
-    content = (
-        f"Name: {name}\n"
-        f"Website: {website}\n"
-        f"One-liner: {one_liner}\n"
-        f"Assessment: {assessment}\n"
-        f"Signal URLs: {', '.join(signal_urls)}\n"
-        f"Status: {status}"
-    )
-    await asyncio.wait_for(
-        asyncio.to_thread(
-            lambda: get_client().add(
-                content=content,
-                container_tag="vc:startups",
-                custom_id=slug,
-                metadata={
-                    "name": name,
-                    "website": website or "",
-                    "status": status,
-                    "found_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
-                    "one_liner": one_liner,
-                },
-            )
-        ),
-        timeout=_SM_TIMEOUT,
-    )
-
-
-def _normalize_name(name: str) -> str:
-    """Collapse a startup name to bare alnum for duplicate matching (e.g. 'Acme, Inc.'
-    and 'acme-ai' both normalize to comparable forms) — case/punctuation/spacing shouldn't
-    let the same company get saved twice under a different slug."""
-    return re.sub(r"[^a-z0-9]", "", (name or "").lower())
-
-
 def _normalize_pattern(text: str) -> str:
     """Collapse case/punctuation/whitespace differences before hashing a preference's
     custom_id, so restating the same rule ("avoid fintech" vs "Avoid fintech.") reinforces
@@ -188,80 +143,6 @@ def _normalize_pattern(text: str) -> str:
     the preference list and pushes older entries further from view."""
     text = re.sub(r"[^\w\s]", "", (text or "").lower())
     return re.sub(r"\s+", " ", text).strip()
-
-
-async def save_startups_batch(
-    items: list[dict],
-) -> tuple[list[str], list[str], list[str]]:
-    """Save many startups in parallel, skipping any that are already known (by normalized
-    name or slug) instead of silently re-saving/duplicating them. Returns (saved_slugs,
-    skipped_messages, errors)."""
-
-    try:
-        existing = await list_startups()
-    except Exception:
-        existing = []
-    existing_by_name = {_normalize_name(s["name"]): s for s in existing if s.get("name")}
-    existing_by_slug = {s["slug"]: s for s in existing if s.get("slug")}
-
-    async def _save_one(item: dict) -> tuple[str, str | None, str | None]:
-        slug = item["slug"]
-        match = existing_by_slug.get(slug) or existing_by_name.get(_normalize_name(item["name"]))
-        if match:
-            skip_msg = (
-                f"{item['name']}: already known as '{match['slug']}' "
-                f"(status: {match.get('status', 'new')}) — not re-saved"
-            )
-            return slug, skip_msg, None
-        try:
-            await save_startup(
-                slug=slug,
-                name=item["name"],
-                website=item.get("website", ""),
-                one_liner=item["one_liner"],
-                assessment=item["assessment"],
-                signal_urls=item.get("signal_urls") or [],
-            )
-            return slug, None, None
-        except Exception as e:
-            return slug, None, str(e)
-
-    results = await asyncio.gather(*[_save_one(item) for item in items])
-    saved = [slug for slug, skip, err in results if skip is None and err is None]
-    skipped = [skip for _, skip, _ in results if skip is not None]
-    errors = [f"{slug}: {err}" for slug, _, err in results if err is not None]
-    if saved:
-        await _bust_list_cache()
-    return saved, skipped, errors
-
-
-async def update_startup_statuses_batch(
-    updates: list[dict],
-) -> tuple[list[str], list[str]]:
-    """Update many startup statuses in parallel. Returns (updated_slugs, errors)."""
-
-    async def _update_one(update: dict) -> tuple[str, str | None]:
-        slug = update["slug"]
-        try:
-            msg = await update_startup_status(slug, update["status"])
-            if "not found" in msg.lower():
-                return slug, msg
-            if update.get("reason"):
-                pattern_type = "approved" if update["status"] == "approved" else "passed"
-                await write_preference(
-                    f"{update['status'].capitalize()} {slug}: {update['reason']}",
-                    pattern_type,
-                )
-            return slug, None
-        except Exception as e:
-            return slug, str(e)
-
-    results = await asyncio.gather(*[_update_one(u) for u in updates])
-    updated = [slug for slug, err in results if err is None]
-    errors = [f"{slug}: {err}" for slug, err in results if err is not None]
-    if updated:
-        await _bust_list_cache()
-    return updated, errors
 
 
 async def write_preferences_batch(items: list[dict]) -> tuple[int, list[str]]:
@@ -277,158 +158,6 @@ async def write_preferences_batch(items: list[dict]) -> tuple[int, list[str]]:
     results = await asyncio.gather(*[_write_one(item) for item in items])
     errors = [err for err in results if err is not None]
     return len(items) - len(errors), errors
-
-
-_LIST_CACHE_KEY = "sm:startups:list"
-
-
-async def list_startups() -> list[dict]:
-    """Return all startups from memory. Result is cached for 5 minutes."""
-    if _cache_mod:
-        cached = await _cache_mod.cache_get(_LIST_CACHE_KEY, _STARTUP_LIST_TTL)
-        if cached is not None:
-            return cached
-
-    docs = await asyncio.wait_for(
-        asyncio.to_thread(
-            lambda: get_client().documents.list(
-                container_tags=["vc:startups"],
-                limit=500,
-            )
-        ),
-        timeout=_SM_TIMEOUT,
-    )
-    out = []
-    for doc in getattr(docs, "memories", []):
-        meta = doc.metadata or {}
-        out.append({
-            "slug": getattr(doc, "custom_id", None) or "",
-            "name": meta.get("name", ""),
-            "website": meta.get("website", ""),
-            "status": meta.get("status", "new"),
-        })
-
-    if _cache_mod and out:
-        await _cache_mod.cache_set(_LIST_CACHE_KEY, out)
-    return out
-
-
-async def _bust_list_cache() -> None:
-    if _cache_mod:
-        await _cache_mod.cache_delete(_LIST_CACHE_KEY)
-
-
-async def known_startups_summary() -> str:
-    """Compact list of all saved startups with slug and status, injected into every
-    prompt as a soft dedup hint. Capped so this doesn't grow unbounded as dealflow
-    accumulates — safe to truncate because it's only a hint, not the dedup guarantee
-    itself: save_startups_batch always re-checks the full list server-side regardless
-    of what's in this text."""
-    try:
-        startups = await list_startups()
-    except Exception:
-        return "None yet."
-    if not startups:
-        return "None yet."
-    lines = "\n".join(
-        f"- {s['name']} (slug: {s['slug']}, status: {s['status']})"
-        for s in startups
-        if s["name"] or s["slug"]
-    )
-    return truncate_text(lines, 4000)
-
-
-def _sb_client():
-    try:
-        from supabase import create_client
-        url = os.environ.get("SUPABASE_URL", "")
-        key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_KEY") or ""
-        if url and key:
-            return create_client(url, key)
-    except Exception:
-        pass
-    return None
-
-
-async def update_startup_status(slug: str, status: str) -> str:
-    # Direct by-custom_id update — the API accepts custom_id as the path id, and merges
-    # metadata server-side rather than replacing it, so there's no need to fetch the
-    # existing doc first just to preserve its other metadata fields.
-    try:
-        await asyncio.wait_for(
-            asyncio.to_thread(
-                lambda: get_client().documents.update(slug, metadata={"status": status})
-            ),
-            timeout=_SM_TIMEOUT,
-        )
-    except NotFoundError:
-        return f"Startup {slug} not found in memory."
-
-    # Mirror immediately to Supabase so the dashboard reflects the change without
-    # waiting for the next scheduled sync.
-    try:
-        sb = _sb_client()
-        if sb:
-            updated_at = datetime.now(timezone.utc).isoformat()
-            await asyncio.wait_for(
-                asyncio.to_thread(
-                    lambda: sb.table("startups")
-                    .update({"status": status, "updated_at": updated_at})
-                    .eq("slug", slug)
-                    .execute()
-                ),
-                timeout=10.0,
-            )
-    except Exception as e:
-        print(f"Supabase status mirror failed for {slug}:", e)
-
-    return f"Updated {slug} to {status}"
-
-
-async def delete_startup(slug: str) -> str:
-    try:
-        await asyncio.wait_for(
-            asyncio.to_thread(get_client().documents.delete, slug),
-            timeout=_SM_TIMEOUT,
-        )
-    except NotFoundError:
-        return f"Startup {slug} not found in memory."
-
-    # Mirror immediately to Supabase so the dashboard stops showing it without
-    # waiting for the next scheduled sync.
-    try:
-        sb = _sb_client()
-        if sb:
-            await asyncio.wait_for(
-                asyncio.to_thread(
-                    lambda: sb.table("startups").delete().eq("slug", slug).execute()
-                ),
-                timeout=10.0,
-            )
-    except Exception as e:
-        print(f"Supabase delete mirror failed for {slug}:", e)
-
-    return f"Deleted {slug}"
-
-
-async def delete_startups_batch(slugs: list[str]) -> tuple[list[str], list[str]]:
-    """Delete many startups in parallel. Returns (deleted_slugs, errors)."""
-
-    async def _delete_one(slug: str) -> tuple[str, str | None]:
-        try:
-            msg = await delete_startup(slug)
-            if "not found" in msg.lower():
-                return slug, msg
-            return slug, None
-        except Exception as e:
-            return slug, str(e)
-
-    results = await asyncio.gather(*[_delete_one(s) for s in slugs])
-    deleted = [slug for slug, err in results if err is None]
-    errors = [f"{slug}: {err}" for slug, err in results if err is not None]
-    if deleted:
-        await _bust_list_cache()
-    return deleted, errors
 
 
 async def write_preference(pattern: str, pattern_type: str):

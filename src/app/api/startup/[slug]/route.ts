@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "../../../../lib/supabase";
-import { updateSupermemoryStartupStatus } from "../../../../lib/supermemory";
 
 export async function GET(
   _req: NextRequest,
@@ -26,33 +25,47 @@ export async function GET(
   return NextResponse.json(data);
 }
 
+const OUTREACH_CHANNEL_STATES = ["not_contacted", "contacted", "replied"];
+
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
 ) {
   const { slug } = await params;
-  const { status } = await req.json();
+  const body = await req.json();
+  const { status, stealth, linkedin_status, email_status } = body;
 
-  if (!["new", "approved", "passed"].includes(status)) {
-    return NextResponse.json({ error: "invalid status" }, { status: 400 });
+  const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
+
+  if (status !== undefined) {
+    if (!["new", "approved", "passed"].includes(status)) {
+      return NextResponse.json({ error: "invalid status" }, { status: 400 });
+    }
+    update.status = status;
+  }
+  if (stealth !== undefined) {
+    if (typeof stealth !== "boolean") {
+      return NextResponse.json({ error: "invalid stealth" }, { status: 400 });
+    }
+    update.stealth = stealth;
+  }
+  if (linkedin_status !== undefined) {
+    if (!OUTREACH_CHANNEL_STATES.includes(linkedin_status)) {
+      return NextResponse.json({ error: "invalid linkedin_status" }, { status: 400 });
+    }
+    update.linkedin_status = linkedin_status;
+  }
+  if (email_status !== undefined) {
+    if (!OUTREACH_CHANNEL_STATES.includes(email_status)) {
+      return NextResponse.json({ error: "invalid email_status" }, { status: 400 });
+    }
+    update.email_status = email_status;
   }
 
-  const { error } = await supabase
-    .from("startups")
-    .update({ status, updated_at: new Date().toISOString() })
-    .eq("slug", slug);
+  const { error } = await supabase.from("startups").update(update).eq("slug", slug);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-
-  // Also mirror into Supermemory so the agent's actual memory picks up the
-  // change — without this, the agent never learns about a quick status change,
-  // and the next periodic sync silently reverts it back to the old status.
-  try {
-    await updateSupermemoryStartupStatus(slug, status);
-  } catch (e) {
-    console.error("Supermemory status mirror failed:", e);
   }
 
   return NextResponse.json({ ok: true });
