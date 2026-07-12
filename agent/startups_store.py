@@ -44,6 +44,9 @@ async def _list_raw(columns: str = "slug, name, status") -> list[dict]:
     if sb is None:
         return []
     try:
+        # No .limit() set — relies on PostgREST's default max_rows (commonly 1000).
+        # Fine at current dealflow size; if this table ever grows past that, this
+        # (and known_startups_summary/find_startups below) will need pagination.
         res = await asyncio.wait_for(
             asyncio.to_thread(lambda: sb.table("startups").select(columns).execute()),
             timeout=_SB_TIMEOUT,
@@ -55,14 +58,34 @@ async def _list_raw(columns: str = "slug, name, status") -> list[dict]:
 
 
 async def known_startups_summary() -> str:
-    """Compact list of all saved startups with slug and status — injected into every
+    """Compact list of the most recently touched saved startups — injected into every
     prompt as a soft dedup hint, and what the list_known_startups tool returns on demand.
     Queried live (no cache): this is the same store writes land in, so there's no
-    staleness window to protect against. Capped so this doesn't grow unbounded as
-    dealflow accumulates — safe to truncate because it's only a hint, not the dedup
-    guarantee itself: save_startups_batch always re-checks the full list server-side
-    regardless of what's in this text."""
-    rows = await _list_raw("name, slug, status")
+    staleness window to protect against.
+
+    Capped and ordered by most-recently-updated first: at real dealflow size (hundreds
+    of rows) this can NOT show everything within a reasonable prompt budget, so it's
+    biased toward what's most likely to matter right now (a sweep just found something
+    that looks like it might already be tracked) rather than an arbitrary DB-order
+    slice. For "do we already know about X" on anything not in this list, use
+    find_startups — that's a live search over the full table, not subject to this cap."""
+    sb = _sb_client()
+    if sb is None:
+        return "None yet."
+    try:
+        res = await asyncio.wait_for(
+            asyncio.to_thread(
+                lambda: sb.table("startups")
+                .select("name, slug, status")
+                .order("updated_at", desc=True)
+                .execute()
+            ),
+            timeout=_SB_TIMEOUT,
+        )
+        rows = res.data or []
+    except Exception as e:
+        print("startups_store: failed to list startups:", e)
+        return "None yet."
     if not rows:
         return "None yet."
     lines = "\n".join(
@@ -70,7 +93,47 @@ async def known_startups_summary() -> str:
         for r in rows
         if r.get("name") or r.get("slug")
     )
-    return sm.truncate_text(lines, 4000)
+    total = len(rows)
+    truncated = sm.truncate_text(lines, 6000)
+    if truncated.endswith("…"):
+        truncated += f"\n[showing the most recently updated of {total} total — use find_startups to search the rest]"
+    return truncated
+
+
+async def find_startups(query: str, limit: int = 15) -> str:
+    """Live substring search over the full startups table (name or one-liner,
+    case-insensitive) — not subject to known_startups_summary's cap, so this is how
+    the agent finds something that isn't in the recently-updated slice it sees by
+    default. This is the actual fix for dealflow lookups silently missing rows once
+    there are more startups than fit in a prompt-sized summary."""
+    sb = _sb_client()
+    if sb is None:
+        return "[Supabase not configured]"
+    query = (query or "").strip()
+    if not query:
+        return "No query provided."
+    like = f"%{query}%"
+    try:
+        res = await asyncio.wait_for(
+            asyncio.to_thread(
+                lambda: sb.table("startups")
+                .select("name, slug, status, one_liner")
+                .or_(f"name.ilike.{like},one_liner.ilike.{like}")
+                .limit(limit)
+                .execute()
+            ),
+            timeout=_SB_TIMEOUT,
+        )
+        rows = res.data or []
+    except Exception as e:
+        return f"[search failed: {e}]"
+    if not rows:
+        return f"No startups matching '{query}'."
+    return "\n".join(
+        f"- {r.get('name', '')} (slug: {r.get('slug', '')}, status: {r.get('status', 'new')})"
+        f"{': ' + r['one_liner'] if r.get('one_liner') else ''}"
+        for r in rows
+    )
 
 
 async def save_startups_batch(

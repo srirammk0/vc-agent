@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { MessageCircle } from "lucide-react";
+import { MessageCircle, SlidersHorizontal } from "lucide-react";
 import type { Startup } from "../../lib/supabase";
 import { hasEnrichmentData } from "../../lib/enrichment";
 import { sortStartups } from "../../lib/sortStartups";
@@ -15,6 +15,21 @@ import StartupActions from "./StartupActions";
 import CommandPalette from "./CommandPalette";
 
 type Tab = "all" | "new" | "approved" | "passed";
+type ChannelFilter = "all" | "not_contacted" | "contacted" | "replied";
+type StealthFilter = "all" | "stealth" | "public";
+
+const CHANNEL_FILTER_OPTIONS: { value: ChannelFilter; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "not_contacted", label: "Not contacted" },
+  { value: "contacted", label: "Contacted" },
+  { value: "replied", label: "Replied" },
+];
+
+const STEALTH_FILTER_OPTIONS: { value: StealthFilter; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "public", label: "Not stealth" },
+  { value: "stealth", label: "Stealth" },
+];
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "all", label: "All" },
@@ -100,7 +115,19 @@ function HeroLoader() {
   );
 }
 
-type DashUiState = { tab: Tab; query: string; needsEmail: boolean };
+type DashUiState = {
+  tab: Tab;
+  query: string;
+  stealthFilter: StealthFilter;
+  linkedinFilter: ChannelFilter;
+  emailFilter: ChannelFilter;
+};
+
+const DEFAULT_FILTERS: Pick<DashUiState, "stealthFilter" | "linkedinFilter" | "emailFilter"> = {
+  stealthFilter: "all",
+  linkedinFilter: "all",
+  emailFilter: "all",
+};
 
 const DASH_UI_KEY = "dealflow-ui";
 
@@ -110,7 +137,17 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
   const savedUi = readSession<Partial<DashUiState>>(DASH_UI_KEY, {});
   const [tab, setTab] = useState<Tab>((savedUi.tab as Tab) ?? "all");
   const [query, setQuery] = useState(savedUi.query ?? "");
-  const [needsEmail, setNeedsEmail] = useState(savedUi.needsEmail ?? false);
+  const [stealthFilter, setStealthFilter] = useState<StealthFilter>(
+    savedUi.stealthFilter ?? DEFAULT_FILTERS.stealthFilter
+  );
+  const [linkedinFilter, setLinkedinFilter] = useState<ChannelFilter>(
+    savedUi.linkedinFilter ?? DEFAULT_FILTERS.linkedinFilter
+  );
+  const [emailFilter, setEmailFilter] = useState<ChannelFilter>(
+    savedUi.emailFilter ?? DEFAULT_FILTERS.emailFilter
+  );
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const filtersRef = useRef<HTMLDivElement>(null);
   const [booting, setBooting] = useState(() => !readSession<boolean>("dealflow-seen", false));
   const [isMac, setIsMac] = useState(true);
   const [selectedSlugs, setSelectedSlugs] = useState<Set<string>>(new Set());
@@ -154,8 +191,35 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
   }, []);
 
   useEffect(() => {
-    writeSession(DASH_UI_KEY, { tab, query, needsEmail });
-  }, [tab, query, needsEmail]);
+    writeSession(DASH_UI_KEY, { tab, query, stealthFilter, linkedinFilter, emailFilter });
+  }, [tab, query, stealthFilter, linkedinFilter, emailFilter]);
+
+  useEffect(() => {
+    if (!filtersOpen) return;
+    const onClick = (e: MouseEvent) => {
+      if (filtersRef.current && !filtersRef.current.contains(e.target as Node)) {
+        setFiltersOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, [filtersOpen]);
+
+  const activeFilterCount =
+    (stealthFilter !== "all" ? 1 : 0) +
+    (linkedinFilter !== "all" ? 1 : 0) +
+    (emailFilter !== "all" ? 1 : 0);
+
+  function applyNeedsEmailPreset() {
+    setStealthFilter("public");
+    setEmailFilter("not_contacted");
+  }
+
+  function clearFilters() {
+    setStealthFilter(DEFAULT_FILTERS.stealthFilter);
+    setLinkedinFilter(DEFAULT_FILTERS.linkedinFilter);
+    setEmailFilter(DEFAULT_FILTERS.emailFilter);
+  }
 
   const counts = useMemo(
     () => ({
@@ -171,7 +235,11 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
     const q = query.trim().toLowerCase();
     const rows = startups
       .filter((s) => (tab === "all" ? true : s.status === tab))
-      .filter((s) => (needsEmail ? !s.stealth && s.email_status === "not_contacted" : true))
+      .filter((s) =>
+        stealthFilter === "all" ? true : stealthFilter === "stealth" ? s.stealth : !s.stealth
+      )
+      .filter((s) => (linkedinFilter === "all" ? true : s.linkedin_status === linkedinFilter))
+      .filter((s) => (emailFilter === "all" ? true : s.email_status === emailFilter))
       .filter((s) =>
         q
           ? s.name.toLowerCase().includes(q) ||
@@ -180,7 +248,7 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
           : true
       );
     return sortStartups(rows);
-  }, [startups, tab, query, needsEmail]);
+  }, [startups, tab, query, stealthFilter, linkedinFilter, emailFilter]);
 
   const showLoader = booting;
 
@@ -281,28 +349,126 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
                 <path d="M16 16h5v5" />
               </svg>
             </button>
-            <button
-              onClick={() => setNeedsEmail((v) => !v)}
-              title="Approved, not stealth, not yet emailed"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                height: 32,
-                padding: "0 12px",
-                borderRadius: 6,
-                border: needsEmail ? "1px solid rgba(0,122,255,0.3)" : "1px solid var(--border)",
-                background: needsEmail ? "rgba(0,122,255,0.08)" : "rgba(255,255,255,0.7)",
-                color: needsEmail ? "var(--accent)" : "var(--label)",
-                fontSize: 12.5,
-                fontWeight: 500,
-                cursor: "pointer",
-                whiteSpace: "nowrap",
-                transition: "all 0.15s ease",
-              }}
-            >
-              Needs email
-            </button>
+            <div ref={filtersRef} style={{ position: "relative" }}>
+              <button
+                onClick={() => setFiltersOpen((v) => !v)}
+                title="Filter by outreach status"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  height: 32,
+                  padding: "0 12px",
+                  borderRadius: 6,
+                  border: activeFilterCount > 0 ? "1px solid rgba(0,122,255,0.3)" : "1px solid var(--border)",
+                  background: activeFilterCount > 0 ? "rgba(0,122,255,0.08)" : "rgba(255,255,255,0.7)",
+                  color: activeFilterCount > 0 ? "var(--accent)" : "var(--label)",
+                  fontSize: 12.5,
+                  fontWeight: 500,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                <SlidersHorizontal size={13} strokeWidth={2.2} />
+                Filters
+                {activeFilterCount > 0 && (
+                  <span
+                    style={{
+                      background: "var(--accent)",
+                      color: "#fff",
+                      fontSize: 10.5,
+                      fontWeight: 600,
+                      borderRadius: 999,
+                      minWidth: 15,
+                      height: 15,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      padding: "0 3px",
+                    }}
+                  >
+                    {activeFilterCount}
+                  </span>
+                )}
+              </button>
+
+              {filtersOpen && (
+                <div
+                  className="menu-pop animate-fade-in"
+                  style={{
+                    position: "absolute",
+                    right: 0,
+                    top: 38,
+                    width: 240,
+                    background: "var(--card-bg)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 8,
+                    boxShadow: "0 8px 24px rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.06)",
+                    padding: 12,
+                    zIndex: 50,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 12,
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={applyNeedsEmailPreset}
+                    style={{
+                      textAlign: "left",
+                      fontSize: 12.5,
+                      fontWeight: 500,
+                      color: "var(--accent)",
+                      background: "rgba(0,122,255,0.06)",
+                      border: "1px solid rgba(0,122,255,0.18)",
+                      borderRadius: 6,
+                      padding: "6px 9px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Needs email (not stealth, not yet emailed)
+                  </button>
+
+                  <FilterGroup
+                    label="Stealth"
+                    value={stealthFilter}
+                    options={STEALTH_FILTER_OPTIONS}
+                    onChange={setStealthFilter}
+                  />
+                  <FilterGroup
+                    label="LinkedIn"
+                    value={linkedinFilter}
+                    options={CHANNEL_FILTER_OPTIONS}
+                    onChange={setLinkedinFilter}
+                  />
+                  <FilterGroup
+                    label="Email"
+                    value={emailFilter}
+                    options={CHANNEL_FILTER_OPTIONS}
+                    onChange={setEmailFilter}
+                  />
+
+                  {activeFilterCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={clearFilters}
+                      style={{
+                        textAlign: "left",
+                        fontSize: 12,
+                        color: "var(--muted)",
+                        background: "transparent",
+                        border: "none",
+                        padding: "2px 0 0",
+                        cursor: "pointer",
+                      }}
+                    >
+                      Clear filters
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
             <SearchBar query={query} setQuery={setQuery} isMac={isMac} />
           </div>
         </div>
@@ -778,6 +944,60 @@ function CleanCheckbox({
           <path d="M1 4.5L4 7.5L10 1.5" />
         </svg>
       )}
+    </div>
+  );
+}
+
+function FilterGroup<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: { value: T; label: string }[];
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div>
+      <div
+        style={{
+          fontSize: 10.5,
+          color: "var(--muted)",
+          textTransform: "uppercase",
+          letterSpacing: "0.08em",
+          fontWeight: 500,
+          marginBottom: 6,
+        }}
+      >
+        {label}
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+        {options.map((opt) => {
+          const active = opt.value === value;
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => onChange(opt.value)}
+              style={{
+                fontSize: 11.5,
+                fontWeight: 500,
+                padding: "4px 9px",
+                borderRadius: 999,
+                border: active ? "1px solid rgba(0,122,255,0.3)" : "1px solid var(--border)",
+                background: active ? "rgba(0,122,255,0.08)" : "transparent",
+                color: active ? "var(--accent)" : "var(--label)",
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
