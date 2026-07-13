@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
-import { useEnrichmentPoll } from "../hooks/useEnrichmentPoll";
+import { useEffect, useRef, useState } from "react";
 import { showEnrichButton } from "../../lib/enrichment";
-import type { Founder } from "../../lib/supabase";
+import { queueWrite } from "../../lib/writeQueue";
+import type { Founder, Startup } from "../../lib/supabase";
 
 type Status = "new" | "approved" | "passed";
 type ChannelStatus = "not_contacted" | "contacted" | "replied";
@@ -19,6 +18,7 @@ type Props = {
   stealth: boolean;
   linkedinStatus: ChannelStatus;
   emailStatus: ChannelStatus;
+  onUpdate: (partial: Partial<Startup>) => void;
 };
 
 const MENU_ITEMS: { value: Status; label: string; accent: string }[] = [
@@ -49,16 +49,13 @@ export default function StartupActions({
   stealth,
   linkedinStatus,
   emailStatus,
+  onUpdate,
 }: Props) {
-  const router = useRouter();
-  const [isPending, startTransition] = useTransition();
   const [busy, setBusy] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [feedbackFor, setFeedbackFor] = useState<Status | null>(null);
   const [feedback, setFeedback] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
-
-  useEnrichmentPoll(slug, enrichmentStatus);
 
   function closeMenu() {
     setMenuOpen(false);
@@ -104,33 +101,58 @@ export default function StartupActions({
 
   async function setStatusQuick(next: Status) {
     closeMenu();
+    const prevStatus = status;
+    onUpdate({ status: next });
     setBusy(next);
-    await fetch(`/api/startup/${slug}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: next }),
-    });
+    try {
+      await queueWrite(slug, async () => {
+        const res = await fetch(`/api/startup/${slug}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: next }),
+        });
+        if (!res.ok) throw new Error("status update failed");
+      });
+    } catch (e) {
+      console.error(e);
+      onUpdate({ status: prevStatus });
+    }
     setBusy(null);
-    startTransition(() => router.refresh());
   }
 
-  async function patchOutreach(body: Record<string, unknown>, busyKey: string) {
+  async function patchOutreach(
+    body: Record<string, unknown>,
+    busyKey: string,
+    revert: Partial<Startup>
+  ) {
+    onUpdate(body as Partial<Startup>);
     setBusy(busyKey);
-    await fetch(`/api/startup/${slug}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    try {
+      await queueWrite(slug, async () => {
+        const res = await fetch(`/api/startup/${slug}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) throw new Error("outreach update failed");
+      });
+    } catch (e) {
+      console.error(e);
+      onUpdate(revert);
+    }
     setBusy(null);
-    startTransition(() => router.refresh());
   }
 
   function toggleStealth() {
-    patchOutreach({ stealth: !stealth }, "stealth");
+    patchOutreach({ stealth: !stealth }, "stealth", { stealth });
   }
 
   function cycleChannel(channel: "linkedin_status" | "email_status", current: ChannelStatus) {
-    patchOutreach({ [channel]: NEXT_CHANNEL_STATUS[current] }, channel);
+    patchOutreach(
+      { [channel]: NEXT_CHANNEL_STATUS[current] },
+      channel,
+      { [channel]: current }
+    );
   }
 
   function openFeedback(next: Status) {
@@ -154,34 +176,47 @@ export default function StartupActions({
 
   async function sendFeedback() {
     if (!feedbackFor || !feedback.trim()) return;
-    setBusy("feedback");
-    await fetch("/api/feedback", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        slug,
-        name,
-        status: feedbackFor,
-        message: feedback.trim(),
-      }),
-    });
-    setBusy(null);
+    const prevStatus = status;
+    const next = feedbackFor;
+    const message = feedback.trim();
+    onUpdate({ status: next });
     closeMenu();
-    startTransition(() => router.refresh());
+    try {
+      await queueWrite(slug, async () => {
+        const res = await fetch("/api/feedback", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ slug, name, status: next, message }),
+        });
+        if (!res.ok) throw new Error("feedback failed");
+      });
+    } catch (e) {
+      console.error(e);
+      onUpdate({ status: prevStatus });
+    }
   }
 
   async function enrich() {
+    const prevEnrichmentStatus = enrichmentStatus;
+    onUpdate({ enrichment_status: "running" });
     setBusy("enrich");
-    await fetch(`/api/enrich`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ slug, name }),
-    });
+    try {
+      await queueWrite(slug, async () => {
+        const res = await fetch(`/api/enrich`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ slug, name }),
+        });
+        if (!res.ok) throw new Error("enrich failed");
+      });
+    } catch (e) {
+      console.error(e);
+      onUpdate({ enrichment_status: prevEnrichmentStatus });
+    }
     setBusy(null);
-    startTransition(() => router.refresh());
   }
 
-  const disabled = isPending || busy !== null;
+  const disabled = busy !== null;
   const menuRaised = menuOpen;
 
   return (

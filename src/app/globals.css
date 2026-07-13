@@ -93,6 +93,11 @@ body {
   100% { background-position:  400px 0; }
 }
 
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+
 /* ── Animation classes ─────────────────────────────── */
 
 .animate-fade-up {
@@ -109,6 +114,10 @@ body {
 
 .row-enter {
   animation: fadeUp 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-slide-in-right {
+  animation: slideInRight 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 /* ── Skeleton ──────────────────────────────────────── */

@@ -43,6 +43,14 @@ export function useLiveStartups(initial: Startup[]) {
     setStartups(sortStartups(Array.from(mapRef.current.values())));
   }
 
+  /** Optimistically patch a row in local state, ahead of the network write. */
+  function updateLocal(slug: string, partial: Partial<Startup>) {
+    const existing = mapRef.current.get(slug);
+    if (!existing) return;
+    mapRef.current.set(slug, { ...existing, ...partial });
+    commit();
+  }
+
   useEffect(() => {
     const client = getBrowserClient();
 
@@ -96,5 +104,5 @@ export function useLiveStartups(initial: Startup[]) {
     };
   }, []);
 
-  return { startups, mode, refresh, refreshing };
+  return { startups, mode, refresh, refreshing, updateLocal };
 }

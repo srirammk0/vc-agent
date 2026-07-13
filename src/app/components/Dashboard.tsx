@@ -2,16 +2,17 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { MessageCircle, SlidersHorizontal } from "lucide-react";
 import type { Startup } from "../../lib/supabase";
 import { hasEnrichmentData } from "../../lib/enrichment";
 import { sortStartups } from "../../lib/sortStartups";
 import { readSession, writeSession } from "../../lib/persistedState";
+import { queueWrite } from "../../lib/writeQueue";
 import { useLiveStartups } from "../hooks/useLiveStartups";
 import StatusBadge from "./StatusBadge";
 import OutreachBadges from "./OutreachBadges";
 import StartupActions from "./StartupActions";
+import StartupPanel from "./StartupPanel";
 import CommandPalette from "./CommandPalette";
 
 type Tab = "all" | "new" | "approved" | "passed";
@@ -132,8 +133,12 @@ const DEFAULT_FILTERS: Pick<DashUiState, "stealthFilter" | "linkedinFilter" | "e
 const DASH_UI_KEY = "dealflow-ui";
 
 export default function Dashboard({ initial }: { initial: Startup[] }) {
-  const router = useRouter();
-  const { startups, refresh: refreshStartups, refreshing: refreshingStartups } = useLiveStartups(initial);
+  const {
+    startups,
+    refresh: refreshStartups,
+    refreshing: refreshingStartups,
+    updateLocal,
+  } = useLiveStartups(initial);
   const savedUi = readSession<Partial<DashUiState>>(DASH_UI_KEY, {});
   const [tab, setTab] = useState<Tab>((savedUi.tab as Tab) ?? "all");
   const [query, setQuery] = useState(savedUi.query ?? "");
@@ -152,23 +157,31 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
   const [isMac, setIsMac] = useState(true);
   const [selectedSlugs, setSelectedSlugs] = useState<Set<string>>(new Set());
   const [batchBusy, setBatchBusy] = useState<string | null>(null);
+  const [panelSlug, setPanelSlug] = useState<string | null>(null);
 
   async function handleBatchStatus(status: "new" | "approved" | "passed") {
     if (selectedSlugs.size === 0) return;
+    const slugs = Array.from(selectedSlugs);
+    const prevStatuses = new Map(
+      slugs.map((slug) => [slug, startups.find((s) => s.slug === slug)?.status])
+    );
+    slugs.forEach((slug) => updateLocal(slug, { status }));
+    setSelectedSlugs(new Set());
     setBatchBusy(status);
     try {
-      await fetch("/api/startups", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          slugs: Array.from(selectedSlugs),
-          status,
-        }),
+      await queueWrite("batch", async () => {
+        const res = await fetch("/api/startups", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ slugs, status }),
+        });
+        if (!res.ok) throw new Error("batch update failed");
       });
-      setSelectedSlugs(new Set());
-      await refreshStartups();
     } catch (e) {
       console.error("Batch update failed:", e);
+      prevStatuses.forEach((prevStatus, slug) => {
+        if (prevStatus) updateLocal(slug, { status: prevStatus });
+      });
     }
     setBatchBusy(null);
   }
@@ -251,11 +264,19 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
   }, [startups, tab, query, stealthFilter, linkedinFilter, emailFilter]);
 
   const showLoader = booting;
+  const panelStartup = panelSlug ? startups.find((s) => s.slug === panelSlug) ?? null : null;
 
   return (
     <main style={{ minHeight: "100vh", background: "var(--page-bg)", color: "var(--body)" }}>
       {showLoader && <HeroLoader />}
       <CommandPalette startups={startups} />
+      {panelStartup && (
+        <StartupPanel
+          startup={panelStartup}
+          onClose={() => setPanelSlug(null)}
+          onUpdate={(partial) => updateLocal(panelStartup.slug, partial)}
+        />
+      )}
 
       <div style={{ maxWidth: 860, margin: "0 auto", padding: "40px 24px 60px" }}>
         {/* Page header */}
@@ -581,7 +602,7 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
                   onClick={(e) => {
                     const target = e.target as HTMLElement;
                     if (target.closest("a, button, input, label, [data-no-nav]")) return;
-                    router.push(`/startups/${s.slug}`);
+                    setPanelSlug(s.slug);
                   }}
                   style={{
                     animationDelay: `${Math.min(i * 22, 280)}ms`,
@@ -634,6 +655,11 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
                       >
                         <Link
                           href={`/startups/${s.slug}`}
+                          onClick={(e) => {
+                            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                            e.preventDefault();
+                            setPanelSlug(s.slug);
+                          }}
                           style={{
                             fontSize: 15,
                             fontWeight: 600,
@@ -722,6 +748,7 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
                         stealth={s.stealth}
                         linkedinStatus={s.linkedin_status}
                         emailStatus={s.email_status}
+                        onUpdate={(partial) => updateLocal(s.slug, partial)}
                       />
                     </div>
                   </div>

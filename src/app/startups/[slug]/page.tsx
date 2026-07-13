@@ -1,9 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { supabase, type Startup } from "../../../lib/supabase";
-import StatusBadge from "../../components/StatusBadge";
-import OutreachBadges from "../../components/OutreachBadges";
-import StartupActions from "../../components/StartupActions";
+import StartupHeaderActions from "../../components/StartupHeaderActions";
 import EnrichmentSection from "../../components/EnrichmentSection";
 import StartupEmbeds from "../../components/StartupEmbeds";
 
@@ -48,79 +46,21 @@ export default async function StartupDetail({
           </Link>
 
           {/* Name row */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "flex-start",
-              justifyContent: "space-between",
-              gap: 16,
+          <StartupHeaderActions
+            startup={{
+              slug: s.slug,
+              name: s.name,
+              status: s.status,
+              enrichment_status: s.enrichment_status,
+              company_description: s.company_description,
+              founders: s.founders,
+              stealth: s.stealth,
+              linkedin_status: s.linkedin_status,
+              email_status: s.email_status,
             }}
-          >
-            <div style={{ minWidth: 0 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
-                <h1
-                  style={{
-                    fontSize: 26,
-                    fontWeight: 700,
-                    margin: 0,
-                    color: "var(--heading)",
-                    letterSpacing: "-0.03em",
-                    lineHeight: 1.15,
-                  }}
-                >
-                  {s.name}
-                </h1>
-                <StatusBadge status={s.status} />
-                <OutreachBadges
-                  stealth={s.stealth}
-                  linkedinStatus={s.linkedin_status}
-                  emailStatus={s.email_status}
-                />
-              </div>
-              {s.one_liner && (
-                <p
-                  style={{
-                    fontSize: 14,
-                    color: "var(--label)",
-                    margin: "0 0 6px",
-                    lineHeight: 1.5,
-                  }}
-                >
-                  {s.one_liner}
-                </p>
-              )}
-              {s.website && (
-                <a
-                  href={s.website.startsWith("http://") || s.website.startsWith("https://") || s.website.startsWith("//") ? s.website : `https://${s.website}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  style={{
-                    fontSize: 12.5,
-                    color: "var(--accent)",
-                    textDecoration: "none",
-                    opacity: 0.8,
-                  }}
-                >
-                  {s.website.replace(/^https?:\/\//, "")}
-                </a>
-              )}
-            </div>
-
-            {/* Actions */}
-            <div style={{ flexShrink: 0, position: "relative", zIndex: 20 }}>
-              <StartupActions
-                slug={s.slug}
-                name={s.name}
-                status={s.status}
-                enrichmentStatus={s.enrichment_status}
-                companyDescription={s.company_description}
-                founders={s.founders}
-                stealth={s.stealth}
-                linkedinStatus={s.linkedin_status}
-                emailStatus={s.email_status}
-              />
-            </div>
-          </div>
+            oneLiner={s.one_liner}
+            website={s.website}
+          />
         </div>
 
         <StartupEmbeds website={s.website} />

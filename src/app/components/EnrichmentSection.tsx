@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import type { Founder, Startup } from "../../lib/supabase";
 import { hasEnrichmentData } from "../../lib/enrichment";
 import { getBrowserClient } from "../../lib/supabaseBrowser";
@@ -30,7 +29,6 @@ const META_FIELDS: { key: keyof EnrichmentFields; label: string }[] = [
 ];
 
 export default function EnrichmentSection({ startup }: Props) {
-  const router = useRouter();
   const [data, setData] = useState(startup);
 
   useEffect(() => { setData(startup); }, [startup]);
@@ -59,13 +57,12 @@ export default function EnrichmentSection({ startup }: Props) {
         const json = await res.json();
         if (json.enrichment_status !== "running") {
           setData((prev) => ({ ...prev, ...json }));
-          router.refresh();
         }
       } catch { /* ignore */ }
     };
     const id = setInterval(poll, 2000);
     return () => clearInterval(id);
-  }, [data.slug, data.enrichment_status, router]);
+  }, [data.slug, data.enrichment_status]);
 
   const founders = (data.founders ?? []) as Founder[];
   const enriched = hasEnrichmentData(data);
