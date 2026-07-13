@@ -13,7 +13,6 @@ const TOOL_LABELS: Record<string, string> = {
   find_startups: "Looking up a startup",
   query_startups: "Scanning dealflow",
   save_startups: "Updating dealflow",
-  update_startup_statuses: "Updating dealflow",
   delete_startups: "Updating dealflow",
   write_preferences: "Saving a preference",
   list_preferences: "Looking up preferences",

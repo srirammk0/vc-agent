@@ -2,10 +2,13 @@
 
 This replaces the old Supermemory-backed dealflow functions in memory_store.py.
 Supermemory is no longer touched for startups at all; it's still used (via
-memory_store.py) for the investment thesis, learned preferences, and
-reflections, which this module calls into only for the preference side-effect
-on update_startup_statuses_batch (an approve/pass with a reason still teaches
-a reusable pattern).
+memory_store.py) for the investment thesis, learned preferences, and reflections.
+
+The agent can only ever add startups (always status="new") or delete them — it has
+no tool to change status. Approve/pass now happens exclusively on the dashboard
+(src/app/api/startup/[slug]/route.ts and src/app/api/startups/route.ts write status
+directly, no agent involvement), a deliberate decision so a chat message can never
+be mistaken for a status-change instruction.
 
 No caching layer here (unlike the old 5-minute Supermemory list cache) —
 reads and writes now hit the same store, so a cache would just reintroduce
@@ -30,6 +33,14 @@ def _sb_client():
     if not url or not key:
         return None
     return create_client(url, key)
+
+
+def _looks_stealth(name: str) -> bool:
+    """Auto-flag a startup as stealth if its name literally says so (e.g. "Acme Stealth
+    AI", "Jane Doe Stealth Health") — a common pattern for signals sourced before a
+    company has a real public name. Only sets stealth=True on save; never unsets it,
+    so a boss manually un-marking one on the dashboard later isn't fought by this."""
+    return "stealth" in (name or "").lower()
 
 
 def _normalize_name(name: str) -> str:
@@ -228,6 +239,7 @@ async def save_startups_batch(
             "assessment": item["assessment"],
             "signal_urls": item.get("signal_urls") or [],
             "status": "new",
+            "stealth": _looks_stealth(item["name"]),
             "found_date": now.strftime("%Y-%m-%d"),
             "updated_at": now.isoformat(),
         })
@@ -247,45 +259,6 @@ async def save_startups_batch(
         return [r["slug"] for r in to_insert], skipped, []
     except Exception as e:
         return [], skipped, [f"{r['slug']}: {e}" for r in to_insert]
-
-
-async def update_startup_statuses_batch(
-    updates: list[dict],
-) -> tuple[list[str], list[str]]:
-    """Update many startup statuses in parallel, direct Supabase writes. When a reason
-    is given, also writes a learned preference to Supermemory (unchanged behavior —
-    preferences stay in Supermemory, only the status write itself moved to Supabase).
-    Returns (updated_slugs, errors)."""
-    sb = _sb_client()
-    if sb is None:
-        return [], [f"{u['slug']}: Supabase not configured" for u in updates]
-
-    async def _update_one(u: dict) -> tuple[str, str | None]:
-        slug = u["slug"]
-        status = u["status"]
-        try:
-            res = await asyncio.wait_for(
-                asyncio.to_thread(
-                    lambda: sb.table("startups")
-                    .update({"status": status, "updated_at": datetime.now(timezone.utc).isoformat()})
-                    .eq("slug", slug)
-                    .execute()
-                ),
-                timeout=_SB_TIMEOUT,
-            )
-            if not res.data:
-                return slug, "not found"
-            if u.get("reason"):
-                pattern_type = "approved" if status == "approved" else "passed"
-                await sm.write_preference(f"{status.capitalize()} {slug}: {u['reason']}", pattern_type)
-            return slug, None
-        except Exception as e:
-            return slug, str(e)
-
-    results = await asyncio.gather(*[_update_one(u) for u in updates])
-    updated = [slug for slug, err in results if err is None]
-    errors = [f"{slug}: {err}" for slug, err in results if err is not None]
-    return updated, errors
 
 
 async def delete_startups_batch(slugs: list[str]) -> tuple[list[str], list[str]]:
