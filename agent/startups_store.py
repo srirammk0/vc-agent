@@ -50,28 +50,46 @@ def _normalize_name(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", (name or "").lower())
 
 
+_LIST_PAGE_SIZE = 1000  # PostgREST's own default max_rows — page in chunks of this
+# size so a table larger than one page still gets read in full, instead of the old
+# unpaginated .select() silently truncating at the first ~1000 rows with no signal
+# that it had. This is what makes save_startups_batch's dedup and crosscheck_startups
+# below actually cover the FULL table, not just however much fit in one response.
+
+
 async def _list_raw(columns: str = "slug, name, status") -> list[dict]:
+    """Raises on failure instead of swallowing it — callers that need a real answer
+    (crosscheck_startups) must be able to tell "the table has zero matches" apart
+    from "the fetch failed partway through," since silently treating a failed fetch
+    as an empty table would make every candidate look confirmed-new and duplicate
+    saves would sail right through."""
     sb = _sb_client()
     if sb is None:
-        return []
-    try:
-        # No .limit() set — relies on PostgREST's default max_rows (commonly 1000).
-        # Fine at current dealflow size; if this table ever grows past that, this
-        # (and known_startups_summary/find_startups below) will need pagination.
+        raise RuntimeError("Supabase not configured")
+    rows: list[dict] = []
+    offset = 0
+    while True:
         res = await asyncio.wait_for(
-            asyncio.to_thread(lambda: sb.table("startups").select(columns).execute()),
+            asyncio.to_thread(
+                lambda offset=offset: sb.table("startups")
+                .select(columns)
+                .range(offset, offset + _LIST_PAGE_SIZE - 1)
+                .execute()
+            ),
             timeout=_SB_TIMEOUT,
         )
-        return res.data or []
-    except Exception as e:
-        print("startups_store: failed to list startups:", e)
-        return []
+        page = res.data or []
+        rows.extend(page)
+        if len(page) < _LIST_PAGE_SIZE:
+            break
+        offset += _LIST_PAGE_SIZE
+    return rows
 
 
 async def known_startups_summary() -> str:
     """Compact list of the most recently touched saved startups — injected into every
     prompt as a soft dedup hint and general sense of what's fresh. Not a tool itself
-    (no on-demand equivalent — find_startups/query_startups cover live lookups).
+    (no on-demand equivalent — crosscheck_startups/query_startups cover live lookups).
     Queried live (no cache): this is the same store writes land in, so there's no
     staleness window to protect against.
 
@@ -79,9 +97,10 @@ async def known_startups_summary() -> str:
     of rows) this can NOT show everything within a reasonable prompt budget, so it's
     biased toward what's most likely to matter right now (a sweep just found something
     that looks like it might already be tracked) rather than an arbitrary DB-order
-    slice. For "do we already know about X" on anything not in this list, use
-    find_startups (one name) or query_startups (a whole matching set) — both are live
-    searches over the full table, not subject to this cap."""
+    slice. This is a hint, never proof of absence — for "do we already know about X"
+    (on one name or a whole batch of sourced candidates), use crosscheck_startups,
+    which checks the FULL table with an exact normalized-name match, not this capped
+    slice and not a fuzzy text search."""
     sb = _sb_client()
     if sb is None:
         return "None yet."
@@ -109,44 +128,50 @@ async def known_startups_summary() -> str:
     total = len(rows)
     truncated = sm.truncate_text(lines, 6000)
     if truncated.endswith("…"):
-        truncated += f"\n[showing the most recently updated of {total} total — use find_startups to search the rest]"
+        truncated += f"\n[showing the most recently updated of {total} total — use crosscheck_startups to check the rest]"
     return truncated
 
 
-async def find_startups(query: str, limit: int = 15) -> str:
-    """Live substring search over the full startups table (name or one-liner,
-    case-insensitive) — not subject to known_startups_summary's cap, so this is how
-    the agent finds something that isn't in the recently-updated slice it sees by
-    default. This is the actual fix for dealflow lookups silently missing rows once
-    there are more startups than fit in a prompt-sized summary."""
+async def crosscheck_startups(names: list[str]) -> str:
+    """Batch existence check across the FULL startups table — one call, any number of
+    candidate names. Replaces the old find_startups substring search, which matched
+    loosely against BOTH name and one_liner text: a candidate whose name merely
+    shared a word with some unrelated startup's one-liner would come back as a "hit,"
+    which is exactly how the agent ended up convinced brand-new companies were
+    already tracked. This uses the same normalized-name comparison (lowercased,
+    punctuation/spacing stripped) that save_startups_batch itself uses to decide
+    what to skip — so a "not found" here is a real guarantee, not a fuzzy guess, and
+    always agrees with what save_startups will actually do with that name.
+
+    Pass every candidate in ONE call (a one-element list is fine for a single name)
+    — never loop calling this once per name."""
+    names = [n.strip() for n in (names or []) if n and n.strip()]
+    if not names:
+        return "No names provided."
     sb = _sb_client()
     if sb is None:
         return "[Supabase not configured]"
-    query = (query or "").strip()
-    if not query:
-        return "No query provided."
-    like = f"%{query}%"
     try:
-        res = await asyncio.wait_for(
-            asyncio.to_thread(
-                lambda: sb.table("startups")
-                .select("name, slug, status, one_liner")
-                .or_(f"name.ilike.{like},one_liner.ilike.{like}")
-                .limit(limit)
-                .execute()
-            ),
-            timeout=_SB_TIMEOUT,
-        )
-        rows = res.data or []
+        existing = await _list_raw("slug, name, status")
     except Exception as e:
-        return f"[search failed: {e}]"
-    if not rows:
-        return f"No startups matching '{query}'."
-    return "\n".join(
-        f"- {r.get('name', '')} (slug: {r.get('slug', '')}, status: {r.get('status', 'new')})"
-        f"{': ' + r['one_liner'] if r.get('one_liner') else ''}"
-        for r in rows
-    )
+        return f"[crosscheck failed: {e}]"
+
+    existing_by_name: dict[str, dict] = {}
+    for r in existing:
+        if r.get("name"):
+            existing_by_name.setdefault(_normalize_name(r["name"]), r)
+
+    lines = []
+    for name in names:
+        match = existing_by_name.get(_normalize_name(name))
+        if match:
+            lines.append(
+                f"- {name}: ALREADY IN DEALFLOW as '{match['slug']}' "
+                f"(status: {match.get('status', 'new')}) — do not save this one"
+            )
+        else:
+            lines.append(f"- {name}: not found — confirmed new, safe to save")
+    return "\n".join(lines)
 
 
 _QUERY_PAGE_MAX = 100  # hard cap per call so one tool result can't blow up context
@@ -214,8 +239,15 @@ async def save_startups_batch(
 ) -> tuple[list[str], list[str], list[str]]:
     """Save many startups in one batched insert, skipping any already known (by
     normalized name or slug) instead of silently re-saving/duplicating them.
-    Returns (saved_slugs, skipped_messages, errors)."""
-    existing = await _list_raw("slug, name, status")
+    Returns (saved_slugs, skipped_messages, errors).
+
+    Fails closed if the existing-startups listing itself fails: better to save
+    nothing and report the error than to silently insert with no dedup check
+    (which used to be exactly what happened on a listing hiccup)."""
+    try:
+        existing = await _list_raw("slug, name, status")
+    except Exception as e:
+        return [], [], [f"{item['name']}: dedup check failed, nothing saved ({e})" for item in items]
     existing_by_name = {_normalize_name(r["name"]): r for r in existing if r.get("name")}
     existing_by_slug = {r["slug"]: r for r in existing if r.get("slug")}
 
