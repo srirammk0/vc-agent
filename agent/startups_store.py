@@ -59,7 +59,8 @@ async def _list_raw(columns: str = "slug, name, status") -> list[dict]:
 
 async def known_startups_summary() -> str:
     """Compact list of the most recently touched saved startups — injected into every
-    prompt as a soft dedup hint, and what the list_known_startups tool returns on demand.
+    prompt as a soft dedup hint and general sense of what's fresh. Not a tool itself
+    (no on-demand equivalent — find_startups/query_startups cover live lookups).
     Queried live (no cache): this is the same store writes land in, so there's no
     staleness window to protect against.
 
@@ -68,7 +69,8 @@ async def known_startups_summary() -> str:
     biased toward what's most likely to matter right now (a sweep just found something
     that looks like it might already be tracked) rather than an arbitrary DB-order
     slice. For "do we already know about X" on anything not in this list, use
-    find_startups — that's a live search over the full table, not subject to this cap."""
+    find_startups (one name) or query_startups (a whole matching set) — both are live
+    searches over the full table, not subject to this cap."""
     sb = _sb_client()
     if sb is None:
         return "None yet."
@@ -134,6 +136,66 @@ async def find_startups(query: str, limit: int = 15) -> str:
         f"{': ' + r['one_liner'] if r.get('one_liner') else ''}"
         for r in rows
     )
+
+
+_QUERY_PAGE_MAX = 100  # hard cap per call so one tool result can't blow up context
+
+
+async def query_startups(
+    status: str | None = None,
+    stealth: bool | None = None,
+    linkedin_status: str | None = None,
+    email_status: str | None = None,
+    offset: int = 0,
+    limit: int = 40,
+) -> str:
+    """Structured, paginated scan over the full startups table — how to enumerate
+    dealflow matching real criteria ("every approved non-stealth startup not yet
+    emailed") without ever pulling the whole table into one tool call. Returns up to
+    `limit` rows starting at `offset`, ordered by most-recently-updated, plus how many
+    total rows matched. If more remain, the caller (the model) is expected to call
+    this again with offset advanced by the number of rows just returned — repeat
+    until the running total covers every match, not just the first page, whenever the
+    boss actually wants the full list rather than a sample."""
+    sb = _sb_client()
+    if sb is None:
+        return "[Supabase not configured]"
+    limit = max(1, min(limit, _QUERY_PAGE_MAX))
+    offset = max(0, offset)
+    try:
+        q = sb.table("startups").select(
+            "name, slug, status, stealth, linkedin_status, email_status",
+            count="exact",
+        )
+        if status is not None:
+            q = q.eq("status", status)
+        if stealth is not None:
+            q = q.eq("stealth", stealth)
+        if linkedin_status is not None:
+            q = q.eq("linkedin_status", linkedin_status)
+        if email_status is not None:
+            q = q.eq("email_status", email_status)
+        q = q.order("updated_at", desc=True).range(offset, offset + limit - 1)
+        res = await asyncio.wait_for(asyncio.to_thread(lambda: q.execute()), timeout=_SB_TIMEOUT)
+        rows = res.data or []
+        total = res.count if res.count is not None else len(rows)
+    except Exception as e:
+        return f"[query failed: {e}]"
+
+    if not rows:
+        return "No matches." if offset == 0 else "No more matches at this offset."
+
+    lines = "\n".join(
+        f"- {r.get('name', '')} (slug: {r.get('slug', '')}, status: {r.get('status', 'new')}, "
+        f"stealth: {r.get('stealth')}, linkedin: {r.get('linkedin_status')}, email: {r.get('email_status')})"
+        for r in rows
+    )
+    next_offset = offset + len(rows)
+    remaining = total - next_offset
+    footer = f"\n[{next_offset}/{total} matched shown]"
+    if remaining > 0:
+        footer = f"\n[{next_offset}/{total} matched shown — {remaining} more, call again with offset={next_offset} to continue]"
+    return lines + footer
 
 
 async def save_startups_batch(
