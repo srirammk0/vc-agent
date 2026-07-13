@@ -43,29 +43,39 @@ function formatWhen(ts: number): string {
 export default function AgentChat() {
   const [store, setStore] = useState<ChatStore | null>(null);
   const [input, setInput] = useState("");
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Per-thread, not global — lets you send in one conversation while another
+  // is still streaming a reply in the background.
+  const [sendingThreads, setSendingThreads] = useState<Set<string>>(new Set());
+  const [errors, setErrors] = useState<Map<string, string>>(new Map());
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [streamTick, setStreamTick] = useState(0);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const pinBottomRef = useRef(false);
   const switchingRef = useRef(false);
-  const abortControllerRef = useRef<AbortController | null>(null);
-
-  function stop() {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-  }
+  const abortControllersRef = useRef<Map<string, AbortController>>(new Map());
 
   const active = store ? getActiveThread(store) : null;
   const messages = active?.messages ?? [];
+  const sending = active ? sendingThreads.has(active.id) : false;
+  const error = active ? errors.get(active.id) ?? null : null;
+
+  function stop() {
+    if (!active) return;
+    abortControllersRef.current.get(active.id)?.abort();
+  }
 
   const { ref: scrollerRef, saveNow, scrollToBottom, restoreSaved } = useScrollMemory(
     active?.id ?? "none",
     [messages.length, sending, active?.id, streamTick],
     { shouldPinBottom: pinBottomRef.current, enabled: Boolean(active) }
   );
+
+  // Always-current mirror of the visible thread id, for background streams
+  // (from a different, non-visible thread) to check before touching scroll.
+  const activeIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    activeIdRef.current = active?.id ?? null;
+  }, [active?.id]);
 
   useEffect(() => {
     setStore(loadChatStore());
@@ -80,9 +90,16 @@ export default function AgentChat() {
     return () => window.removeEventListener("keydown", onKey);
   }, [drawerOpen]);
 
-  const commit = useCallback((next: ChatStore) => {
-    setStore(next);
-    saveChatStore(next);
+  // Applies against the freshest store, not a render-time snapshot — required
+  // because a background thread's flush() can update the store concurrently
+  // with a foreground action (send/switch/delete) on a different thread.
+  const commit = useCallback((updater: ChatStore | ((prev: ChatStore) => ChatStore)) => {
+    setStore((prev) => {
+      if (!prev) return prev;
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      saveChatStore(next);
+      return next;
+    });
   }, []);
 
   function handleNewChat() {
@@ -90,10 +107,8 @@ export default function AgentChat() {
     saveNow();
     pinBottomRef.current = false;
     switchingRef.current = true;
-    const next = createThread(store);
-    commit(next);
+    commit(createThread);
     setInput("");
-    setError(null);
     setDrawerOpen(false);
     requestAnimationFrame(() => inputRef.current?.focus());
   }
@@ -104,13 +119,17 @@ export default function AgentChat() {
       return;
     }
     saveNow();
-    pinBottomRef.current = false;
+    const enteringLive = sendingThreads.has(id);
+    pinBottomRef.current = enteringLive;
     switchingRef.current = true;
-    commit(selectThread(store, id));
-    setError(null);
+    commit((prev) => selectThread(prev, id));
     setDrawerOpen(false);
     requestAnimationFrame(() => {
-      restoreSaved();
+      if (enteringLive) {
+        scrollToBottom();
+      } else {
+        restoreSaved();
+      }
       switchingRef.current = false;
     });
   }
@@ -119,11 +138,24 @@ export default function AgentChat() {
     e.stopPropagation();
     if (!store) return;
     if (!window.confirm("Delete this chat?")) return;
+    abortControllersRef.current.get(id)?.abort();
+    abortControllersRef.current.delete(id);
+    setSendingThreads((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    setErrors((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Map(prev);
+      next.delete(id);
+      return next;
+    });
     saveNow();
-    const next = deleteThread(store, id);
     pinBottomRef.current = false;
     switchingRef.current = true;
-    commit(next);
+    commit((prev) => deleteThread(prev, id));
     requestAnimationFrame(() => {
       restoreSaved();
       switchingRef.current = false;
@@ -133,29 +165,33 @@ export default function AgentChat() {
   async function send(value?: string) {
     const text = (value ?? input).trim();
     if (!text || sending || !store || !active) return;
+    const threadId = active.id;
     setInput("");
-    setError(null);
+    setErrors((prev) => {
+      if (!prev.has(threadId)) return prev;
+      const next = new Map(prev);
+      next.delete(threadId);
+      return next;
+    });
     if (inputRef.current) inputRef.current.style.height = "auto";
 
     const userMsg: ChatMessage = { role: "user", content: text, ts: Date.now() };
     const withUser = [...active.messages, userMsg];
     const titled = { ...active, messages: withUser, title: threadTitle(withUser), updatedAt: Date.now() };
-    commit(upsertThread(selectThread(store, active.id), titled));
+    commit((prev) => upsertThread(selectThread(prev, threadId), titled));
 
     pinBottomRef.current = true;
     requestAnimationFrame(() => scrollToBottom("smooth"));
 
-    setSending(true);
+    setSendingThreads((prev) => new Set(prev).add(threadId));
 
-    const threadId = active.id;
     const assistantTs = Date.now();
     const baseLength = withUser.length; // messages before the streaming reply — never inferred from ts, which can collide with userMsg.ts at ms resolution
     let content = "";
     const trace: ToolTraceEntry[] = [];
 
     function flush() {
-      setStore((prev) => {
-        if (!prev) return prev;
+      commit((prev) => {
         const thread = prev.threads.find((t) => t.id === threadId);
         if (!thread) return prev;
         const base = thread.messages.slice(0, baseLength);
@@ -172,15 +208,16 @@ export default function AgentChat() {
           title: threadTitle(finalMessages),
           updatedAt: Date.now(),
         };
-        const next = upsertThread(prev, finalThread);
-        saveChatStore(next);
-        return next;
+        return upsertThread(prev, finalThread);
       });
-      setStreamTick((t) => t + 1);
+      // Only bump the pane's redraw tick if this flush belongs to the thread
+      // currently on screen — otherwise a background thread's tokens would
+      // yank the visible (unrelated) conversation's scroll position.
+      if (threadId === activeIdRef.current) setStreamTick((t) => t + 1);
     }
 
     const controller = new AbortController();
-    abortControllerRef.current = controller;
+    abortControllersRef.current.set(threadId, controller);
 
     try {
       const res = await fetch("/api/chat", {
@@ -241,7 +278,7 @@ export default function AgentChat() {
             flush();
           } else if (event.type === "error") {
             sawTerminal = true;
-            setError(event.message);
+            setErrors((prev) => new Map(prev).set(threadId, event.message));
           } else if (event.type === "done") {
             sawTerminal = true;
           }
@@ -249,21 +286,29 @@ export default function AgentChat() {
       }
 
       if (!sawTerminal) {
-        setError("connection dropped mid-response — try again");
+        setErrors((prev) => new Map(prev).set(threadId, "connection dropped mid-response — try again"));
       }
 
-      pinBottomRef.current = true;
-      requestAnimationFrame(() => scrollToBottom("smooth"));
+      if (threadId === activeIdRef.current) {
+        pinBottomRef.current = true;
+        requestAnimationFrame(() => scrollToBottom("smooth"));
+      }
     } catch (e) {
       if (e instanceof Error && e.name === "AbortError") {
         // Request aborted by user
       } else {
-        setError(e instanceof Error ? e.message : "Something went wrong");
+        setErrors((prev) =>
+          new Map(prev).set(threadId, e instanceof Error ? e.message : "Something went wrong")
+        );
       }
     } finally {
-      abortControllerRef.current = null;
-      setSending(false);
-      inputRef.current?.focus();
+      abortControllersRef.current.delete(threadId);
+      setSendingThreads((prev) => {
+        const next = new Set(prev);
+        next.delete(threadId);
+        return next;
+      });
+      if (threadId === activeIdRef.current) inputRef.current?.focus();
     }
   }
 
@@ -308,7 +353,16 @@ export default function AgentChat() {
               >
                 <span className="chat-thread-card-title">{t.title}</span>
                 <span className="chat-thread-card-meta">
-                  {t.messages.length > 0 ? formatWhen(t.updatedAt) : "Empty"}
+                  {sendingThreads.has(t.id) ? (
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                      <span className="live-dot" style={{ width: 5, height: 5, borderRadius: 999, background: "var(--accent)" }} />
+                      Working
+                    </span>
+                  ) : t.messages.length > 0 ? (
+                    formatWhen(t.updatedAt)
+                  ) : (
+                    "Empty"
+                  )}
                 </span>
                 {store && store.threads.length > 1 && (
                   <span
