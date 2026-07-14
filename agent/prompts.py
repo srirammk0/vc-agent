@@ -80,13 +80,15 @@ that way), before calling save_startups:
 - Build their career timeline from what you actually find: company, title, dates, what they
   concretely did — most recent first. Do NOT invent a role, date, or achievement that isn't
   supported by the search results.
-- Write a short, grounded credibility read: real prior companies of note, technical depth, domain
-  experience actually relevant to this problem, founder/exec track record. If the search results are
-  thin, say so honestly ("couldn't verify much beyond X") instead of padding with generic praise.
+- Write credibility_note as ONE sentence, not a paragraph: name the specific prior company/role that
+  actually supports (or doesn't support) betting on them. If the search results are thin, say so
+  honestly in that one sentence ("couldn't verify much beyond X") instead of padding with generic praise.
 - Pass this as the `founders` field on save_startups (positions + credibility_note). If you genuinely
   found nothing usable after searching, leave founders empty rather than fabricating — an honest gap
   is useful signal too (a stealth founder with zero discoverable background is itself worth flagging
-  in your assessment).
+  in your assessment). A bare name with no real positions found does NOT count as enrichment — the
+  dashboard only treats real researched career history as enriched, so don't worry about "using up"
+  the enriched badge by leaving founders empty when you genuinely found nothing.
 - Non-stealth candidates: skip this — their founder research happens later, through the dashboard's
   separate Enrich flow, not at save time.
 

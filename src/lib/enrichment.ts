@@ -17,12 +17,10 @@ export function hasEnrichmentData(startup: Partial<EnrichmentFields>): boolean {
     return true;
   }
   const founders = (startup.founders ?? []) as Founder[];
-  return founders.some(
-    (f) =>
-      Boolean(f.name?.trim()) ||
-      Boolean(f.background?.trim()) ||
-      Boolean(f.linkedin?.trim())
-  );
+  // A name/background/linkedin alone can come from a bare save (e.g. a stealth
+  // candidate saved with just what the sweep already knew) — that's not enrichment.
+  // Only real researched career history counts.
+  return founders.some((f) => Boolean(f.positions && f.positions.length > 0));
 }
 
 export function showEnrichButton(

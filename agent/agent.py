@@ -123,7 +123,10 @@ class FounderSave(BaseModel):
     background: str = ""
     linkedin: str = ""
     positions: list[FounderPositionSave] = Field(default_factory=list)
-    credibility_note: str = ""
+    credibility_note: str = Field(
+        default="",
+        description="ONE sentence, not a paragraph — name the specific prior company/role that actually supports it, or say plainly that nothing concrete was found.",
+    )
 
 
 class StartupSave(BaseModel):

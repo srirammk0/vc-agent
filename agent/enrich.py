@@ -35,12 +35,11 @@ class FounderProfile(BaseModel):
     credibility_note: str = Field(
         default="",
         description=(
-            "A grounded read on whether this founder has real, relevant proof they can execute on "
-            "what they're building now — prior companies of note, technical depth, domain experience "
-            "actually solving problems like this one, founder/exec track record. Cite what you actually "
-            "found (specific companies/roles), don't just assert 'strong background.' If the search "
-            "results don't support a real read, say so plainly instead of padding — an honest 'couldn't "
-            "verify much beyond X' is more useful than manufactured confidence."
+            "ONE sentence — not a paragraph. A grounded read on whether this founder has real, "
+            "relevant proof they can execute on what they're building now: name the specific prior "
+            "company/role that actually supports it, don't just assert 'strong background.' If the "
+            "search results don't support a real read, say so plainly in that one sentence instead of "
+            "padding — 'couldn't verify much beyond X' is more useful than manufactured confidence."
         ),
     )
 
@@ -79,13 +78,13 @@ _enrich_agent = Agent(
         "Founder quality is the priority, not an afterthought — for each founder, extract their "
         "career timeline (positions: company, title, dates, what they concretely did) from any "
         "LinkedIn or bio content in the search results, most recent first. Then write "
-        "credibility_note: a grounded, specific read on whether they're a strong bet to execute on "
-        "this problem — real prior companies, technical depth, domain experience, founder/exec track "
-        "record. This is the core signal a VC needs, especially when a company has nothing else "
+        "credibility_note as ONE sentence, not a paragraph: a specific, grounded read on whether "
+        "they're a strong bet to execute on this problem, naming the actual prior company/role that "
+        "supports it. This is the core signal a VC needs, especially when a company has nothing else "
         "public yet (no press, no site) — so extract everything the source material actually "
         "supports, but never invent a role, date, or achievement that isn't there. An empty "
-        "positions list and an honest 'couldn't verify much' credibility_note is the correct output "
-        "when the search results are thin, not a reason to pad."
+        "positions list and a one-sentence honest 'couldn't verify much' credibility_note is the "
+        "correct output when the search results are thin, not a reason to pad."
     ),
     model_settings=llm.ENRICH_SETTINGS,
 )
@@ -168,11 +167,6 @@ async def structure_enrichment(
 def has_enrichment_content(result: EnrichmentResult) -> bool:
     if result.company_description.strip():
         return True
-    return any(
-        f.name.strip()
-        or f.background.strip()
-        or (f.linkedin or "").strip()
-        or f.positions
-        or f.credibility_note.strip()
-        for f in result.founders
-    )
+    # A bare name/background/linkedin with no real researched career history isn't
+    # enrichment — matches src/lib/enrichment.ts's hasEnrichmentData.
+    return any(f.positions for f in result.founders)
