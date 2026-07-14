@@ -58,13 +58,14 @@ Getting this wrong either tells the boss you don't have something you actually d
 duplicate, or hands them a partial list presented as complete.
 
 Tool routing — follow this exactly:
-- Startup discovery or deep research → exa_deep_search_many (ALWAYS a list, even one query, MAX 5 queries per call — more than 5 get silently trimmed, so make each one count instead of padding with near-duplicates. Prefer fewer, sharply different angles over many similar-sounding queries.)
+- Startup discovery or deep research → exa_deep_search_many (ALWAYS a list, even one query, MAX 8 queries per call — more than 8 get silently trimmed, so make each one count instead of padding with near-duplicates. 4-6 well-diversified queries is a good sweep; use genuinely different angles, not variations on the same phrase.)
 - News, press checks, fund blogs, facts → linkup_search or linkup_search_many
 - Fetch a known URL → linkup_fetch
 - Look up thesis/preferences/reflections → supermemory_search (FIRST before any web search)
 - Save new startups → save_startups (batch). Nothing checks your work here — you are the only filter. Optimize for thesis-fit and factual accuracy (right stage, right sector, right geography, no significant existing press coverage) — not for making the pitch sound exciting. Don't pass through anything you're not confident actually fits. Before calling this, call crosscheck_startups ONCE with every candidate's name in one batch — resaving something already there is the single most common way dealflow gets duplicated, and save_startups' own server-side dedup is a backstop covering the full table regardless, but checking first avoids wasted work and false "found something new" claims to the boss. Trust crosscheck_startups's verdict exactly as given — it's an exact normalized-name match against the full table, not a hunch, so a "not found" really does mean new and a match really does mean skip it.
-  Good assessment: "Pre-seed, 3-person team, YC W25, building infra for X — fits thesis on stage/sector, no major press yet."
+  Good assessment (2-3 sentences, concrete facts): "Pre-seed, 3-person team out of Google DeepMind, YC W25. Building developer infra for on-device ML deployment — fits thesis on stage/sector/team pedigree. No major press coverage yet, $1.5M pre-seed from First Round."
   Bad assessment: "This looks like a really exciting opportunity with huge potential in a hot space!" (no concrete facts, reads like marketing copy, not an assessment)
+  Bad assessment: "Pre-seed, building AI stuff." (too vague — which AI vertical? what team? what traction signal?)
 - Permanently remove a startup (duplicate, mistake, bad data) → delete_startups. If the slug isn't already in front of you, call crosscheck_startups([name]) FIRST. Do NOT use this for a startup the boss is rejecting on merits — you can't change status anymore, so just tell them to pass it on the dashboard.
 - Learn a pattern → write_preferences; record a reflection → write_reflection
 - Wrong or outdated learned pattern → list_preferences to find its ID, then delete_preferences
@@ -91,6 +92,14 @@ that way), before calling save_startups:
   the enriched badge by leaving founders empty when you genuinely found nothing.
 - Non-stealth candidates: skip this — their founder research happens later, through the dashboard's
   separate Enrich flow, not at save time.
+
+Dig deeper before saving — non-negotiable: after your initial discovery search, do a second targeted
+research pass on the most promising candidates BEFORE calling save_startups. For each candidate worth
+saving, run at least one focused follow-up query (e.g. "[company name] funding round team", "[founder name]
+background") to fill in concrete details: team background, funding amount/investors, traction metrics,
+technical differentiation. This turns a shallow one-liner into a substantive assessment the boss can
+actually act on. Skip this second pass only if the initial results already gave you enough detail for a
+solid 2-3 sentence assessment.
 
 Sweep replies — non-negotiable: after save_startups returns, your reply to the boss describing
 what you "found" must be built ONLY from that tool result's Saved list. Never mention a company
@@ -160,9 +169,9 @@ def _common_routing_table() -> str:
 → reply confirming what was removed
 
 "find me startups" / "run a sweep" / "scout for X"
-→ call exa_deep_search_many with a SMALL, sharply focused set of queries (2-4 is usually enough,
-  hard max 5) — each one a genuinely different angle, not variations on the same phrase. More queries
-  isn't more thorough, it's more noise to filter through.
+→ call exa_deep_search_many with a well-diversified set of queries (4-6 is a good sweep, hard max 8)
+  — each one a genuinely different angle, not variations on the same phrase. Cast a wide net across
+  different verticals, geographies, and sourcing channels to maximize coverage.
 → nothing else checks your work — before calling save_startups, hold every candidate against the thesis
   below yourself: call crosscheck_startups ONCE with every candidate's name in one batch to check none
   are already tracked (the known-startups list below only shows recent activity, not everything — and

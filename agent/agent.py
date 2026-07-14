@@ -33,7 +33,7 @@ _EXA_DEEP_TTL_SECONDS = 6 * 3600
 # Ceiling on model round-trips within a single run — a normal sweep/reply is a
 # handful of tool calls, so this is the worst-case blast radius if a tool loop
 # ever goes bad, not a normal-case budget.
-_USAGE_LIMITS = UsageLimits(request_limit=20)
+_USAGE_LIMITS = UsageLimits(request_limit=30)
 
 # schedule_agent_run bounds: default ceiling keeps the agent's own judgment calls
 # short-term; boss_specified_duration=True (only when the boss stated an explicit
@@ -188,8 +188,8 @@ class AgentDeps:
     only, never as an SMS, when it later fires.
 
     schedule_budget optionally caps how many schedule_agent_run calls succeed within
-    one run (e.g. the daily planner's proactive review) — None means unlimited,
-    which is the case for every boss-initiated conversation.
+    one run — None means unlimited, which is the case for every boss-initiated
+    conversation.
     """
     phone_number: str
     from_number: str
@@ -258,9 +258,9 @@ async def _exa_deep_search_one(query: str) -> str:
             asyncio.to_thread(
                 exa.search,
                 query,
-                num_results=3,
+                num_results=5,
                 contents={
-                    "text": {"max_characters": 2000},
+                    "text": {"max_characters": 3500},
                     "max_age_hours": 168,
                 },
             ),
@@ -299,11 +299,11 @@ def register_tools(
 
     if exa:
 
-        _EXA_MAX_QUERIES = 5
+        _EXA_MAX_QUERIES = 8
 
         @agent.tool(prepare=make_non_strict)
         async def exa_deep_search_many(ctx: RunContext, queries: list[str]) -> str:
-            """Run Exa searches in parallel for startup discovery and deep research. Use even for a single query — pass a one-element list. Hard cap 5 queries per call — pass a small, sharply focused set (2-4 is usually plenty); anything past 5 is dropped, and near-duplicate queries waste a slot for no new signal."""
+            """Run Exa searches in parallel for startup discovery and deep research. Use even for a single query — pass a one-element list. Hard cap 8 queries per call — pass a well-diversified set (4-6 is a good sweep); anything past 8 is dropped, and near-duplicate queries waste a slot for no new signal."""
             if not queries:
                 return "No queries provided."
             # Enforced in code, not just prompt: de-dup near-identical queries (case/whitespace
@@ -601,11 +601,11 @@ def register_tools(
 
         @agent.tool(prepare=make_non_strict)
         async def list_scheduled_tasks(ctx: RunContext[AgentDeps]) -> str:
-            """List everything currently scheduled (follow-ups, daily portfolio checks) that
-            hasn't fired yet, soonest first. Use this when the boss asks what's
-            scheduled/pending, to check for a duplicate before scheduling something new, or
-            to find the id to pass to delete_scheduled_task. The dashboard's Scheduled Runs
-            page shows the same list plus past runs and their outcomes."""
+            """List everything currently scheduled (follow-ups, checks) that hasn't fired
+            yet, soonest first. Use this when the boss asks what's scheduled/pending, to
+            check for a duplicate before scheduling something new, or to find the id to
+            pass to delete_scheduled_task. The dashboard's Scheduled Runs page shows the
+            same list plus past runs and their outcomes."""
             try:
                 pending = scheduled_tasks_log.list_pending()
                 if not pending:
@@ -624,10 +624,10 @@ def register_tools(
 
         @agent.tool(prepare=make_non_strict)
         async def delete_scheduled_task(ctx: RunContext[AgentDeps], task_id: str) -> str:
-            """Cancel a pending scheduled task (a follow-up or portfolio check that hasn't
-            fired yet) so it genuinely won't happen — not just removed from the list.
-            task_id is the bracketed id shown by list_scheduled_tasks; call that first if
-            you don't have it."""
+            """Cancel a pending scheduled task (a follow-up that hasn't fired yet) so it
+            genuinely won't happen — not just removed from the list. task_id is the
+            bracketed id shown by list_scheduled_tasks; call that first if you don't
+            have it."""
             try:
                 task = scheduled_tasks_log.get_task(task_id)
                 if not task:

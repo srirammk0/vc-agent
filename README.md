@@ -16,21 +16,20 @@ no cold starts, real token streaming plus a live tool-call trace in the UI.
 
 ```text
 ┌──────────────────────────┐        ┌──────────────────────────┐
-│ Trigger.dev              │        │ daily-planner-scheduled  │
-│ (scheduling only)        │───────►│ (cron 6:00am ET)         │
+│ Trigger.dev              │        │ sync-scheduled           │
+│ (scheduling only)        │───────►│ (cron every 30 min)      │
 │                          │        ├──────────────────────────┤
-│ 2 fixed crons + one-off  │───────►│ sync-scheduled           │
-│ delayed triggers (real   │        │ (cron every 30 min)      │
-│ point-in-time, not a     │        ├──────────────────────────┤
-│ poll)                    │───────►│ run-scheduled-check      │
-│                          │        │ (delayed, one-off)       │
-└──────────────────────────┘        └──────────┬───────────────┘
+│ 1 fixed cron + one-off   │───────►│ run-scheduled-check      │
+│ delayed triggers (real   │        │ (delayed, one-off)       │
+│ point-in-time, not a     │        └──────────┬───────────────┘
+│ poll)                    │
+└──────────────────────────┘
                                             │ HTTP (shared secret)
                                             ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │ Modal — all agentic work                                            │
-│ agent/ (Python): text_agent (SMS) · web_chat_agent (dashboard chat, │
-│ no shared memory with SMS) · feedback_agent · daily_planner_agent   │
+│ agent/ (Python): assistant_agent (SMS + dashboard chat + scheduled runs)  │
+│ · feedback_agent                                                          │
 │ Supermemory (brain) · Supabase (mirror)                             │
 │ agent/trigger_client.py schedules/cancels one-off checks back onto  │
 │ Trigger.dev's run-scheduled-check task (REST, with a delay)         │
@@ -48,19 +47,15 @@ no cold starts, real token streaming plus a live tool-call trace in the UI.
 
 1. **Load memory**: every agent loads the live investment thesis and learned seek/avoid patterns directly
    from Supermemory before it does anything.
-2. **Daily planning**: every morning at 6am ET, `daily_planner_agent` looks at approved startups nobody's
-   checked on in a while and decides — with judgment, not a fixed replay — which ones deserve a fresh look
-   today, scheduling each at a specific time. Each fired check runs one fresh Exa search + one Gemma
-   conviction call scoped to that company; only re-surfaces (texts you) if conviction clears the bar.
-3. **iMessage loop**: text the agent directly — approve/pass startups, run an on-demand sweep, update the
+2. **iMessage loop**: text the agent directly — approve/pass startups, run an on-demand sweep, update the
    thesis, ask it to research something, ask what's currently scheduled, ask it to check back on something
    later (defaults to within 3 days unless you give it a specific longer timeframe), or cancel a scheduled
    check-in.
-4. **Web chat**: a separate dashboard-side chat surface (`api/chat.py` on Vercel, `run_web_chat_stream`) with
-   the same research/dealflow tools as the SMS agent, minus follow-up scheduling and iMessage-specific tools.
-   No shared memory with the iMessage thread — the client owns the full conversation history. Streams tokens
-   and tool-call events over SSE; the dashboard shows a live "tool trace" dropdown per turn.
-5. **Dashboard**: approve/pass/enrich startups, all live via Supabase realtime.
+3. **Web chat**: a separate dashboard-side chat surface (`api/chat.py` on Vercel, `run_web_chat_stream`) with
+   the same research/dealflow tools as the SMS agent. No shared memory with the iMessage thread — the client
+   owns the full conversation history. Streams tokens and tool-call events over SSE; the dashboard shows a
+   live "tool trace" dropdown per turn.
+4. **Dashboard**: approve/pass/enrich startups, all live via Supabase realtime.
 
 ## Scheduling (Trigger.dev)
 
@@ -70,20 +65,18 @@ crons and one-off future work — while Modal keeps 100% of the agentic work. Ev
 (`src/trigger/*.ts`) is a thin `fetch()` forwarding call into a hardened Modal HTTP endpoint at the right
 moment; nothing Python runs inside Trigger.dev.
 
-- **Fixed crons**: `sync-scheduled` (*/30 min), `daily-planner-scheduled` (0 6 * * * America/New_York) —
-  each just forwards to its Modal endpoint.
-- **One-off delayed triggers**: the agent's own future work — a boss-requested follow-up text or a
-  daily-planner portfolio check — is scheduled by calling Trigger.dev's REST trigger endpoint directly from
+- **Fixed crons**: `sync-scheduled` (*/30 min) — forwards to its Modal endpoint.
+- **One-off delayed triggers**: the agent's own future work — a boss-requested follow-up or a
+  self-scheduled check — is scheduled by calling Trigger.dev's REST trigger endpoint directly from
   Python (`agent/trigger_client.py`, no JS SDK involved) with a `delay`, targeting the `run-scheduled-check`
   task. Every call is also logged to the `scheduled_tasks` table (`agent/scheduled_tasks_log.py`), and the
   returned Trigger.dev run id is stashed into that same logged row, so the agent can both answer "what do
   you have scheduled" and genuinely cancel one later (`delete_scheduled_task` tool → `trigger_client.
   cancel_check`, `POST /api/v2/runs/{runId}/cancel`) rather than just deleting the log entry. Trigger.dev
   still owns actual timing. When a trigger fires at the exact right time (not a poll window), it forwards to
-  Modal's `run_scheduled_check` endpoint, which dispatches by `kind`: `text_followup` (fired by `text_agent`'s
-  `schedule_followup` tool — defaults to firing within 3 days unless the boss gave an explicit longer
-  timeframe, replayed through the normal SMS pipeline when due, as if the boss had just texted it) and
-  `daily_check` (fired by `daily_planner_agent`'s `schedule_check` tool).
+  Modal's `run_scheduled_check` endpoint, which dispatches by `kind`: `agent_followup` or `text_followup`
+  (fired by the agent's `schedule_agent_run` tool — defaults to firing within 3 days unless the boss gave an
+  explicit longer timeframe, replayed through the normal pipeline when due).
 - **Hardening**: every Modal endpoint Trigger.dev calls checks a shared secret (`SCHEDULER_SHARED_SECRET`)
   sent in the request body — these are the only Modal endpoints reachable without prior application logic
   (dashboard endpoints have their own separate on-demand triggers, unrelated to scheduling).
@@ -92,15 +85,13 @@ moment; nothing Python runs inside Trigger.dev.
 
 ## Agents (`agent/agent.py`)
 
-`text_agent`, `web_chat_agent`, and `feedback_agent` share the same Anthropic Claude Sonnet model and tool
+`assistant_agent`, `feedback_agent` share the same Anthropic Claude Sonnet model and tool
 registry (`register_tools` in `agent/agent.py`), just with different instructions and which tools are
-enabled. `daily_planner_agent` is a separate, purpose-built agent (its own tool set, rebuilt fresh per run).
+enabled.
 
 | Agent | Trigger | Purpose |
 |---|---|---|
-| `text_agent` | Inbound SMS (SendBlue webhook) | Handles the boss's texts: approve/pass, delete, research a company, update the thesis, run an on-demand sweep, or schedule/cancel a future check-in. Has a standing rule to save any genuine startup it surfaces during research — not just on explicit sweep requests. |
-| `web_chat_agent` | Dashboard chat POST, streamed (`api/chat.py` on Vercel, `run_web_chat_stream`) | Same research/dealflow tools as `text_agent`, minus follow-up scheduling and iMessage-specific tools (both need a phone number). Module-level singleton like `text_agent`; history is reconstructed per-call from the client-supplied message array, no server-side persistence. Runs directly on Vercel, not Modal. |
-| `daily_planner_agent` | Trigger.dev `daily-planner-scheduled` cron (6:00am ET) | Looks at approved startups nobody's checked on in a while and decides which deserve a fresh look today, scheduling each at a specific time. Built fresh per run (see `agent/daily_planner.py`). |
+| `assistant_agent` | Inbound SMS (SendBlue webhook), dashboard chat POST, scheduled self-runs | Handles the boss's texts and dashboard chat: research, sweeps, approve/pass/delete, update thesis, schedule follow-ups. Unified across all surfaces — same tools, only reply style differs. |
 | `feedback_agent` | Dashboard approve/pass reason submission | Distills a one-line dashboard reason into a reusable learning pattern. |
 
 **Cross-agent context**: reflections (`write_reflection`) are namespaced by source (`text`, `web_chat`,
@@ -181,8 +172,7 @@ its reply as SSE, and needs `ANTHROPIC_API_KEY`, `EXA_API_KEY`, `LINKUP_API_KEY`
 
 | Function | Trigger | Timeout | Description |
 |---|---|---|---|
-| `daily_planner_scheduled` | Trigger.dev cron, daily 6:00am ET | 10 min | `daily_planner_agent` decides today's portfolio checks |
-| `run_scheduled_check` | Trigger.dev one-off delayed trigger | 10 min | Dispatches a due self-scheduled check by `kind` (`text_followup`/`daily_check`) |
+| `run_scheduled_check` | Trigger.dev one-off delayed trigger | 10 min | Dispatches a due self-scheduled check by `kind` (`agent_followup`/`text_followup`) |
 | `sync_scheduled` / `sync_on_demand` | Trigger.dev cron (30 min) / on-demand | 5 min | Mirrors Supermemory → Supabase |
 | `enrich_startup` | Dashboard POST | 1 min | Kicks off `enrich_startup_job` in the background |
 | `submit_feedback` | Dashboard POST | 5 min | Runs `feedback_agent` on an approve/pass reason |
@@ -238,7 +228,7 @@ modal deploy modal_app.py
 #### Trigger.dev
 Fill in `trigger.config.ts`'s `project` field with your Trigger.dev project ref (Trigger.dev dashboard →
 Project settings). In the Trigger.dev dashboard, add these environment variables per environment (dev + prod):
-`MODAL_SYNC_URL`, `MODAL_DAILY_PLANNER_URL`, `MODAL_RUN_SCHEDULED_CHECK_URL` (the deployed Modal endpoint
+`MODAL_SYNC_URL`, `MODAL_RUN_SCHEDULED_CHECK_URL` (the deployed Modal endpoint
 URLs, printed by `modal deploy`), and `SCHEDULER_SHARED_SECRET` (same value as the Modal secret above).
 
 Deploy with:
@@ -279,10 +269,8 @@ See `.env.example` for the full list (Supabase URL/keys, `MODAL_ENRICH_URL`, `MO
 
 ```
 agent/                Python agents and tools (deployed to Modal)
-  agent.py             Agent definitions (text/web_chat/feedback), tool registry, orchestration
+  agent.py             Agent definitions (assistant/feedback), tool registry, orchestration
   memory_store.py      Supermemory read/write layer (thesis, preferences, startups, reflections)
-  daily_planner.py     Daily daily_planner_agent: schedules portfolio checks, runs them when due
-  gemma_filter.py       Cerebras-hosted Gemma conviction filter (used by daily_planner's re-checks)
   trigger_client.py    REST client for scheduling/canceling one-off delayed triggers on Trigger.dev
   scheduled_tasks_log.py  Visibility + cancellation log for trigger_client's scheduled tasks
   llm.py               Model/settings config, retry logic

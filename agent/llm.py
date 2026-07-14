@@ -40,7 +40,7 @@ def _settings(max_tokens: int) -> AnthropicModelSettings:
 # Anthropic SDK hard-requires streaming for any non-streaming call whose
 # max_tokens implies more than 10 minutes of generation, computed as
 # 3600 * max_tokens / 128_000 (see anthropic._base_client._calculate_nonstreaming_timeout).
-# SMS/scheduled-run/daily-planner calls all go through pydantic-ai's non-streaming
+# SMS/scheduled-run calls all go through pydantic-ai's non-streaming
 # agent.run(), so max_tokens above ~21_333 raises a ValueError outright on every
 # one of those calls ("Streaming is required for operations that may take longer
 # than 10 minutes") — 16000 (450s estimated) keeps a comfortable margin under
@@ -98,8 +98,8 @@ def _anthropic_model(model_name: str) -> AnthropicModel:
 
 
 def build_finalize_model() -> AnthropicModel:
-    """Sonnet 5 — research/decision-critical agents (text_agent, web_chat_agent,
-    daily_planner)."""
+    """Sonnet 5 — research/decision-critical agents (assistant_agent,
+    web_chat, scheduled runs)."""
     return _anthropic_model(SONNET_MODEL)
 
 

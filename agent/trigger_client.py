@@ -3,7 +3,7 @@
 This is the counterpart to modal_app.py's `run_scheduled_check` endpoint: Trigger.dev
 calls that endpoint back when a delayed trigger fires. Trigger.dev owns timing only —
 deciding what/when to schedule stays entirely in Modal/Python (agent/agent.py's
-schedule_followup tool, and agent/daily_planner.py). Uses Trigger.dev's plain REST API
+schedule_agent_run tool). Uses Trigger.dev's plain REST API
 directly (no JS SDK — this runs in Python/Modal, not Node).
 """
 

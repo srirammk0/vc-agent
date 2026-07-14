@@ -268,16 +268,6 @@ def run_scheduled_check(payload: dict):
                         "message": result_text,
                         "recipients": [sender],
                     })
-        elif kind == "daily_check":
-            from daily_planner import run_daily_check
-            result_text = asyncio.run(run_daily_check(payload))
-            if result_text:
-                send_sms(result_text)
-                run_agent({
-                    "mode": "append_alert",
-                    "message": result_text,
-                    "recipients": notify_phone_numbers(),
-                })
         else:
             print(f"run_scheduled_check: unknown kind {kind!r}")
     except Exception as e:
@@ -293,32 +283,6 @@ def run_scheduled_check(payload: dict):
     return {"status": "ok"}
 
 
-# --- Daily planner: once each morning, decides which approved-but-quiet     ---
-# --- startups deserve a fresh look today and schedules each via Trigger.dev ---
-# --- (agent/daily_planner.py). Scheduling owned by Trigger.dev (cron        ---
-# --- 0 6 * * * America/New_York, src/trigger/daily-planner.ts).             ---
-@app.function(
-    image=image,
-    secrets=[modal.Secret.from_name("vc-scout-secrets")],
-    timeout=600,
-)
-@modal.fastapi_endpoint(method="POST")
-def daily_planner_scheduled(payload: dict):
-    _check_scheduler_secret(payload)
-    import sys
-    import asyncio
-    sys.path.insert(0, "/root/agent")
-    from daily_planner import run_daily_planner
-    result = asyncio.run(run_daily_planner())
-    reply = result.get("reply")
-    if reply:
-        send_sms(reply)
-        run_agent({
-            "mode": "append_alert",
-            "message": reply,
-            "recipients": notify_phone_numbers(),
-        })
-    return {"status": "ok"}
 
 
 @app.function(
