@@ -263,7 +263,7 @@ async def save_startups_batch(
             )
             continue
         now = datetime.now(timezone.utc)
-        to_insert.append({
+        row = {
             "slug": slug,
             "name": item["name"],
             "website": item.get("website") or "",
@@ -274,7 +274,14 @@ async def save_startups_batch(
             "stealth": _looks_stealth(item["name"]),
             "found_date": now.strftime("%Y-%m-%d"),
             "updated_at": now.isoformat(),
-        })
+        }
+        # Only set on stealth saves where the sweep already researched the founder(s) —
+        # see agent.py's stealth founder research rule. Absent/empty otherwise, so the
+        # column keeps its normal '[]' default for the common (non-stealth) case.
+        founders = item.get("founders")
+        if founders:
+            row["founders"] = founders
+        to_insert.append(row)
 
     if not to_insert:
         return [], skipped, []

@@ -51,15 +51,28 @@ def log_task(kind: str, payload: dict, due_at: datetime) -> Optional[str]:
         return None
 
 
-def mark_done(task_id: Optional[str]) -> None:
-    """Mark a logged task as done. No-op if task_id is falsy."""
+def mark_done(task_id: Optional[str], result: Optional[str] = None) -> None:
+    """Mark a logged task as done, optionally recording its outcome (merged into the
+    payload JSONB, no schema change) so the dashboard's Scheduled Runs page can show
+    what the agent actually did, not just that it ran. No-op if task_id is falsy."""
     if not task_id:
         return
     sb = _sb_client()
     if sb is None:
         return
     try:
-        sb.table("scheduled_tasks").update({"status": "done"}).eq("id", task_id).execute()
+        update: dict = {"status": "done"}
+        if result:
+            res = (
+                sb.table("scheduled_tasks")
+                .select("payload")
+                .eq("id", task_id)
+                .maybe_single()
+                .execute()
+            )
+            row = getattr(res, "data", None) or {}
+            update["payload"] = {**(row.get("payload") or {}), "result": result}
+        sb.table("scheduled_tasks").update(update).eq("id", task_id).execute()
     except Exception as e:
         print(f"scheduled_tasks_log: mark_done failed for id={task_id}:", e)
 

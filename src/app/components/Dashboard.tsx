@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { MessageCircle, SlidersHorizontal } from "lucide-react";
+import { CalendarClock, MessageCircle, SlidersHorizontal } from "lucide-react";
 import type { Startup } from "../../lib/supabase";
 import { hasEnrichmentData } from "../../lib/enrichment";
 import { sortStartups } from "../../lib/sortStartups";
@@ -51,71 +51,6 @@ function truncate(text: string | null, n: number): string {
   return text.length > n ? text.slice(0, n).trimEnd() + "…" : text;
 }
 
-function HeroLoader() {
-  return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "var(--page-bg)",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 28,
-        zIndex: 200,
-      }}
-      className="animate-fade-in"
-    >
-      <div style={{ textAlign: "center" }}>
-        <div
-          style={{
-            fontSize: 11,
-            letterSpacing: "0.16em",
-            textTransform: "uppercase",
-            color: "var(--muted)",
-            marginBottom: 10,
-            fontWeight: 500,
-          }}
-        >
-          VC Scout
-        </div>
-        <div
-          style={{
-            fontSize: 32,
-            color: "var(--heading)",
-            letterSpacing: "-0.025em",
-            fontWeight: 600,
-          }}
-        >
-          Dealflow Agent
-        </div>
-      </div>
-      <div
-        style={{
-          position: "relative",
-          width: 200,
-          height: 3,
-          borderRadius: 999,
-          background: "rgba(0,0,0,0.08)",
-          overflow: "hidden",
-        }}
-      >
-        <div
-          style={{
-            position: "absolute",
-            top: 0,
-            bottom: 0,
-            borderRadius: 999,
-            background: "var(--accent)",
-            animation: "indeterminate 1.1s ease-in-out infinite",
-          }}
-        />
-      </div>
-    </div>
-  );
-}
-
 type DashUiState = {
   tab: Tab;
   query: string;
@@ -153,7 +88,6 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
   );
   const [filtersOpen, setFiltersOpen] = useState(false);
   const filtersRef = useRef<HTMLDivElement>(null);
-  const [booting, setBooting] = useState(() => !readSession<boolean>("dealflow-seen", false));
   const [isMac, setIsMac] = useState(true);
   const [selectedSlugs, setSelectedSlugs] = useState<Set<string>>(new Set());
   const [batchBusy, setBatchBusy] = useState<string | null>(null);
@@ -195,12 +129,6 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
       typeof navigator !== "undefined" &&
         /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent)
     );
-    writeSession("dealflow-seen", true);
-
-    if (booting) {
-      const t = setTimeout(() => setBooting(false), 280);
-      return () => clearTimeout(t);
-    }
   }, []);
 
   useEffect(() => {
@@ -263,12 +191,10 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
     return sortStartups(rows);
   }, [startups, tab, query, stealthFilter, linkedinFilter, emailFilter]);
 
-  const showLoader = booting;
   const panelStartup = panelSlug ? startups.find((s) => s.slug === panelSlug) ?? null : null;
 
   return (
     <main style={{ minHeight: "100vh", background: "var(--page-bg)", color: "var(--body)" }}>
-      {showLoader && <HeroLoader />}
       <CommandPalette startups={startups} />
       {panelStartup && (
         <StartupPanel
@@ -317,6 +243,15 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
             </h1>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Link
+              href="/scheduled"
+              prefetch
+              className="dash-nav-link"
+              title="Scheduled Runs"
+            >
+              <CalendarClock size={15} strokeWidth={2.2} />
+              Scheduled
+            </Link>
             <Link
               href="/chat"
               prefetch

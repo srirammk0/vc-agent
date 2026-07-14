@@ -5,11 +5,22 @@ export const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+export type FounderPosition = {
+  company: string;
+  title: string;
+  start_date?: string;
+  end_date?: string;
+  is_current?: boolean;
+  description?: string;
+};
+
 export type Founder = {
   name?: string;
   background?: string;
   linkedin?: string;
   twitter?: string;
+  positions?: FounderPosition[];
+  credibility_note?: string;
 };
 
 export type Startup = {
@@ -34,4 +45,24 @@ export type Startup = {
   stealth: boolean;
   linkedin_status: "not_contacted" | "contacted" | "replied";
   email_status: "not_contacted" | "contacted" | "replied";
+};
+
+export type ScheduledTaskPayload = {
+  instructions?: string;
+  reason?: string;
+  notes?: string;
+  sender?: string;
+  slug?: string;
+  result?: string;
+  _trigger_run_id?: string;
+  _task_id?: string;
+};
+
+export type ScheduledTask = {
+  id: string;
+  kind: string;
+  due_at: string;
+  payload: ScheduledTaskPayload | null;
+  status: "pending" | "done" | "cancelled";
+  created_at: string | null;
 };

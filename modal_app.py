@@ -246,30 +246,47 @@ def run_scheduled_check(payload: dict):
     sys.path.insert(0, "/root/agent")
 
     kind = payload.get("kind")
+    result_text = None
     try:
-        if kind == "text_followup":
-            sender = payload.get("sender")
+        if kind in ("agent_followup", "text_followup"):
+            # agent_followup is the current name (agent.py's schedule_agent_run tool,
+            # available on every surface); text_followup is kept only so any tasks
+            # scheduled before this rewrite still fire correctly.
             instructions = payload.get("instructions")
-            if sender and instructions:
-                chat_reply_background.spawn(instructions, sender)
+            sender = payload.get("sender")
+            if instructions:
+                result = run_agent({
+                    "mode": "scheduled_run",
+                    "instructions": instructions,
+                    "sender": sender,
+                })
+                result_text = result.get("reply") or None
+                if result_text and sender:
+                    send_sms(result_text, to=sender)
+                    run_agent({
+                        "mode": "append_alert",
+                        "message": result_text,
+                        "recipients": [sender],
+                    })
         elif kind == "daily_check":
             from daily_planner import run_daily_check
-            notify = asyncio.run(run_daily_check(payload))
-            if notify:
-                send_sms(notify)
+            result_text = asyncio.run(run_daily_check(payload))
+            if result_text:
+                send_sms(result_text)
                 run_agent({
                     "mode": "append_alert",
-                    "message": notify,
+                    "message": result_text,
                     "recipients": notify_phone_numbers(),
                 })
         else:
             print(f"run_scheduled_check: unknown kind {kind!r}")
     except Exception as e:
         print(f"run_scheduled_check: task kind={kind} failed:", e)
+        result_text = result_text or f"failed: {e}"
 
     try:
         from scheduled_tasks_log import mark_done
-        mark_done(payload.get("_task_id"))
+        mark_done(payload.get("_task_id"), result_text)
     except Exception as e:
         print("run_scheduled_check: mark_done failed:", e)
 
@@ -357,7 +374,7 @@ def enrich_startup_job(slug: str, name: str):
     import os
     import asyncio
     sys.path.insert(0, "/root/agent")
-    from tools.exa import search_company, search_people
+    from tools.exa import search_company, search_people, search_company_founders
     from supabase import create_client
 
     sb = create_client(
@@ -370,11 +387,17 @@ def enrich_startup_job(slug: str, name: str):
         has_website = bool(((existing.data or {}).get("website") or "").strip())
 
         company = asyncio.run(search_company(f"{name} startup company"))
+        # Two founder searches: a generic one (surfaces who the founders even are)
+        # plus a LinkedIn-targeted one with a much larger text budget (surfaces
+        # actual career history, not just a one-line bio) — both feed the same
+        # structuring call so the model has enough raw material for a real
+        # timeline + credibility read, not just a name and a job title.
         people = asyncio.run(search_people(f"founder CEO {name}"))
+        founder_history = asyncio.run(search_company_founders(name))
 
         from enrich import structure_enrichment, has_enrichment_content
 
-        structured = asyncio.run(structure_enrichment(name, company, people))
+        structured = asyncio.run(structure_enrichment(name, company, people + founder_history))
 
         if not structured or not has_enrichment_content(structured):
             sb.table("startups").update({"enrichment_status": "pending"}).eq("slug", slug).execute()
@@ -385,6 +408,18 @@ def enrich_startup_job(slug: str, name: str):
                 "name": f.name,
                 "background": f.background[:500],
                 "linkedin": f.linkedin or "",
+                "positions": [
+                    {
+                        "company": p.company,
+                        "title": p.title,
+                        "start_date": p.start_date,
+                        "end_date": p.end_date,
+                        "is_current": p.is_current,
+                        "description": p.description[:400],
+                    }
+                    for p in f.positions[:8]
+                ],
+                "credibility_note": f.credibility_note[:800],
             }
             for f in structured.founders[:5]
         ]

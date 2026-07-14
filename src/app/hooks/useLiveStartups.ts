@@ -34,7 +34,6 @@ export function useLiveStartups(initial: Startup[]) {
     } catch {
       // ignore
     } finally {
-      await new Promise((r) => setTimeout(r, 150));
       setRefreshing(false);
     }
   }

@@ -1,9 +1,6 @@
-"use client";
-
-import { useEffect, useState } from "react";
 import type { Founder, Startup } from "../../lib/supabase";
 import { hasEnrichmentData } from "../../lib/enrichment";
-import { getBrowserClient } from "../../lib/supabaseBrowser";
+import FounderTimeline from "./FounderTimeline";
 
 type Props = {
   startup: Pick<Startup, "slug" | "enrichment_status"> & EnrichmentFields;
@@ -28,42 +25,8 @@ const META_FIELDS: { key: keyof EnrichmentFields; label: string }[] = [
   { key: "team_size", label: "Team"     },
 ];
 
-export default function EnrichmentSection({ startup }: Props) {
-  const [data, setData] = useState(startup);
-
-  useEffect(() => { setData(startup); }, [startup]);
-
-  useEffect(() => {
-    const client = getBrowserClient();
-    if (!client) return;
-    const channel = client
-      .channel(`startup-${startup.slug}`)
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "startups", filter: `slug=eq.${startup.slug}` },
-        (payload) => { setData((prev) => ({ ...prev, ...(payload.new as Partial<Startup>) })); }
-      )
-      .subscribe();
-    return () => { client.removeChannel(channel); };
-  }, [startup.slug]);
-
-  useEffect(() => {
-    if (getBrowserClient()) return;
-    if (data.enrichment_status !== "running") return;
-    const poll = async () => {
-      try {
-        const res = await fetch(`/api/startup/${data.slug}`);
-        if (!res.ok) return;
-        const json = await res.json();
-        if (json.enrichment_status !== "running") {
-          setData((prev) => ({ ...prev, ...json }));
-        }
-      } catch { /* ignore */ }
-    };
-    const id = setInterval(poll, 2000);
-    return () => clearInterval(id);
-  }, [data.slug, data.enrichment_status]);
-
+/** Purely presentational — the parent owns the single live subscription and passes fresh data down. */
+export default function EnrichmentSection({ startup: data }: Props) {
   const founders = (data.founders ?? []) as Founder[];
   const enriched = hasEnrichmentData(data);
   const metaItems = META_FIELDS.filter(({ key }) => data[key]);
@@ -220,50 +183,7 @@ export default function EnrichmentSection({ startup }: Props) {
               </p>
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {founders.map((f, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      border: "1px solid var(--border)",
-                      borderRadius: 8,
-                      padding: "14px 16px",
-                      background: "var(--surface)",
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        gap: 12,
-                        marginBottom: f.background ? 6 : 0,
-                      }}
-                    >
-                      <span style={{ fontSize: 14, fontWeight: 600, color: "var(--heading)" }}>
-                        {f.name || "Unknown"}
-                      </span>
-                      {f.linkedin && (
-                        <a
-                          href={f.linkedin.startsWith("http://") || f.linkedin.startsWith("https://") || f.linkedin.startsWith("//") ? f.linkedin : `https://${f.linkedin}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          style={{
-                            fontSize: 12,
-                            color: "var(--accent)",
-                            textDecoration: "none",
-                            whiteSpace: "nowrap",
-                            opacity: 0.8,
-                          }}
-                        >
-                          LinkedIn →
-                        </a>
-                      )}
-                    </div>
-                    {f.background && (
-                      <p style={{ fontSize: 13, lineHeight: "20px", color: "var(--label)", margin: 0 }}>
-                        {f.background}
-                      </p>
-                    )}
-                  </div>
+                  <FounderTimeline key={i} founder={f} />
                 ))}
               </div>
             </div>

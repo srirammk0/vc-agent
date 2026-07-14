@@ -1,46 +1,32 @@
 """Daily planner — runs once each morning (06:00 America/New_York, scheduled by
 Trigger.dev's daily-planner-scheduled task) and decides, with judgment rather than
-a fixed replay, which approved-but-quiet startups are worth a fresh look today —
-then schedules each one as a specific check at a specific time via Trigger.dev,
-spread across the day rather than firing all at once.
+a fixed replay, which approved-but-quiet startups are worth a fresh look today.
 
-This is the proactive half of self-scheduling; agent/agent.py's schedule_followup
-(reactive, at the boss's request) is the other entry point into the same
-agent/trigger_client.py primitive. This one looks at the portfolio-in-progress
-instead — approved startups nobody's checked on in a while.
+This no longer has its own mini-agent or scheduling tool — it builds a prompt from
+today's stale-approved startups and runs it through agent.py's assistant_agent, the
+exact same pipeline used for text and dashboard chat. Deciding what needs a look is
+just another kind of turn for that one agent; scheduling each check uses the same
+schedule_agent_run tool the boss can trigger themselves, capped for this run via
+AgentDeps.schedule_budget so an unattended cron run can't schedule unboundedly.
 
-Runs once daily via daily_planner_scheduled in modal_app.py.
+surface="text" here only picks the reply STYLE (plain, lowercase — this reply gets
+SMS'd as the boss's morning digest), not who gets notified later: phone_number is
+left empty, so any schedule_agent_run calls made during this run don't carry a
+sender — each fresh-look check it schedules resolves on the dashboard's Scheduled
+Runs page when it fires, not as its own individual text (see agent.py's
+run_scheduled_agent_run). The one digest reply from THIS run is still texted by
+modal_app.py's daily_planner_scheduled endpoint, unchanged.
 """
 
 import os
 from datetime import datetime, timedelta, timezone
 
-from pydantic import BaseModel
-from pydantic_ai import Agent, RunContext, ToolDefinition
 from supabase import create_client
 
-import llm
-import trigger_client
+from agent import AgentDeps, agent_run_with_retry, assistant_agent
 
 MAX_CHECKS_PER_RUN = 5
 STALE_DAYS = 10  # only consider approved startups untouched this long
-
-DAILY_PLANNER_RULES = """You plan today's proactive research checks for a pre-seed AI VC fund. You're
-given a list of approved startups that haven't been looked at in a while (name, one-liner, days since
-last update). Decide which of these — if any — are worth a fresh look today (funding/news/traction may
-have changed since the boss last looked), and schedule each with schedule_check, picking a specific hour
-today to spread the load rather than firing everything at once. Be selective: most days this should be
-0-3 startups, not all of them — only ones where something plausibly changed. Everything you don't
-schedule is left alone, there's always tomorrow.
-
-Your final reply is texted directly to the boss so they know what you're doing — keep it short, lowercase,
-casual, no markdown, like a text. Name which startups (if any) you're checking on today and why in one
-line each, or say plainly that nothing needed a look today."""
-
-
-def _make_non_strict(ctx: RunContext, tool_def: ToolDefinition) -> ToolDefinition:
-    tool_def.strict = False
-    return tool_def
 
 
 def _sb_client():
@@ -70,55 +56,21 @@ def _load_stale_approved() -> list[dict]:
         return []
 
 
-class ScheduledDailyCheck(BaseModel):
-    slug: str
-    due_in_hours: int = 4
-    reason: str = ""
+_DAILY_REVIEW_PROMPT = """Today's proactive portfolio review. Here are {n} approved startups that \
+haven't been looked at in {stale_days}+ days (name, one-liner, days since last update):
 
+{items}
 
-def _build_agent() -> Agent:
-    """Fresh Agent + tools per run so MAX_CHECKS_PER_RUN is a real per-run cap,
-    not accumulated state across cron fires."""
-    agent = Agent(
-        llm.model,
-        instructions=DAILY_PLANNER_RULES,
-        model_settings=llm.FINALIZE_FEEDBACK_SETTINGS,
-    )
-    scheduled_this_run = {"n": 0}
+Decide which of these — if any — are worth a fresh look today (funding/news/traction may have \
+changed since the boss last looked). For each one worth checking, call schedule_agent_run with a \
+short due_in_minutes so checks land spread across today (e.g. 120, 240, 360...) rather than all at \
+once, and instructions describing what to check on that startup and why. Be selective — most days \
+this should be 0-3 startups, not all of them. You have a hard cap of {max_checks} schedule_agent_run \
+calls this run; anything you don't schedule is left for another day, there's always tomorrow.
 
-    @agent.tool(prepare=_make_non_strict)
-    async def schedule_check(ctx: RunContext, checks: list[ScheduledDailyCheck]) -> str:
-        """Schedule a fresh-look check on a startup later today. due_in_hours: hours from
-        now — spread these out across different startups (e.g. 2, 4, 6, 8) rather than
-        stacking them all at the same time. Capped at a handful per run."""
-        if scheduled_this_run["n"] >= MAX_CHECKS_PER_RUN:
-            return f"[limit reached: already scheduled {MAX_CHECKS_PER_RUN} this run, skipping the rest]"
-
-        scheduled, skipped = [], []
-        today = datetime.now(timezone.utc).date().isoformat()
-        for check in checks:
-            if scheduled_this_run["n"] >= MAX_CHECKS_PER_RUN:
-                skipped.append(f"{check.slug} (run limit)")
-                continue
-            due_at = datetime.now(timezone.utc) + timedelta(hours=max(check.due_in_hours, 1))
-            ok = await trigger_client.schedule_check(
-                "daily_check",
-                {"slug": check.slug, "reason": check.reason},
-                due_at,
-                idempotency_key=f"daily_check:{check.slug}:{today}",
-            )
-            if not ok:
-                skipped.append(f"{check.slug} (trigger.dev scheduling failed)")
-                continue
-            scheduled_this_run["n"] += 1
-            scheduled.append(check.slug)
-
-        lines = [f"Scheduled {len(scheduled)} check(s)."]
-        if skipped:
-            lines.append(f"Skipped: {'; '.join(skipped)}")
-        return "\n".join(lines)
-
-    return agent
+Reply with a short, plain summary of what (if anything) you're checking on today and why, one line \
+per startup — this gets texted directly to the boss as a morning digest, so keep it lowercase, \
+casual, and free of markdown."""
 
 
 async def run_daily_planner() -> dict:
@@ -133,18 +85,26 @@ async def run_daily_planner() -> dict:
         f"(last updated {r.get('updated_at', '')})"
         for r in rows
     )
+    prompt = _DAILY_REVIEW_PROMPT.format(
+        n=len(rows), stale_days=STALE_DAYS, items=items_text, max_checks=MAX_CHECKS_PER_RUN
+    )
 
-    agent = _build_agent()
-    prompt = (
-        f"Here are {len(rows)} approved startups untouched for {STALE_DAYS}+ days. "
-        f"Decide which (if any) deserve a fresh look today.\n\n{items_text}"
+    deps = AgentDeps(
+        phone_number="",
+        from_number="",
+        sb_key="",
+        sb_secret="",
+        message_handle=None,
+        surface="text",
+        schedule_budget={"max": MAX_CHECKS_PER_RUN, "used": 0},
     )
 
     try:
-        res = await llm.run_with_retry(agent, prompt)
+        res = await agent_run_with_retry(assistant_agent, prompt, deps=deps)
         print("daily_planner:", res.output)
         return {"planned": len(rows), "reply": res.output}
     except Exception as e:
+        import llm
         if llm._is_rate_limit_error(e):
             print("daily_planner: rate limited, skipping this run")
             return {"planned": 0, "error": "rate_limited"}
@@ -152,11 +112,12 @@ async def run_daily_planner() -> dict:
 
 
 async def run_daily_check(payload: dict) -> str | None:
-    """Fired for a 'daily_check' task scheduled via Trigger.dev. Runs one fresh Exa
-    search on the startup and always reports back — the daily planner already decided
-    this one was worth a look, so this doesn't second-guess that with another model
-    call, it just surfaces what it found. Returns None only on a genuine internal
-    failure (missing data, can't reach Supabase), never as a silent "nothing to report"."""
+    """Legacy handler kept for backward compatibility with any 'daily_check' tasks
+    already scheduled by the old per-run schedule_check tool before this rewrite —
+    new daily-planner runs schedule 'agent_followup' via schedule_agent_run instead
+    (see run_daily_planner above), which goes through run_scheduled_agent_run in
+    agent.py, not this function. Safe to delete once no old-style tasks remain
+    pending (they're same-day, so this window is short)."""
     slug = payload.get("slug", "")
     if not slug:
         return None
