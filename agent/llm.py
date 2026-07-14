@@ -32,10 +32,20 @@ def _settings(max_tokens: int) -> AnthropicModelSettings:
 
 
 # Sonnet 5 — all agents
-# Non-streaming calls (pydantic-ai doesn't stream here) risk SDK timeouts well
-# before Sonnet 5's 128K ceiling, so these stay well under that — just enough
-# headroom that a tool-heavy turn doesn't truncate mid-response.
-FINALIZE_SMS_SETTINGS = _settings(8000)
+# 8000 was too tight for the unified assistant_agent: a batch save_startups call
+# (many candidates at once, each with founders/positions/credibility_note for
+# stealth ones) could need well more output tokens than that to finish in one
+# turn, hitting "Model token limit exceeded before any response was generated"
+# with nothing saved at all. Doubled — NOT raised further than this: the
+# Anthropic SDK hard-requires streaming for any non-streaming call whose
+# max_tokens implies more than 10 minutes of generation, computed as
+# 3600 * max_tokens / 128_000 (see anthropic._base_client._calculate_nonstreaming_timeout).
+# SMS/scheduled-run/daily-planner calls all go through pydantic-ai's non-streaming
+# agent.run(), so max_tokens above ~21_333 raises a ValueError outright on every
+# one of those calls ("Streaming is required for operations that may take longer
+# than 10 minutes") — 16000 (450s estimated) keeps a comfortable margin under
+# that hard ceiling while still doubling the room for a large batch save.
+FINALIZE_SMS_SETTINGS = _settings(16000)
 FINALIZE_FEEDBACK_SETTINGS = _settings(4000)
 
 ENRICH_SETTINGS = _settings(6000)
