@@ -214,12 +214,22 @@ def _e164(phone: str | None) -> str | None:
 async def assistant_instructions(ctx: RunContext[AgentDeps]) -> str:
     """The one instructions function for every surface — inbound text, dashboard
     chat, and the agent's own scheduled/autonomous runs all go through the exact
-    same tool routing; only the closing style tail differs by ctx.deps.surface."""
-    thesis = await sm.load_thesis()
-    preferences = await sm.load_preferences()
-    known = await startups_store.known_startups_summary()
+    same tool routing; only the closing style tail differs by ctx.deps.surface.
+
+    thesis/preferences only (see prompts.build_instructions' docstring for why the
+    known-startups list is deliberately NOT here) — fetched in parallel since
+    they're independent Supermemory calls, not sequential round-trips."""
+    thesis, preferences = await asyncio.gather(sm.load_thesis(), sm.load_preferences())
     surface = ctx.deps.surface if ctx.deps else "web"
-    return prompts.build_instructions(surface, thesis=thesis, preferences=preferences, known=known)
+    return prompts.build_instructions(surface, thesis=thesis, preferences=preferences)
+
+
+async def _known_startups_context() -> str:
+    """The known-startups block for the per-turn user message — see
+    prompts.build_instructions' docstring for why this lives here instead of the
+    cached instructions block."""
+    known = await startups_store.known_startups_summary()
+    return prompts.known_startups_block(known)
 
 
 def make_non_strict(ctx: RunContext, tool_def: ToolDefinition) -> ToolDefinition:
@@ -752,6 +762,7 @@ async def run_text_handler(message: str, slug: str = None, sender: str = None, m
     prompt = f"The boss sent this message: '{message}'. Handle it."
     if slug:
         prompt += f" Context startup slug: {slug}."
+    prompt = f"{await _known_startups_context()}\n\n{prompt}"
 
     deps = _default_deps(sender=sender, message_handle=message_handle, surface="text")
     history = await _load_history(sender) if sender else []
@@ -828,7 +839,7 @@ async def run_web_chat_stream(messages: list[dict]):
         return
 
     history = _messages_to_history(messages[:-1])
-    prompt = messages[-1].get("content", "")
+    prompt = f"{await _known_startups_context()}\n\n{messages[-1].get('content', '')}"
     deps = _default_deps(sender=None, message_handle=None, surface="web")
 
     max_attempts = 8
@@ -948,6 +959,7 @@ async def run_scheduled_agent_run(instructions: str, sender: str | None = None) 
     surface: Literal["text", "web"] = "text" if sender else "web"
     deps = _default_deps(sender=sender, message_handle=None, surface=surface)
     prompt = (
+        f"{await _known_startups_context()}\n\n"
         f"This is a scheduled self-run you set up earlier. Your instructions were: "
         f"'{instructions}'. Carry them out now and report back."
     )

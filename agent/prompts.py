@@ -275,13 +275,23 @@ def build_instructions(
     *,
     thesis: str,
     preferences: str,
-    known: str,
 ) -> str:
     """The single instructions block for the unified assistant agent — identical
     routing/tool logic across every surface (inbound text, dashboard chat, and your
     own scheduled/autonomous runs), differing only in the closing style tail: iMessage
     style for text, rich Markdown + generative UI for anything that renders on the
-    dashboard."""
+    dashboard.
+
+    Deliberately does NOT include the known-startups list — that's injected into the
+    per-turn user message instead (see known_startups_block below). It changes on
+    nearly every dashboard action (any status/outreach/enrichment change re-sorts it),
+    so keeping it out of this block is what makes the block itself cacheable: Anthropic
+    prompt caching is a single prefix breakpoint at the end of the whole system
+    prompt (anthropic_cache_instructions), so ANY change anywhere in this text — even
+    one word — busts the cache for the entire block on the next call. thesis/
+    preferences only change on a deliberate edit, so they're safe to keep here; the
+    known-startups list changes constantly and would have made this block almost
+    never cache-hit, meaning full reprocessing latency+cost on nearly every turn."""
     header = (
         "You handle inbound texts from your boss (a pre-seed VC) and execute their requests fully before replying."
         if surface == "text"
@@ -297,9 +307,6 @@ def build_instructions(
 
 {_common_routing_table()}
 
-Startups you already know (name | slug | status) — never re-save these:
-{known}
-
 Investment thesis:
 {thesis}
 
@@ -308,3 +315,9 @@ Patterns you've learned (seek/avoid):
 
 {style}
 """
+
+
+def known_startups_block(known: str) -> str:
+    """The known-startups list, formatted for inclusion in the per-turn user message
+    (not the cached instructions block — see build_instructions' docstring for why)."""
+    return f"Startups you already know (name | slug | status) — never re-save these:\n{known}"

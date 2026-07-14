@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, timezone
 
 from supabase import create_client
 
-from agent import AgentDeps, agent_run_with_retry, assistant_agent
+from agent import AgentDeps, agent_run_with_retry, assistant_agent, _known_startups_context
 
 MAX_CHECKS_PER_RUN = 5
 STALE_DAYS = 10  # only consider approved startups untouched this long
@@ -88,6 +88,7 @@ async def run_daily_planner() -> dict:
     prompt = _DAILY_REVIEW_PROMPT.format(
         n=len(rows), stale_days=STALE_DAYS, items=items_text, max_checks=MAX_CHECKS_PER_RUN
     )
+    prompt = f"{await _known_startups_context()}\n\n{prompt}"
 
     deps = AgentDeps(
         phone_number="",
