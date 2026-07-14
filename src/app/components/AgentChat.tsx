@@ -42,6 +42,16 @@ function formatWhen(ts: number): string {
 
 export default function AgentChat() {
   const [store, setStore] = useState<ChatStore | null>(null);
+  // The real source of truth for commit() — a plain ref, not React state. A
+  // background send()/flush() keeps running after this component unmounts (e.g.
+  // navigating to "/" mid-reply doesn't cancel the underlying fetch), but React
+  // is free to skip invoking a setState updater callback on an unmounted
+  // component entirely — which used to mean saveChatStore() (inside that
+  // callback) might never run, silently losing whatever the agent produced
+  // after you left the page. Reading/writing storeRef is a plain synchronous
+  // assignment, so it — and the persistence that depends on it — always
+  // happens regardless of mount state.
+  const storeRef = useRef<ChatStore | null>(null);
   const [input, setInput] = useState("");
   // Per-thread, not global — lets you send in one conversation while another
   // is still streaming a reply in the background.
@@ -78,7 +88,9 @@ export default function AgentChat() {
   }, [active?.id]);
 
   useEffect(() => {
-    setStore(loadChatStore());
+    const loaded = loadChatStore();
+    storeRef.current = loaded;
+    setStore(loaded);
   }, []);
 
   useEffect(() => {
@@ -90,16 +102,21 @@ export default function AgentChat() {
     return () => window.removeEventListener("keydown", onKey);
   }, [drawerOpen]);
 
-  // Applies against the freshest store, not a render-time snapshot — required
-  // because a background thread's flush() can update the store concurrently
-  // with a foreground action (send/switch/delete) on a different thread.
+  // Applies against storeRef (always current, plain-assignment-only — see its
+  // declaration above), not a render-time snapshot — required because a
+  // background thread's flush() can update the store concurrently with a
+  // foreground action (send/switch/delete) on a different thread, AND because
+  // this must keep persisting correctly even after the component that started
+  // it has unmounted (left the /chat page mid-reply). saveChatStore/storeRef
+  // are plain statements that always run; setStore is only there to trigger a
+  // re-render for a still-mounted instance and is safe to no-op otherwise.
   const commit = useCallback((updater: ChatStore | ((prev: ChatStore) => ChatStore)) => {
-    setStore((prev) => {
-      if (!prev) return prev;
-      const next = typeof updater === "function" ? updater(prev) : updater;
-      saveChatStore(next);
-      return next;
-    });
+    const prev = storeRef.current;
+    if (!prev) return;
+    const next = typeof updater === "function" ? updater(prev) : updater;
+    storeRef.current = next;
+    saveChatStore(next);
+    setStore(next);
   }, []);
 
   function handleNewChat() {
