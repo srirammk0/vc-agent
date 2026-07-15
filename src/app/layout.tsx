@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import ScrollRestoration from "./components/ScrollRestoration";
+import { ToastProvider } from "./components/Toast";
 
 export const metadata: Metadata = {
   title: "VC Research Agent",
@@ -12,7 +13,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body suppressHydrationWarning>
         <ScrollRestoration />
-        {children}
+        <ToastProvider>{children}</ToastProvider>
       </body>
     </html>
   );

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { CalendarClock, MessageCircle, SlidersHorizontal, Zap } from "lucide-react";
+import { MessageCircle, SlidersHorizontal, Zap } from "lucide-react";
 import type { Startup } from "../../lib/supabase";
 import { hasEnrichmentData, isStaleRunning } from "../../lib/enrichment";
 import { sortStartups } from "../../lib/sortStartups";
@@ -15,6 +15,7 @@ import StartupActions from "./StartupActions";
 import StartupPanel from "./StartupPanel";
 import CommandPalette from "./CommandPalette";
 import SpeedReview from "./SpeedReview";
+import { useToast } from "./Toast";
 
 type Tab = "all" | "new" | "approved" | "passed";
 type ChannelFilter = "all" | "not_contacted" | "contacted" | "replied";
@@ -97,6 +98,29 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
   // current tab/search/filters, so it's naturally scoped per-tab without separate
   // per-tab entry points. Doesn't reshuffle mid-review even as statuses change.
   const [reviewQueue, setReviewQueue] = useState<string[] | null>(null);
+  const { showUndoToast } = useToast();
+
+  // Undo restores each row to its OWN previous status, not a single shared one —
+  // a mixed-status selection (e.g. in the "All" tab) batch-approved together can't
+  // be undone via the batch endpoint, which only ever sets one status for everyone.
+  async function undoBatchStatus(prevStatuses: Map<string, Startup["status"] | undefined>) {
+    prevStatuses.forEach((prevStatus, slug) => {
+      if (prevStatus) updateLocal(slug, { status: prevStatus });
+    });
+    await Promise.all(
+      Array.from(prevStatuses.entries()).map(([slug, prevStatus]) => {
+        if (!prevStatus) return Promise.resolve();
+        return queueWrite(slug, async () => {
+          const res = await fetch(`/api/startup/${slug}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status: prevStatus }),
+          });
+          if (!res.ok) throw new Error("undo failed");
+        }).catch((e) => console.error(`undo failed for ${slug}:`, e));
+      })
+    );
+  }
 
   async function handleBatchStatus(status: "new" | "approved" | "passed") {
     if (selectedSlugs.size === 0) return;
@@ -116,6 +140,10 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
         });
         if (!res.ok) throw new Error("batch update failed");
       });
+      showUndoToast(
+        `${slugs.length} startup${slugs.length === 1 ? "" : "s"} marked ${status}`,
+        () => undoBatchStatus(prevStatuses)
+      );
     } catch (e) {
       console.error("Batch update failed:", e);
       prevStatuses.forEach((prevStatus, slug) => {
@@ -262,15 +290,6 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <Link
-              href="/scheduled"
-              prefetch
-              className="dash-nav-link"
-              title="Scheduled Runs"
-            >
-              <CalendarClock size={15} strokeWidth={2.2} />
-              Scheduled
-            </Link>
-            <Link
               href="/chat"
               prefetch
               className="dash-nav-link"
@@ -384,195 +403,153 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
           ) : null}
         </div>
 
-        {/* Toolbar: filters, select-all, search — grouped and fixed on the left */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
-          <div ref={filtersRef} style={{ position: "relative" }}>
-            <button
-              onClick={() => setFiltersOpen((v) => !v)}
-              title="Filter by outreach status"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                height: 32,
-                padding: "0 12px",
-                borderRadius: 6,
-                border: activeFilterCount > 0 ? "1px solid rgba(0,122,255,0.3)" : "1px solid var(--border)",
-                background: activeFilterCount > 0 ? "rgba(0,122,255,0.08)" : "rgba(255,255,255,0.7)",
-                color: activeFilterCount > 0 ? "var(--accent)" : "var(--label)",
-                fontSize: 12.5,
-                fontWeight: 500,
-                cursor: "pointer",
-                whiteSpace: "nowrap",
-                transition: "all 0.15s ease",
-              }}
-            >
-              <SlidersHorizontal size={13} strokeWidth={2.2} />
-              Filters
-              {activeFilterCount > 0 && (
-                <span
-                  style={{
-                    background: "var(--accent)",
-                    color: "#fff",
-                    fontSize: 10.5,
-                    fontWeight: 600,
-                    borderRadius: 999,
-                    minWidth: 15,
-                    height: 15,
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    padding: "0 3px",
-                  }}
-                >
-                  {activeFilterCount}
-                </span>
-              )}
-            </button>
-
-            {filtersOpen && (
-              <div
-                className="menu-pop animate-fade-in"
+        {/* Toolbar: filters (+ count) on the left, search on the right */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <div ref={filtersRef} style={{ position: "relative" }}>
+              <button
+                onClick={() => setFiltersOpen((v) => !v)}
+                title="Filter by outreach status"
                 style={{
-                  position: "absolute",
-                  left: 0,
-                  top: 38,
-                  width: 240,
-                  background: "var(--card-bg)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 8,
-                  boxShadow: "0 8px 24px rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.06)",
-                  padding: 12,
-                  zIndex: 50,
                   display: "flex",
-                  flexDirection: "column",
-                  gap: 12,
+                  alignItems: "center",
+                  gap: 6,
+                  height: 32,
+                  padding: "0 12px",
+                  borderRadius: 6,
+                  border: activeFilterCount > 0 ? "1px solid rgba(0,122,255,0.3)" : "1px solid var(--border)",
+                  background: activeFilterCount > 0 ? "rgba(0,122,255,0.08)" : "rgba(255,255,255,0.7)",
+                  color: activeFilterCount > 0 ? "var(--accent)" : "var(--label)",
+                  fontSize: 12.5,
+                  fontWeight: 500,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                  transition: "all 0.15s ease",
                 }}
               >
-                <button
-                  type="button"
-                  onClick={applyNeedsEmailPreset}
+                <SlidersHorizontal size={13} strokeWidth={2.2} />
+                Filters
+                {activeFilterCount > 0 && (
+                  <span
+                    style={{
+                      background: "var(--accent)",
+                      color: "#fff",
+                      fontSize: 10.5,
+                      fontWeight: 600,
+                      borderRadius: 999,
+                      minWidth: 15,
+                      height: 15,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      padding: "0 3px",
+                    }}
+                  >
+                    {activeFilterCount}
+                  </span>
+                )}
+              </button>
+
+              {filtersOpen && (
+                <div
+                  className="menu-pop animate-fade-in"
                   style={{
-                    textAlign: "left",
-                    fontSize: 12.5,
-                    fontWeight: 500,
-                    color: "var(--accent)",
-                    background: "rgba(0,122,255,0.06)",
-                    border: "1px solid rgba(0,122,255,0.18)",
-                    borderRadius: 6,
-                    padding: "6px 9px",
-                    cursor: "pointer",
+                    position: "absolute",
+                    left: 0,
+                    top: 38,
+                    width: 240,
+                    background: "var(--card-bg)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 8,
+                    boxShadow: "0 8px 24px rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.06)",
+                    padding: 12,
+                    zIndex: 50,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 12,
                   }}
                 >
-                  Needs email (not stealth, not yet emailed)
-                </button>
-
-                <FilterGroup
-                  label="Stealth"
-                  value={stealthFilter}
-                  options={STEALTH_FILTER_OPTIONS}
-                  onChange={setStealthFilter}
-                />
-                <FilterGroup
-                  label="LinkedIn"
-                  value={linkedinFilter}
-                  options={CHANNEL_FILTER_OPTIONS}
-                  onChange={setLinkedinFilter}
-                />
-                <FilterGroup
-                  label="Email"
-                  value={emailFilter}
-                  options={CHANNEL_FILTER_OPTIONS}
-                  onChange={setEmailFilter}
-                />
-
-                {activeFilterCount > 0 && (
                   <button
                     type="button"
-                    onClick={clearFilters}
+                    onClick={applyNeedsEmailPreset}
                     style={{
                       textAlign: "left",
-                      fontSize: 12,
-                      color: "var(--muted)",
-                      background: "transparent",
-                      border: "none",
-                      padding: "2px 0 0",
+                      fontSize: 12.5,
+                      fontWeight: 500,
+                      color: "var(--accent)",
+                      background: "rgba(0,122,255,0.06)",
+                      border: "1px solid rgba(0,122,255,0.18)",
+                      borderRadius: 6,
+                      padding: "6px 9px",
                       cursor: "pointer",
                     }}
                   >
-                    Clear filters
+                    Needs email (not stealth, not yet emailed)
                   </button>
-                )}
-              </div>
+
+                  <FilterGroup
+                    label="Stealth"
+                    value={stealthFilter}
+                    options={STEALTH_FILTER_OPTIONS}
+                    onChange={setStealthFilter}
+                  />
+                  <FilterGroup
+                    label="LinkedIn"
+                    value={linkedinFilter}
+                    options={CHANNEL_FILTER_OPTIONS}
+                    onChange={setLinkedinFilter}
+                  />
+                  <FilterGroup
+                    label="Email"
+                    value={emailFilter}
+                    options={CHANNEL_FILTER_OPTIONS}
+                    onChange={setEmailFilter}
+                  />
+
+                  {activeFilterCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={clearFilters}
+                      style={{
+                        textAlign: "left",
+                        fontSize: 12,
+                        color: "var(--muted)",
+                        background: "transparent",
+                        border: "none",
+                        padding: "2px 0 0",
+                        cursor: "pointer",
+                      }}
+                    >
+                      Clear filters
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <span style={{ fontSize: 12.5, color: "var(--muted)", whiteSpace: "nowrap" }}>
+              {filtered.length} shown
+            </span>
+
+            {(activeFilterCount > 0 || query.trim() !== "") && (
+              <button
+                type="button"
+                onClick={clearAllFilters}
+                style={{
+                  fontSize: 12.5,
+                  fontWeight: 500,
+                  color: "var(--accent)",
+                  background: "transparent",
+                  border: "none",
+                  padding: 0,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                Remove filters
+              </button>
             )}
           </div>
-
-          <span style={{ fontSize: 12.5, color: "var(--muted)", whiteSpace: "nowrap" }}>
-            {filtered.length} shown
-          </span>
-
-          {(activeFilterCount > 0 || query.trim() !== "") && (
-            <button
-              type="button"
-              onClick={clearAllFilters}
-              style={{
-                fontSize: 12.5,
-                fontWeight: 500,
-                color: "var(--accent)",
-                background: "transparent",
-                border: "none",
-                padding: 0,
-                cursor: "pointer",
-                whiteSpace: "nowrap",
-              }}
-            >
-              Remove filters
-            </button>
-          )}
-
-          {filtered.length > 0 && (
-            <button
-              onClick={() => {
-                if (selectedSlugs.size === filtered.length) {
-                  setSelectedSlugs(new Set());
-                } else {
-                  setSelectedSlugs(new Set(filtered.map((s) => s.slug)));
-                }
-              }}
-              style={{
-                background: selectedSlugs.size > 0 ? "rgba(0, 122, 255, 0.08)" : "rgba(255, 255, 255, 0.7)",
-                border: selectedSlugs.size > 0 ? "1px solid rgba(0, 122, 255, 0.28)" : "1px solid var(--border-med)",
-                borderRadius: "8px",
-                padding: "5px 12px",
-                fontSize: "12.5px",
-                fontWeight: selectedSlugs.size > 0 ? 600 : 500,
-                color: selectedSlugs.size > 0 ? "var(--accent)" : "var(--label)",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                height: 32,
-                transition: "all 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
-                boxShadow: selectedSlugs.size > 0 ? "0 2px 8px rgba(0, 122, 255, 0.12)" : "0 1px 2px rgba(0, 0, 0, 0.03)",
-              }}
-            >
-              <CleanCheckbox
-                checked={filtered.length > 0 && selectedSlugs.size === filtered.length}
-                onChange={() => {
-                  if (selectedSlugs.size === filtered.length) {
-                    setSelectedSlugs(new Set());
-                  } else {
-                    setSelectedSlugs(new Set(filtered.map((s) => s.slug)));
-                  }
-                }}
-              />
-              {selectedSlugs.size === filtered.length
-                ? "Deselect All"
-                : selectedSlugs.size > 0
-                ? `Select All (${filtered.length})`
-                : "Select All"}
-            </button>
-          )}
 
           <SearchBar query={query} setQuery={setQuery} isMac={isMac} />
         </div>
@@ -811,12 +788,12 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
             alignItems: "center",
             gap: 16,
             padding: "10px 18px",
-            background: "rgba(23, 23, 23, 0.88)",
+            background: "var(--card-bg)",
             backdropFilter: "blur(24px) saturate(180%)",
             WebkitBackdropFilter: "blur(24px) saturate(180%)",
-            border: "1px solid rgba(255, 255, 255, 0.14)",
+            border: "1px solid var(--border)",
             borderRadius: 16,
-            boxShadow: "0 20px 50px rgba(0, 0, 0, 0.32), 0 0 0 1px rgba(255, 255, 255, 0.08) inset",
+            boxShadow: "0 20px 50px rgba(0, 0, 0, 0.18), 0 2px 10px rgba(0, 0, 0, 0.06)",
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -833,12 +810,32 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
             >
               {selectedSlugs.size}
             </span>
-            <span style={{ fontSize: 13.5, fontWeight: 500, color: "rgba(255, 255, 255, 0.9)", letterSpacing: "-0.1px" }}>
+            <span style={{ fontSize: 13.5, fontWeight: 500, color: "var(--heading)", letterSpacing: "-0.1px" }}>
               selected
             </span>
           </div>
 
-          <div style={{ width: 1, height: 22, background: "rgba(255, 255, 255, 0.15)" }} />
+          <div style={{ width: 1, height: 22, background: "var(--border)" }} />
+
+          <button
+            className="hud-btn"
+            onClick={() => {
+              if (selectedSlugs.size === filtered.length) {
+                setSelectedSlugs(new Set());
+              } else {
+                setSelectedSlugs(new Set(filtered.map((s) => s.slug)));
+              }
+            }}
+            style={{
+              background: "rgba(0, 122, 255, 0.08)",
+              border: "1px solid rgba(0, 122, 255, 0.25)",
+              color: "var(--accent)",
+            }}
+          >
+            {selectedSlugs.size === filtered.length ? "Deselect All" : `Select All (${filtered.length})`}
+          </button>
+
+          <div style={{ width: 1, height: 22, background: "var(--border)" }} />
 
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <button
@@ -846,15 +843,14 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
               onClick={() => handleBatchStatus("approved")}
               disabled={batchBusy !== null}
               style={{
-                background: "rgba(52, 199, 89, 0.16)",
-                border: "1px solid rgba(52, 199, 89, 0.35)",
-                color: "#4cd964",
-                boxShadow: "0 2px 10px rgba(52, 199, 89, 0.18)",
+                background: "rgba(52, 199, 89, 0.12)",
+                border: "1px solid rgba(52, 199, 89, 0.3)",
+                color: "#1e9e4a",
                 opacity: batchBusy !== null ? 0.5 : 1,
                 cursor: batchBusy !== null ? "not-allowed" : "pointer",
               }}
             >
-              <span style={{ width: 6, height: 6, borderRadius: 999, background: "#4cd964", boxShadow: "0 0 8px #4cd964" }} />
+              <span style={{ width: 6, height: 6, borderRadius: 999, background: "#1e9e4a" }} />
               {batchBusy === "approved" ? "Approving…" : "Mark approved"}
             </button>
 
@@ -863,15 +859,14 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
               onClick={() => handleBatchStatus("passed")}
               disabled={batchBusy !== null}
               style={{
-                background: "rgba(255, 59, 48, 0.16)",
-                border: "1px solid rgba(255, 59, 48, 0.35)",
-                color: "#ff453a",
-                boxShadow: "0 2px 10px rgba(255, 59, 48, 0.18)",
+                background: "rgba(255, 59, 48, 0.1)",
+                border: "1px solid rgba(255, 59, 48, 0.3)",
+                color: "#d9291f",
                 opacity: batchBusy !== null ? 0.5 : 1,
                 cursor: batchBusy !== null ? "not-allowed" : "pointer",
               }}
             >
-              <span style={{ width: 6, height: 6, borderRadius: 999, background: "#ff453a", boxShadow: "0 0 8px #ff453a" }} />
+              <span style={{ width: 6, height: 6, borderRadius: 999, background: "#d9291f" }} />
               {batchBusy === "passed" ? "Passing…" : "Mark passed"}
             </button>
 
@@ -880,19 +875,19 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
               onClick={() => handleBatchStatus("new")}
               disabled={batchBusy !== null}
               style={{
-                background: "rgba(255, 255, 255, 0.1)",
-                border: "1px solid rgba(255, 255, 255, 0.18)",
-                color: "rgba(255, 255, 255, 0.85)",
+                background: "rgba(0, 0, 0, 0.04)",
+                border: "1px solid var(--border-med)",
+                color: "var(--label)",
                 opacity: batchBusy !== null ? 0.5 : 1,
                 cursor: batchBusy !== null ? "not-allowed" : "pointer",
               }}
             >
-              <span style={{ width: 6, height: 6, borderRadius: 999, background: "rgba(255, 255, 255, 0.7)" }} />
+              <span style={{ width: 6, height: 6, borderRadius: 999, background: "var(--label)" }} />
               {batchBusy === "new" ? "Resetting…" : "Mark new"}
             </button>
           </div>
 
-          <div style={{ width: 1, height: 22, background: "rgba(255, 255, 255, 0.15)" }} />
+          <div style={{ width: 1, height: 22, background: "var(--border)" }} />
 
           <button
             onClick={() => setSelectedSlugs(new Set())}
@@ -900,7 +895,7 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
             style={{
               background: "transparent",
               border: "none",
-              color: "rgba(255, 255, 255, 0.55)",
+              color: "var(--muted)",
               fontSize: 13,
               fontWeight: 500,
               cursor: batchBusy !== null ? "not-allowed" : "pointer",
@@ -909,11 +904,11 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
               transition: "all 0.15s ease",
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.color = "#fff";
-              e.currentTarget.style.background = "rgba(255, 255, 255, 0.1)";
+              e.currentTarget.style.color = "var(--heading)";
+              e.currentTarget.style.background = "rgba(0, 0, 0, 0.05)";
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.color = "rgba(255, 255, 255, 0.55)";
+              e.currentTarget.style.color = "var(--muted)";
               e.currentTarget.style.background = "transparent";
             }}
             title="Clear selection"

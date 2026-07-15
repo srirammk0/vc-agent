@@ -3,10 +3,17 @@
 import { useEffect, useRef, useState } from "react";
 import { showEnrichButton } from "../../lib/enrichment";
 import { queueWrite } from "../../lib/writeQueue";
+import { useToast } from "./Toast";
 import type { Founder, Startup } from "../../lib/supabase";
 
 type Status = "new" | "approved" | "passed";
 type ChannelStatus = "not_contacted" | "contacted" | "replied";
+
+const STATUS_LABEL: Record<Status, string> = {
+  new: "new",
+  approved: "approved",
+  passed: "passed",
+};
 
 type Props = {
   slug: string;
@@ -58,6 +65,7 @@ export default function StartupActions({
   const [feedbackFor, setFeedbackFor] = useState<Status | null>(null);
   const [feedback, setFeedback] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
+  const { showUndoToast } = useToast();
 
   function closeMenu() {
     setMenuOpen(false);
@@ -102,6 +110,21 @@ export default function StartupActions({
     team_size: null,
   });
 
+  /** Re-applies a previously-reverted patch — used by undo toasts. Best-effort:
+   * if the undo write itself fails, the optimistic revert already happened locally
+   * and there's no further fallback here (same as any other failed background write). */
+  async function applyPatch(body: Record<string, unknown>) {
+    onUpdate(body as Partial<Startup>);
+    await queueWrite(slug, async () => {
+      const res = await fetch(`/api/startup/${slug}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error("undo failed");
+    }).catch((e) => console.error("undo failed:", e));
+  }
+
   async function setStatusQuick(next: Status) {
     closeMenu();
     const prevStatus = status;
@@ -116,6 +139,7 @@ export default function StartupActions({
         });
         if (!res.ok) throw new Error("status update failed");
       });
+      showUndoToast(`${name} marked ${STATUS_LABEL[next]}`, () => applyPatch({ status: prevStatus }));
     } catch (e) {
       console.error(e);
       onUpdate({ status: prevStatus });
@@ -126,7 +150,8 @@ export default function StartupActions({
   async function patchOutreach(
     body: Record<string, unknown>,
     busyKey: string,
-    revert: Partial<Startup>
+    revert: Partial<Startup>,
+    toastMessage?: string
   ) {
     onUpdate(body as Partial<Startup>);
     setBusy(busyKey);
@@ -139,6 +164,9 @@ export default function StartupActions({
         });
         if (!res.ok) throw new Error("outreach update failed");
       });
+      if (toastMessage) {
+        showUndoToast(toastMessage, () => applyPatch(revert as Record<string, unknown>));
+      }
     } catch (e) {
       console.error(e);
       onUpdate(revert);
@@ -147,14 +175,22 @@ export default function StartupActions({
   }
 
   function toggleStealth() {
-    patchOutreach({ stealth: !stealth }, "stealth", { stealth });
+    patchOutreach(
+      { stealth: !stealth },
+      "stealth",
+      { stealth },
+      `${name} ${!stealth ? "marked" : "unmarked"} stealth`
+    );
   }
 
   function cycleChannel(channel: "linkedin_status" | "email_status", current: ChannelStatus) {
+    const next = NEXT_CHANNEL_STATUS[current];
+    const label = channel === "linkedin_status" ? "LinkedIn" : "Email";
     patchOutreach(
-      { [channel]: NEXT_CHANNEL_STATUS[current] },
+      { [channel]: next },
       channel,
-      { [channel]: current }
+      { [channel]: current },
+      `${label} marked ${CHANNEL_LABEL[next].toLowerCase()}`
     );
   }
 
@@ -193,6 +229,10 @@ export default function StartupActions({
         });
         if (!res.ok) throw new Error("feedback failed");
       });
+      // Undo only reverts the status — the reason you gave already got distilled
+      // into a learned preference server-side (feedback_agent), which isn't
+      // something this can cleanly claw back.
+      showUndoToast(`${name} marked ${STATUS_LABEL[next]}`, () => applyPatch({ status: prevStatus }));
     } catch (e) {
       console.error(e);
       onUpdate({ status: prevStatus });

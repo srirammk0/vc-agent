@@ -5,6 +5,7 @@ import { ArrowLeft, ArrowRight, Check, ChevronDown, ExternalLink, X } from "luci
 import type { Founder, Startup } from "../../lib/supabase";
 import { hasEnrichmentData } from "../../lib/enrichment";
 import { queueWrite } from "../../lib/writeQueue";
+import { useToast } from "./Toast";
 import StatusBadge from "./StatusBadge";
 import OutreachBadges from "./OutreachBadges";
 
@@ -43,6 +44,7 @@ export default function SpeedReview({ startups, queueSlugs, onUpdate, onClose }:
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState<"approved" | "passed" | null>(null);
   const [showPreview, setShowPreview] = useState(false);
+  const { showUndoToast } = useToast();
 
   const total = queueSlugs.length;
   const done = index >= total;
@@ -68,6 +70,7 @@ export default function SpeedReview({ startups, queueSlugs, onUpdate, onClose }:
     async (status: Status) => {
       if (!current || busy) return;
       const slug = current.slug;
+      const name = current.name;
       const prevStatus = current.status;
       setBusy(true);
       setFlash(status === "passed" ? "passed" : "approved");
@@ -81,6 +84,17 @@ export default function SpeedReview({ startups, queueSlugs, onUpdate, onClose }:
           });
           if (!res.ok) throw new Error("status update failed");
         });
+        showUndoToast(`${name} marked ${status}`, async () => {
+          onUpdate(slug, { status: prevStatus });
+          await queueWrite(slug, async () => {
+            const res = await fetch(`/api/startup/${slug}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ status: prevStatus }),
+            });
+            if (!res.ok) throw new Error("undo failed");
+          }).catch((e) => console.error("undo failed:", e));
+        });
       } catch (e) {
         console.error(e);
         onUpdate(slug, { status: prevStatus });
@@ -92,7 +106,7 @@ export default function SpeedReview({ startups, queueSlugs, onUpdate, onClose }:
         setFlash(null);
       }, 200);
     },
-    [current, busy, onUpdate, total]
+    [current, busy, onUpdate, total, showUndoToast]
   );
 
   // A card can vanish mid-review (agent deletes a duplicate, etc.) — skip past a
@@ -190,9 +204,9 @@ export default function SpeedReview({ startups, queueSlugs, onUpdate, onClose }:
                 alignItems: "center",
                 justifyContent: "center",
                 borderRadius: 8,
-                border: "1px solid rgba(255,255,255,0.14)",
-                background: "#232326",
-                color: "#fff",
+                border: "1px solid var(--border)",
+                background: "#fff",
+                color: "var(--label)",
                 cursor: "pointer",
               }}
             >
@@ -527,9 +541,9 @@ function navBtnStyle(disabled: boolean): CSSProperties {
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 12,
-    border: "1px solid rgba(255,255,255,0.14)",
-    background: disabled ? "#1c1c1e" : "#232326",
-    color: disabled ? "rgba(255,255,255,0.3)" : "#fff",
+    border: "1px solid var(--border)",
+    background: disabled ? "#f0f0f0" : "#fff",
+    color: disabled ? "var(--muted)" : "var(--label)",
     cursor: disabled ? "not-allowed" : "pointer",
   };
 }
@@ -540,11 +554,11 @@ function Hint({ keys, label }: { keys: string; label: string }) {
       <kbd
         style={{
           fontSize: 10.5,
-          color: "rgba(255,255,255,0.85)",
-          border: "1px solid rgba(255,255,255,0.16)",
+          color: "var(--label)",
+          border: "1px solid var(--border)",
           borderRadius: 5,
           padding: "1px 6px",
-          background: "#232326",
+          background: "#fff",
           fontFamily: "inherit",
         }}
       >
