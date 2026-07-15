@@ -23,12 +23,26 @@ export function hasEnrichmentData(startup: Partial<EnrichmentFields>): boolean {
   return founders.some((f) => Boolean(f.positions && f.positions.length > 0));
 }
 
-export function showEnrichButton(
-  startup: Pick<Startup, "status" | "enrichment_status"> & Partial<EnrichmentFields>
+// Comfortably above enrich_startup_job's own 300s Modal timeout (plus queueing
+// slack) — a row still "running" past this is stuck (the container was
+// hard-killed before it could reset enrichment_status), not genuinely in
+// progress, so it should be treated as retryable rather than perpetually busy.
+const STALE_RUNNING_MS = 10 * 60 * 1000;
+
+export function isStaleRunning(
+  startup: Pick<Startup, "enrichment_status" | "updated_at">
 ): boolean {
-  return (
-    startup.status === "approved" &&
-    startup.enrichment_status !== "running" &&
-    !hasEnrichmentData(startup)
-  );
+  if (startup.enrichment_status !== "running") return false;
+  if (!startup.updated_at) return false;
+  return Date.now() - new Date(startup.updated_at).getTime() > STALE_RUNNING_MS;
+}
+
+export function showEnrichButton(
+  startup: Pick<Startup, "status" | "enrichment_status" | "updated_at"> & Partial<EnrichmentFields>
+): boolean {
+  if (startup.status !== "approved") return false;
+  if (hasEnrichmentData(startup)) return false;
+  if (startup.enrichment_status === "failed") return true;
+  if (startup.enrichment_status === "running") return isStaleRunning(startup);
+  return true;
 }

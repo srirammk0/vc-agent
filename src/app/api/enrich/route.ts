@@ -8,9 +8,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "slug required" }, { status: 400 });
   }
 
+  // updated_at anchors the dashboard's staleness check (src/lib/enrichment.ts) —
+  // without it, a job whose container gets hard-killed before ever resetting
+  // enrichment_status leaves the row stuck at "running" with no way to tell it
+  // apart from one still genuinely in progress.
   await supabase
     .from("startups")
-    .update({ enrichment_status: "running" })
+    .update({ enrichment_status: "running", updated_at: new Date().toISOString() })
     .eq("slug", slug);
 
   const modalUrl = process.env.MODAL_ENRICH_URL;
@@ -28,9 +32,11 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({ slug, name }),
     });
   } catch (e) {
+    // Never even reached Modal — a real failure, not "nothing found", so mark
+    // it "failed" (not "pending") same as modal_app.py's own except block.
     await supabase
       .from("startups")
-      .update({ enrichment_status: "pending" })
+      .update({ enrichment_status: "failed" })
       .eq("slug", slug);
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "enrich trigger failed" },

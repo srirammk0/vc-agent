@@ -73,6 +73,7 @@ export default function StartupDetailBody({ startup: s, onUpdate }: Props) {
             name={s.name}
             status={s.status}
             enrichmentStatus={s.enrichment_status}
+            enrichmentUpdatedAt={s.updated_at}
             companyDescription={s.company_description}
             founders={s.founders}
             stealth={s.stealth}
@@ -103,6 +104,7 @@ export default function StartupDetailBody({ startup: s, onUpdate }: Props) {
         startup={{
           slug: s.slug,
           enrichment_status: s.enrichment_status,
+          updated_at: s.updated_at,
           company_description: s.company_description,
           founders: s.founders,
           stage: s.stage,

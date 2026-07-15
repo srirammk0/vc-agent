@@ -34,7 +34,7 @@ export type Startup = {
   found_date: string | null;
   created_at: string | null;
   updated_at: string | null;
-  enrichment_status: "pending" | "running" | "complete";
+  enrichment_status: "pending" | "running" | "complete" | "failed";
   company_description: string | null;
   founded: string | null;
   location: string | null;

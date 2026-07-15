@@ -10,7 +10,7 @@ export async function GET(
   const { data, error } = await supabase
     .from("startups")
     .select(
-      "slug, enrichment_status, company_description, founders, stage, raised, location, founded, team_size"
+      "slug, enrichment_status, updated_at, company_description, founders, stage, raised, location, founded, team_size"
     )
     .eq("slug", slug)
     .maybeSingle();

@@ -12,7 +12,8 @@ type Props = {
   slug: string;
   name: string;
   status: Status;
-  enrichmentStatus: "pending" | "running" | "complete";
+  enrichmentStatus: "pending" | "running" | "complete" | "failed";
+  enrichmentUpdatedAt: string | null;
   companyDescription: string | null;
   founders: Founder[] | null;
   stealth: boolean;
@@ -44,6 +45,7 @@ export default function StartupActions({
   name,
   status,
   enrichmentStatus,
+  enrichmentUpdatedAt,
   companyDescription,
   founders,
   stealth,
@@ -90,6 +92,7 @@ export default function StartupActions({
   const enrichVisible = showEnrichButton({
     status,
     enrichment_status: enrichmentStatus,
+    updated_at: enrichmentUpdatedAt,
     company_description: companyDescription,
     founders,
     stage: null,
@@ -241,7 +244,11 @@ export default function StartupActions({
             whiteSpace: "nowrap",
           }}
         >
-          {busy === "enrich" ? "Enriching…" : "Enrich"}
+          {busy === "enrich"
+            ? "Enriching…"
+            : enrichmentStatus === "failed" || enrichmentStatus === "running"
+            ? "Retry enrich"
+            : "Enrich"}
         </button>
       )}
 

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { CalendarClock, MessageCircle, SlidersHorizontal } from "lucide-react";
 import type { Startup } from "../../lib/supabase";
-import { hasEnrichmentData } from "../../lib/enrichment";
+import { hasEnrichmentData, isStaleRunning } from "../../lib/enrichment";
 import { sortStartups } from "../../lib/sortStartups";
 import { readSession, writeSession } from "../../lib/persistedState";
 import { queueWrite } from "../../lib/writeQueue";
@@ -526,7 +526,7 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
             {filtered.map((s, i) => {
               const isPassed = s.status === "passed";
               const enriched = hasEnrichmentData(s);
-              const isEnriching = s.enrichment_status === "running";
+              const isEnriching = s.enrichment_status === "running" && !isStaleRunning(s);
               const isSelected = selectedSlugs.has(s.slug);
 
               return (
@@ -678,6 +678,7 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
                         name={s.name}
                         status={s.status}
                         enrichmentStatus={s.enrichment_status}
+                        enrichmentUpdatedAt={s.updated_at}
                         companyDescription={s.company_description}
                         founders={s.founders}
                         stealth={s.stealth}

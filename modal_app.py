@@ -313,6 +313,7 @@ def sync_on_demand():
 @modal.fastapi_endpoint(method="POST")
 def enrich_startup(payload: dict):
     import os
+    from datetime import datetime, timezone
     from supabase import create_client
 
     slug = payload.get("slug")
@@ -322,7 +323,14 @@ def enrich_startup(payload: dict):
         os.environ["SUPABASE_URL"],
         os.environ["SUPABASE_SERVICE_ROLE_KEY"],
     )
-    sb.table("startups").update({"enrichment_status": "running"}).eq("slug", slug).execute()
+    # updated_at is the anchor the dashboard uses to tell a genuinely-running job
+    # apart from one stuck at "running" forever because enrich_startup_job's
+    # container got hard-killed (timeout/OOM/crash) before its except block ran —
+    # see src/lib/enrichment.ts's staleness check.
+    sb.table("startups").update({
+        "enrichment_status": "running",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }).eq("slug", slug).execute()
 
     enrich_startup_job.spawn(slug, name)
     return {"status": "started", "slug": slug}
@@ -364,6 +372,10 @@ def enrich_startup_job(slug: str, name: str):
         structured = asyncio.run(structure_enrichment(name, company, people + founder_history))
 
         if not structured or not has_enrichment_content(structured):
+            # Genuinely nothing found — distinct from the except block below
+            # (a real crash), so the dashboard can tell "we tried and came up
+            # empty" apart from "it broke." Both are retryable via Enrich again,
+            # but only "failed" should read as an error to the user.
             sb.table("startups").update({"enrichment_status": "pending"}).eq("slug", slug).execute()
             return {"status": "no_data", "slug": slug}
 
@@ -403,7 +415,10 @@ def enrich_startup_job(slug: str, name: str):
 
         sb.table("startups").update(update).eq("slug", slug).execute()
     except Exception as e:
-        sb.table("startups").update({"enrichment_status": "pending"}).eq("slug", slug).execute()
+        # A real exception (Exa/LLM failure, bad response) — "failed", not
+        # "pending", so the dashboard shows this as an actual error rather than
+        # indistinguishable from "searched and found nothing."
+        sb.table("startups").update({"enrichment_status": "failed"}).eq("slug", slug).execute()
         return {"status": "error", "slug": slug, "error": str(e)}
 
     return {"status": "enriched", "slug": slug}

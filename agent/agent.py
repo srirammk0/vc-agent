@@ -823,7 +823,7 @@ _WEB_CHAT_SOFT_DEADLINE_SECONDS = 270.0
 _WEB_CHAT_TIMEOUT_MESSAGE = "this is taking longer than expected - try a narrower ask or break it into steps"
 
 
-async def run_web_chat_stream(messages: list[dict]):
+async def run_web_chat_stream(messages: list[dict], should_stop=None):
     """Dashboard chat entry point — a separate surface from the iMessage thread with no
     shared memory. The client owns the full conversation: history is reconstructed
     fresh from the messages array on every call (instead of the phone-keyed cache in
@@ -837,6 +837,16 @@ async def run_web_chat_stream(messages: list[dict]):
     a failure becomes a terminal {"type": "error"} event rather than a silent retry —
     tools like save_startups have side effects, so replaying a partially-streamed turn
     risks calling them twice.
+
+    should_stop: optional zero-arg async callable, checked at the same checkpoints as
+    the soft deadline — the caller's connection-dropped signal (api/chat.py passes
+    Starlette's request.is_disconnected). Without this, aborting the client-side fetch
+    (the web UI's Stop button, or just navigating away) only stopped the client from
+    reading further events; the agent kept running server-side to completion,
+    including any tool calls still queued (save_startups, schedule_agent_run, ...)
+    with nobody left to see the result. This can't cancel a tool call already
+    in-flight when the disconnect is noticed, but it does stop the run from starting
+    another model turn or tool call after that point.
     """
     if not messages or messages[-1].get("role") != "user":
         return
@@ -855,6 +865,14 @@ async def run_web_chat_stream(messages: list[dict]):
     def _past_deadline() -> bool:
         return asyncio.get_event_loop().time() > deadline
 
+    async def _client_gone() -> bool:
+        if should_stop is None:
+            return False
+        try:
+            return bool(await should_stop())
+        except Exception:
+            return False
+
     while True:
         try:
             async with assistant_agent.iter(
@@ -867,6 +885,8 @@ async def run_web_chat_stream(messages: list[dict]):
                     if _past_deadline():
                         yield {"type": "error", "message": _WEB_CHAT_TIMEOUT_MESSAGE, "retryable": True}
                         return
+                    if await _client_gone():
+                        return
                     if Agent.is_model_request_node(node):
                         async with node.stream(agent_run.ctx) as request_stream:
                             async for text in request_stream.stream_text(delta=True):
@@ -874,6 +894,8 @@ async def run_web_chat_stream(messages: list[dict]):
                                 yield {"type": "text_delta", "text": text}
                                 if _past_deadline():
                                     yield {"type": "error", "message": _WEB_CHAT_TIMEOUT_MESSAGE, "retryable": True}
+                                    return
+                                if await _client_gone():
                                     return
                     elif Agent.is_call_tools_node(node):
                         async with node.stream(agent_run.ctx) as handle_stream:
@@ -897,6 +919,8 @@ async def run_web_chat_stream(messages: list[dict]):
                                     }
                                 if _past_deadline():
                                     yield {"type": "error", "message": _WEB_CHAT_TIMEOUT_MESSAGE, "retryable": True}
+                                    return
+                                if await _client_gone():
                                     return
             break
         except Exception as e:

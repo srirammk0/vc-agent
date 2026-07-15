@@ -253,15 +253,31 @@ async def save_startups_batch(
 
     to_insert = []
     skipped = []
+    # slug is a Postgres primary key, so two items in the SAME batch sharing a slug
+    # (the model surfacing one company twice from different search queries in one
+    # sweep) would otherwise both reach the single batched .insert() below and blow
+    # up the whole call on a unique-violation — failing every item in the batch, not
+    # just the duplicate. Track what's already staged for insert this call, same as
+    # existing_by_slug/existing_by_name track what's already in the DB.
+    batch_slugs: set[str] = set()
+    batch_names: set[str] = set()
     for item in items:
         slug = item["slug"]
-        match = existing_by_slug.get(slug) or existing_by_name.get(_normalize_name(item["name"]))
+        norm_name = _normalize_name(item["name"])
+        match = existing_by_slug.get(slug) or existing_by_name.get(norm_name)
         if match:
             skipped.append(
                 f"{item['name']}: already known as '{match['slug']}' "
                 f"(status: {match.get('status', 'new')}) — not re-saved"
             )
             continue
+        if slug in batch_slugs or norm_name in batch_names:
+            skipped.append(
+                f"{item['name']}: duplicate within this batch (slug '{slug}') — only the first occurrence was saved"
+            )
+            continue
+        batch_slugs.add(slug)
+        batch_names.add(norm_name)
         now = datetime.now(timezone.utc)
         row = {
             "slug": slug,

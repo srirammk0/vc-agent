@@ -32,7 +32,11 @@ async def chat(request: Request):
         return JSONResponse({"error": "messages required"}, status_code=400)
 
     async def event_stream():
-        async for event in run_web_chat_stream(messages):
+        # request.is_disconnected() lets the agent notice a client-side abort
+        # (the web UI's Stop button, or the tab closing) and stop issuing further
+        # model/tool calls instead of running the whole turn to completion with
+        # nobody left to read the reply — see run_web_chat_stream's should_stop.
+        async for event in run_web_chat_stream(messages, should_stop=request.is_disconnected):
             yield f"data: {json.dumps(event)}\n\n".encode("utf-8")
 
     return StreamingResponse(

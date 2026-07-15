@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getBrowserClient } from "../../lib/supabaseBrowser";
+import { isStaleRunning } from "../../lib/enrichment";
 import type { Startup } from "../../lib/supabase";
 
 /**
@@ -22,14 +23,17 @@ export function useLiveStartup(initial: Startup) {
     const client = getBrowserClient();
 
     if (!client) {
-      if (startup.enrichment_status !== "running") return;
+      // Stop polling once a "running" row is stale (stuck) too, not just when
+      // it's no longer running — otherwise a job whose container got killed
+      // mid-run would poll this endpoint forever with nothing ever changing.
+      if (startup.enrichment_status !== "running" || isStaleRunning(startup)) return;
       let active = true;
       const poll = async () => {
         try {
           const res = await fetch(`/api/startup/${startup.slug}`);
           if (!res.ok || !active) return;
           const json = await res.json();
-          if (json.enrichment_status !== "running") {
+          if (json.enrichment_status !== "running" || isStaleRunning(json)) {
             setStartup((prev) => ({ ...prev, ...json }));
           }
         } catch {

@@ -1,9 +1,9 @@
 import type { Founder, Startup } from "../../lib/supabase";
-import { hasEnrichmentData } from "../../lib/enrichment";
+import { hasEnrichmentData, isStaleRunning } from "../../lib/enrichment";
 import FounderTimeline from "./FounderTimeline";
 
 type Props = {
-  startup: Pick<Startup, "slug" | "enrichment_status"> & EnrichmentFields;
+  startup: Pick<Startup, "slug" | "enrichment_status" | "updated_at"> & EnrichmentFields;
 };
 
 type EnrichmentFields = Pick<
@@ -30,7 +30,9 @@ export default function EnrichmentSection({ startup: data }: Props) {
   const founders = (data.founders ?? []) as Founder[];
   const enriched = hasEnrichmentData(data);
   const metaItems = META_FIELDS.filter(({ key }) => data[key]);
-  const isRunning = data.enrichment_status === "running";
+  const stale = isStaleRunning(data);
+  const isRunning = data.enrichment_status === "running" && !stale;
+  const isFailed = data.enrichment_status === "failed" || stale;
 
   return (
     <div
@@ -94,11 +96,36 @@ export default function EnrichmentSection({ startup: data }: Props) {
             enriched
           </span>
         )}
+        {isFailed && !enriched && (
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              fontSize: 11,
+              fontWeight: 500,
+              color: "var(--warning, #f59e0b)",
+              background: "rgba(245,158,11,0.08)",
+              border: "1px solid rgba(245,158,11,0.2)",
+              borderRadius: 999,
+              padding: "2px 8px",
+            }}
+          >
+            <span style={{ width: 4, height: 4, borderRadius: 999, background: "var(--warning, #f59e0b)", flexShrink: 0 }} />
+            {stale ? "stuck — retry" : "failed"}
+          </span>
+        )}
       </div>
 
       {isRunning ? (
         <p style={{ fontSize: 13, color: "var(--label)", margin: 0 }}>
           Fetching company and founder data…
+        </p>
+      ) : isFailed && !enriched ? (
+        <p style={{ fontSize: 13, color: "var(--muted)", margin: 0 }}>
+          {stale
+            ? "This got stuck and never finished. Click Enrich to retry."
+            : "Enrichment failed. Click Enrich to retry."}
         </p>
       ) : !enriched ? (
         <p style={{ fontSize: 13, color: "var(--muted)", margin: 0 }}>
