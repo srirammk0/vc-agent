@@ -101,3 +101,58 @@ async def cancel_check(run_id: str) -> bool:
     except Exception as e:
         print(f"trigger_client: cancel_check failed for run_id={run_id}:", e)
         return False
+
+
+async def cancel_scheduled_task(task_id: str) -> str:
+    """Cancel a pending scheduled task by its scheduled_tasks_log id — cancels the
+    underlying Trigger.dev run (if one's tracked) and removes the log row. Shared by
+    agent.py's delete_scheduled_task tool (chat) and the dashboard's cancel endpoint
+    (modal_app.py's cancel_scheduled_task), so both go through identical logic.
+
+    Returns one of: "canceled", "removed_untracked" (predates run-id tracking, log
+    row removed but the underlying job couldn't be confirmed stopped), "not_found",
+    "cancel_failed" (Trigger.dev call itself failed — nothing changed, safe to retry)."""
+    task = scheduled_tasks_log.get_task(task_id)
+    if not task:
+        return "not_found"
+    run_id = (task.get("payload") or {}).get("_trigger_run_id")
+    if run_id:
+        ok = await cancel_check(run_id)
+        if not ok:
+            return "cancel_failed"
+        scheduled_tasks_log.delete_task(task_id)
+        return "canceled"
+    scheduled_tasks_log.delete_task(task_id)
+    return "removed_untracked"
+
+
+async def reschedule_task(task_id: str, new_due_at: datetime) -> str:
+    """Change a pending scheduled task's due time. Trigger.dev has no in-place
+    reschedule, so this cancels the old run (if tracked) and schedules a fresh one
+    with the same kind/instructions at new_due_at — a new scheduled_tasks row, with
+    the old one removed only once the new one is confirmed scheduled (so a failure
+    here never loses the task entirely, worst case it's left un-rescheduled under
+    its old row rather than silently dropped).
+
+    Returns one of: "rescheduled", "not_found", "cancel_failed" (old run couldn't be
+    canceled, nothing changed), "reschedule_failed" (canceled the old one but
+    couldn't schedule the new one — old row is gone from Trigger.dev's side but its
+    log row is left in place as a visible sign something needs manual attention)."""
+    task = scheduled_tasks_log.get_task(task_id)
+    if not task:
+        return "not_found"
+    run_id = (task.get("payload") or {}).get("_trigger_run_id")
+    if run_id:
+        ok = await cancel_check(run_id)
+        if not ok:
+            return "cancel_failed"
+    kind = task.get("kind", "agent_followup")
+    # Strip the internal bookkeeping keys schedule_check/attach_run_id stashed in —
+    # it injects its own fresh _task_id, and the old _trigger_run_id would otherwise
+    # be carried over onto a task it no longer refers to.
+    payload = {k: v for k, v in (task.get("payload") or {}).items() if not k.startswith("_")}
+    ok = await schedule_check(kind, payload, new_due_at)
+    if not ok:
+        return "reschedule_failed"
+    scheduled_tasks_log.delete_task(task_id)
+    return "rescheduled"

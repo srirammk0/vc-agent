@@ -190,6 +190,12 @@ class AgentDeps:
     schedule_budget optionally caps how many schedule_agent_run calls succeed within
     one run — None means unlimited, which is the case for every boss-initiated
     conversation.
+
+    background marks a scheduled/autonomous self-run (see run_scheduled_agent_run) —
+    orthogonal to surface, which only picks which tools/reply-target apply (SMS vs
+    dashboard). background overrides the closing style tail regardless of surface:
+    no generative UI, no rich Markdown, a 2-sentence outcome report instead of a full
+    reply — since nobody is reading this live (see prompts.build_instructions).
     """
     phone_number: str
     from_number: str
@@ -198,6 +204,7 @@ class AgentDeps:
     message_handle: str = None
     surface: Literal["text", "web"] = "web"
     schedule_budget: dict | None = None
+    background: bool = False
 
 
 def _e164(phone: str | None) -> str | None:
@@ -217,14 +224,17 @@ def _e164(phone: str | None) -> str | None:
 async def assistant_instructions(ctx: RunContext[AgentDeps]) -> str:
     """The one instructions function for every surface — inbound text, dashboard
     chat, and the agent's own scheduled/autonomous runs all go through the exact
-    same tool routing; only the closing style tail differs by ctx.deps.surface.
+    same tool routing; only the closing style tail differs by ctx.deps.surface (and,
+    for a scheduled/background run, ctx.deps.background — see AgentDeps/
+    prompts.build_instructions for why that overrides surface's normal style pick).
 
     thesis/preferences only (see prompts.build_instructions' docstring for why the
     known-startups list is deliberately NOT here) — fetched in parallel since
     they're independent Supermemory calls, not sequential round-trips."""
     thesis, preferences = await asyncio.gather(sm.load_thesis(), sm.load_preferences())
     surface = ctx.deps.surface if ctx.deps else "web"
-    return prompts.build_instructions(surface, thesis=thesis, preferences=preferences)
+    background = ctx.deps.background if ctx.deps else False
+    return prompts.build_instructions(surface, thesis=thesis, preferences=preferences, background=background)
 
 
 async def _known_startups_context() -> str:
@@ -629,17 +639,13 @@ def register_tools(
             bracketed id shown by list_scheduled_tasks; call that first if you don't
             have it."""
             try:
-                task = scheduled_tasks_log.get_task(task_id)
-                if not task:
+                status = await trigger_client.cancel_scheduled_task(task_id)
+                if status == "not_found":
                     return f"[no scheduled task found with id {task_id} — call list_scheduled_tasks to check]"
-                run_id = (task.get("payload") or {}).get("_trigger_run_id")
-                if run_id:
-                    ok = await trigger_client.cancel_check(run_id)
-                    if not ok:
-                        return "[failed to cancel — trigger.dev call didn't succeed, try again]"
-                    scheduled_tasks_log.delete_task(task_id)
+                if status == "cancel_failed":
+                    return "[failed to cancel — trigger.dev call didn't succeed, try again]"
+                if status == "canceled":
                     return "Canceled that scheduled task."
-                scheduled_tasks_log.delete_task(task_id)
                 return (
                     "Removed it from the schedule, but this one predates run tracking so I "
                     "can't confirm the underlying job was actually stopped — keep an eye out."
@@ -742,6 +748,7 @@ def _default_deps(
     sender: str = None,
     message_handle: str = None,
     surface: Literal["text", "web"] = "text",
+    background: bool = False,
 ) -> AgentDeps:
     # The ALERT_PHONE_NUMBER fallback only makes sense for the texting surface (so
     # tapback/schedule_agent_run always have a real target even if sender wasn't
@@ -758,6 +765,7 @@ def _default_deps(
         sb_secret=os.environ.get("SENDBLUE_API_SECRET", ""),
         message_handle=message_handle,
         surface=surface,
+        background=background,
     )
 
 
@@ -976,15 +984,18 @@ async def run_scheduled_agent_run(instructions: str, sender: str | None = None) 
     autonomously" actually looks like: no separate scheduled-run architecture, just
     another call into the one pipeline. surface follows whether a phone was attached
     at schedule time: with a sender, the reply reads like a text and gets SMS'd back
-    (unchanged behavior for boss-initiated follow-ups); without one, the reply is
-    Markdown-styled for the dashboard's Scheduled Runs page, which is the only place
-    it surfaces."""
+    (unchanged behavior for boss-initiated follow-ups); without one, the reply lands
+    on the dashboard's Scheduled Runs page, which is the only place it surfaces.
+    background=True regardless of surface — see AgentDeps/prompts.build_instructions
+    for why: that page renders the reply as plain preformatted text, not a chat UI,
+    so the reply must be a short plain-text outcome report either way, never
+    generative UI or rich Markdown."""
     instructions = (instructions or "").strip()
     if not instructions:
         return {"reply": ""}
 
     surface: Literal["text", "web"] = "text" if sender else "web"
-    deps = _default_deps(sender=sender, message_handle=None, surface=surface)
+    deps = _default_deps(sender=sender, message_handle=None, surface=surface, background=True)
     prompt = (
         f"{await _known_startups_context()}\n\n"
         f"This is a scheduled self-run you set up earlier. Your instructions were: "

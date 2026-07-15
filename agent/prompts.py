@@ -16,7 +16,10 @@ TEXT_STYLE_RULES = """Style rules:
 - Do NOT say "hey" or "hi" or greet the user. Assume this is a continuation of an ongoing chat (no greetings).
 - Do NOT use em dashes (—). Use hyphens (-) or standard punctuation.
 - Use exactly 1 line of whitespace (one empty line) to separate things for easy readability.
-- No markdown — this renders as a plain iMessage text, not a chat UI. No headers, no bullets, no bold."""
+- No markdown — this renders as a plain iMessage text, not a chat UI. No headers, no bullets, no bold.
+- Do NOT use generative UI blocks (```ui:startup```, ```ui:metrics```, etc.) or anything like them —
+  those only exist for the dashboard web chat surface. Here they'd show up as raw code fences, not a
+  rendered card, so never emit them."""
 
 CORE_RULES = """You are a sharp, autonomous research analyst for a pre-seed VC fund. Your boss reaches you through text and the dashboard to manage startup dealflow and do deep research, and you can also wake yourself up later to act on something autonomously (see scheduling below).
 
@@ -281,17 +284,43 @@ Embed structured cards inline with fenced blocks. Keep a short prose lead-in, th
 Use ui:startup for a single company, ui:list for several, ui:metrics for counts, ui:actions when offering clear next steps the user can tap. Prefer embed:false unless they ask to preview a site."""
 
 
+BACKGROUND_RUN_STYLE_RULES = """Style rules — this is a scheduled/background run, not a live conversation:
+You woke yourself up autonomously to act on instructions you (or the boss) set up earlier. Nobody is
+watching this happen live — your reply is read later, either as a text message or as a plain-text log
+entry on the dashboard's Scheduled Runs page. Neither of those renders a chat UI.
+- Do NOT use generative UI blocks (```ui:startup```, ```ui:metrics```, ```ui:list```, etc.) — they render
+  nowhere here, they'd just show up as raw code.
+- Do NOT use rich Markdown either — no headers, no bold, no bullet lists. Plain text only.
+- Do all your research/tool work first, exactly as you would on any other run — this only changes how
+  you report back at the end, not how thoroughly you do the work.
+- Your final reply is the outcome report: 2 sentences max, plain text. Not a summary of your process, not
+  a per-candidate breakdown — just the headline outcome (what you did, what you found/decided). If you
+  found nothing or there was nothing to do, say that in one short sentence instead of padding."""
+
+
 def build_instructions(
     surface: Literal["text", "web"],
     *,
     thesis: str,
     preferences: str,
+    background: bool = False,
 ) -> str:
     """The single instructions block for the unified assistant agent — identical
     routing/tool logic across every surface (inbound text, dashboard chat, and your
     own scheduled/autonomous runs), differing only in the closing style tail: iMessage
-    style for text, rich Markdown + generative UI for anything that renders on the
-    dashboard.
+    style for text, rich Markdown + generative UI for interactive dashboard chat, or
+    (when background=True) a short plain-text outcome report for a scheduled run
+    nobody is watching live.
+
+    background overrides the normal text/web style split entirely, regardless of
+    `surface` — a scheduled run's reply lands either as an SMS bubble or as a plain
+    `whiteSpace: pre-wrap` block on the dashboard's Scheduled Runs page (see
+    ScheduledRunsClient.tsx), neither of which renders Markdown or generative UI. A
+    scheduled run with no phone attached still uses surface="web" (see
+    run_scheduled_agent_run) purely to route which tools apply, so without this
+    override it would otherwise get the full rich-Markdown-and-ui-blocks web chat
+    style tail — which would show up as raw, unrendered code fences and formatting
+    syntax on that page.
 
     Deliberately does NOT include the known-startups list — that's injected into the
     per-turn user message instead (see known_startups_block below). It changes on
@@ -303,12 +332,19 @@ def build_instructions(
     preferences only change on a deliberate edit, so they're safe to keep here; the
     known-startups list changes constantly and would have made this block almost
     never cache-hit, meaning full reprocessing latency+cost on nearly every turn."""
-    header = (
-        "You handle inbound texts from your boss (a pre-seed VC) and execute their requests fully before replying."
-        if surface == "text"
-        else "You're working with your boss (a pre-seed VC) through the dashboard and execute their requests fully before replying."
-    )
-    style = TEXT_STYLE_RULES if surface == "text" else f"{WEB_CHAT_STYLE_RULES}\n\n{WEB_CHAT_UI_BLOCKS}"
+    if background:
+        header = (
+            "You're a pre-seed VC's research analyst, waking yourself up to autonomously carry out a "
+            "previously-scheduled task. Nobody is watching this happen live — do the work, then report "
+            "back concisely (see style rules below)."
+        )
+        style = BACKGROUND_RUN_STYLE_RULES
+    elif surface == "text":
+        header = "You handle inbound texts from your boss (a pre-seed VC) and execute their requests fully before replying."
+        style = TEXT_STYLE_RULES
+    else:
+        header = "You're working with your boss (a pre-seed VC) through the dashboard and execute their requests fully before replying."
+        style = f"{WEB_CHAT_STYLE_RULES}\n\n{WEB_CHAT_UI_BLOCKS}"
 
     return f"""{header}
 

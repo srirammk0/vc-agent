@@ -38,5 +38,43 @@ export function useScheduledRuns(initial: ScheduledTask[]) {
     };
   }, []);
 
-  return { tasks, refresh, refreshing };
+  /** Optimistically removes the row; reverts and returns an error message on failure. */
+  async function cancelTask(id: string): Promise<string | null> {
+    const prev = tasks;
+    setTasks((t) => t.filter((task) => task.id !== id));
+    try {
+      const res = await fetch(`/api/scheduled-runs/${id}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setTasks(prev);
+        return data.error || "failed to cancel";
+      }
+      return null;
+    } catch (e) {
+      setTasks(prev);
+      return e instanceof Error ? e.message : "failed to cancel";
+    }
+  }
+
+  /** Rescheduling creates a new row server-side (no in-place edit), so this
+   * refetches the full list on success rather than patching one row locally. */
+  async function rescheduleTask(id: string, dueAtIso: string): Promise<string | null> {
+    try {
+      const res = await fetch(`/api/scheduled-runs/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ due_at: dueAtIso }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return data.error || "failed to reschedule";
+      }
+      await refresh();
+      return null;
+    } catch (e) {
+      return e instanceof Error ? e.message : "failed to reschedule";
+    }
+  }
+
+  return { tasks, refresh, refreshing, cancelTask, rescheduleTask };
 }

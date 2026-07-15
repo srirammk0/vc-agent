@@ -1,7 +1,8 @@
 "use client";
 
+import { useState, type CSSProperties } from "react";
 import Link from "next/link";
-import { ArrowLeft, Clock, RefreshCw } from "lucide-react";
+import { ArrowLeft, Clock, Pencil, RefreshCw, Trash2, X } from "lucide-react";
 import type { ScheduledTask } from "../../lib/supabase";
 import { useScheduledRuns } from "../hooks/useScheduledRuns";
 
@@ -34,10 +35,58 @@ function formatWhen(iso: string): string {
   return `${d.toLocaleDateString([], { month: "short", day: "numeric" })}, ${time}`;
 }
 
-function TaskCard({ task }: { task: ScheduledTask }) {
+/** `datetime-local` inputs want local time with no timezone (YYYY-MM-DDTHH:mm). */
+function toDatetimeLocalValue(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function TaskCard({
+  task,
+  onCancel,
+  onReschedule,
+}: {
+  task: ScheduledTask;
+  onCancel?: (id: string) => Promise<string | null>;
+  onReschedule?: (id: string, dueAtIso: string) => Promise<string | null>;
+}) {
   const detail = detailText(task);
   const result = task.payload?.result;
   const isPending = task.status === "pending";
+
+  const [editing, setEditing] = useState(false);
+  const [dueValue, setDueValue] = useState(() => toDatetimeLocalValue(task.due_at));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleCancel() {
+    if (!onCancel || busy) return;
+    if (!window.confirm("Cancel this scheduled run? It won't fire.")) return;
+    setBusy(true);
+    setError(null);
+    const err = await onCancel(task.id);
+    if (err) setError(err);
+    setBusy(false);
+  }
+
+  async function handleSaveReschedule() {
+    if (!onReschedule || busy) return;
+    const asDate = new Date(dueValue);
+    if (Number.isNaN(asDate.getTime())) {
+      setError("invalid date/time");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    const err = await onReschedule(task.id, asDate.toISOString());
+    setBusy(false);
+    if (err) {
+      setError(err);
+      return;
+    }
+    setEditing(false);
+  }
 
   return (
     <div
@@ -70,14 +119,107 @@ function TaskCard({ task }: { task: ScheduledTask }) {
             <span style={{ fontSize: 11.5, color: "var(--muted)" }}>via text</span>
           )}
         </div>
-        <span style={{ fontSize: 12, color: "var(--muted)", display: "flex", alignItems: "center", gap: 5 }}>
-          <Clock size={12} strokeWidth={2.2} />
-          {formatWhen(task.due_at)}
-        </span>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {!editing && (
+            <span style={{ fontSize: 12, color: "var(--muted)", display: "flex", alignItems: "center", gap: 5 }}>
+              <Clock size={12} strokeWidth={2.2} />
+              {formatWhen(task.due_at)}
+            </span>
+          )}
+          {isPending && (onCancel || onReschedule) && !editing && (
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              {onReschedule && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDueValue(toDatetimeLocalValue(task.due_at));
+                    setError(null);
+                    setEditing(true);
+                  }}
+                  disabled={busy}
+                  aria-label="Change time"
+                  title="Change time"
+                  style={iconBtnStyle(busy)}
+                >
+                  <Pencil size={12} strokeWidth={2.2} />
+                </button>
+              )}
+              {onCancel && (
+                <button
+                  type="button"
+                  onClick={handleCancel}
+                  disabled={busy}
+                  aria-label="Cancel"
+                  title="Cancel"
+                  style={iconBtnStyle(busy, true)}
+                >
+                  <Trash2 size={12} strokeWidth={2.2} />
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
+
+      {editing && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+          <input
+            type="datetime-local"
+            value={dueValue}
+            onChange={(e) => setDueValue(e.target.value)}
+            disabled={busy}
+            style={{
+              height: 32,
+              padding: "0 10px",
+              borderRadius: 6,
+              border: "1px solid var(--border)",
+              background: "var(--card-bg)",
+              color: "var(--body)",
+              fontSize: 12.5,
+              fontFamily: "inherit",
+            }}
+          />
+          <button
+            type="button"
+            onClick={handleSaveReschedule}
+            disabled={busy}
+            style={{
+              height: 32,
+              padding: "0 12px",
+              borderRadius: 6,
+              border: "none",
+              background: "var(--accent)",
+              color: "#fff",
+              fontSize: 12.5,
+              fontWeight: 500,
+              cursor: busy ? "not-allowed" : "pointer",
+              opacity: busy ? 0.6 : 1,
+            }}
+          >
+            {busy ? "Saving…" : "Save"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setEditing(false);
+              setError(null);
+            }}
+            disabled={busy}
+            aria-label="Cancel edit"
+            style={iconBtnStyle(busy)}
+          >
+            <X size={12} strokeWidth={2.2} />
+          </button>
+        </div>
+      )}
 
       {detail && (
         <p style={{ fontSize: 13.5, color: "var(--body)", lineHeight: 1.5, margin: 0 }}>{detail}</p>
+      )}
+
+      {error && (
+        <p style={{ fontSize: 12, color: "var(--danger, #e5484d)", margin: "8px 0 0" }}>{error}</p>
       )}
 
       {!isPending && result && (
@@ -99,8 +241,25 @@ function TaskCard({ task }: { task: ScheduledTask }) {
   );
 }
 
+function iconBtnStyle(busy: boolean, danger = false): CSSProperties {
+  return {
+    width: 26,
+    height: 26,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 6,
+    border: "1px solid var(--border)",
+    background: "rgba(255,255,255,0.7)",
+    color: danger ? "var(--danger, #e5484d)" : "var(--label)",
+    cursor: busy ? "not-allowed" : "pointer",
+    opacity: busy ? 0.5 : 1,
+    flexShrink: 0,
+  };
+}
+
 export default function ScheduledRunsClient({ initial }: { initial: ScheduledTask[] }) {
-  const { tasks, refresh, refreshing } = useScheduledRuns(initial);
+  const { tasks, refresh, refreshing, cancelTask, rescheduleTask } = useScheduledRuns(initial);
 
   const upcoming = tasks
     .filter((t) => t.status === "pending")
@@ -195,7 +354,7 @@ export default function ScheduledRunsClient({ initial }: { initial: ScheduledTas
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {upcoming.map((t) => (
-                <TaskCard key={t.id} task={t} />
+                <TaskCard key={t.id} task={t} onCancel={cancelTask} onReschedule={rescheduleTask} />
               ))}
             </div>
           )}

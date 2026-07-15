@@ -424,6 +424,56 @@ def enrich_startup_job(slug: str, name: str):
     return {"status": "enriched", "slug": slug}
 
 
+# --- Dashboard scheduled-task management: cancel or change the due time of a ---
+# --- pending scheduled_tasks row. Both share the exact cancel/reschedule logic  ---
+# --- the delete_scheduled_task chat tool uses (agent/trigger_client.py), so     ---
+# --- canceling from the dashboard and canceling from chat behave identically.  ---
+@app.function(
+    image=image,
+    secrets=[modal.Secret.from_name("vc-scout-secrets")],
+    timeout=60,
+)
+@modal.fastapi_endpoint(method="POST")
+def cancel_scheduled_task(payload: dict):
+    import sys
+    import asyncio
+    sys.path.insert(0, "/root/agent")
+    import trigger_client
+
+    task_id = payload.get("task_id")
+    if not task_id:
+        return {"error": "task_id required"}
+    status = asyncio.run(trigger_client.cancel_scheduled_task(task_id))
+    return {"status": status}
+
+
+@app.function(
+    image=image,
+    secrets=[modal.Secret.from_name("vc-scout-secrets")],
+    timeout=60,
+)
+@modal.fastapi_endpoint(method="POST")
+def reschedule_scheduled_task(payload: dict):
+    import sys
+    import asyncio
+    from datetime import datetime, timezone
+    sys.path.insert(0, "/root/agent")
+    import trigger_client
+
+    task_id = payload.get("task_id")
+    due_at_raw = payload.get("due_at")
+    if not task_id or not due_at_raw:
+        return {"error": "task_id and due_at required"}
+    try:
+        due_at = datetime.fromisoformat(str(due_at_raw).replace("Z", "+00:00"))
+        if due_at.tzinfo is None:
+            due_at = due_at.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return {"error": "invalid due_at"}
+    status = asyncio.run(trigger_client.reschedule_task(task_id, due_at))
+    return {"status": status}
+
+
 # --- Dashboard feedback: distill approve/pass reasons into Supermemory ---
 @app.function(
     image=image,
