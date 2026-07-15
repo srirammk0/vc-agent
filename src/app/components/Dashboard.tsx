@@ -167,6 +167,11 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
     setEmailFilter(DEFAULT_FILTERS.emailFilter);
   }
 
+  function clearAllFilters() {
+    clearFilters();
+    setQuery("");
+  }
+
   const counts = useMemo(
     () => ({
       total: startups.length,
@@ -318,151 +323,6 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
                 <path d="M16 16h5v5" />
               </svg>
             </button>
-            <button
-              onClick={() => setReviewQueue(filtered.map((s) => s.slug))}
-              disabled={filtered.length === 0}
-              title="Speed review — go through this view one card at a time"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                height: 32,
-                padding: "0 12px",
-                borderRadius: 6,
-                border: "1px solid rgba(0,122,255,0.3)",
-                background: "rgba(0,122,255,0.08)",
-                color: "var(--accent)",
-                fontSize: 12.5,
-                fontWeight: 500,
-                cursor: filtered.length === 0 ? "not-allowed" : "pointer",
-                opacity: filtered.length === 0 ? 0.5 : 1,
-                whiteSpace: "nowrap",
-              }}
-            >
-              <Zap size={13} strokeWidth={2.2} />
-              Speed Review
-            </button>
-            <div ref={filtersRef} style={{ position: "relative" }}>
-              <button
-                onClick={() => setFiltersOpen((v) => !v)}
-                title="Filter by outreach status"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  height: 32,
-                  padding: "0 12px",
-                  borderRadius: 6,
-                  border: activeFilterCount > 0 ? "1px solid rgba(0,122,255,0.3)" : "1px solid var(--border)",
-                  background: activeFilterCount > 0 ? "rgba(0,122,255,0.08)" : "rgba(255,255,255,0.7)",
-                  color: activeFilterCount > 0 ? "var(--accent)" : "var(--label)",
-                  fontSize: 12.5,
-                  fontWeight: 500,
-                  cursor: "pointer",
-                  whiteSpace: "nowrap",
-                  transition: "all 0.15s ease",
-                }}
-              >
-                <SlidersHorizontal size={13} strokeWidth={2.2} />
-                Filters
-                {activeFilterCount > 0 && (
-                  <span
-                    style={{
-                      background: "var(--accent)",
-                      color: "#fff",
-                      fontSize: 10.5,
-                      fontWeight: 600,
-                      borderRadius: 999,
-                      minWidth: 15,
-                      height: 15,
-                      display: "inline-flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      padding: "0 3px",
-                    }}
-                  >
-                    {activeFilterCount}
-                  </span>
-                )}
-              </button>
-
-              {filtersOpen && (
-                <div
-                  className="menu-pop animate-fade-in"
-                  style={{
-                    position: "absolute",
-                    right: 0,
-                    top: 38,
-                    width: 240,
-                    background: "var(--card-bg)",
-                    border: "1px solid var(--border)",
-                    borderRadius: 8,
-                    boxShadow: "0 8px 24px rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.06)",
-                    padding: 12,
-                    zIndex: 50,
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 12,
-                  }}
-                >
-                  <button
-                    type="button"
-                    onClick={applyNeedsEmailPreset}
-                    style={{
-                      textAlign: "left",
-                      fontSize: 12.5,
-                      fontWeight: 500,
-                      color: "var(--accent)",
-                      background: "rgba(0,122,255,0.06)",
-                      border: "1px solid rgba(0,122,255,0.18)",
-                      borderRadius: 6,
-                      padding: "6px 9px",
-                      cursor: "pointer",
-                    }}
-                  >
-                    Needs email (not stealth, not yet emailed)
-                  </button>
-
-                  <FilterGroup
-                    label="Stealth"
-                    value={stealthFilter}
-                    options={STEALTH_FILTER_OPTIONS}
-                    onChange={setStealthFilter}
-                  />
-                  <FilterGroup
-                    label="LinkedIn"
-                    value={linkedinFilter}
-                    options={CHANNEL_FILTER_OPTIONS}
-                    onChange={setLinkedinFilter}
-                  />
-                  <FilterGroup
-                    label="Email"
-                    value={emailFilter}
-                    options={CHANNEL_FILTER_OPTIONS}
-                    onChange={setEmailFilter}
-                  />
-
-                  {activeFilterCount > 0 && (
-                    <button
-                      type="button"
-                      onClick={clearFilters}
-                      style={{
-                        textAlign: "left",
-                        fontSize: 12,
-                        color: "var(--muted)",
-                        background: "transparent",
-                        border: "none",
-                        padding: "2px 0 0",
-                        cursor: "pointer",
-                      }}
-                    >
-                      Clear filters
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-            <SearchBar query={query} setQuery={setQuery} isMac={isMac} />
           </div>
         </div>
 
@@ -499,6 +359,179 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
           </div>
           {filtered.length > 0 ? (
             <button
+              onClick={() => setReviewQueue(filtered.map((s) => s.slug))}
+              title="Speed review — go through this view one card at a time"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                height: 32,
+                padding: "0 12px",
+                borderRadius: 6,
+                border: "1px solid rgba(0,122,255,0.3)",
+                background: "rgba(0,122,255,0.08)",
+                color: "var(--accent)",
+                fontSize: 12.5,
+                fontWeight: 500,
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+                marginBottom: 6,
+              }}
+            >
+              <Zap size={13} strokeWidth={2.2} />
+              Speed Review
+            </button>
+          ) : null}
+        </div>
+
+        {/* Toolbar: filters, select-all, search — grouped and fixed on the left */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
+          <div ref={filtersRef} style={{ position: "relative" }}>
+            <button
+              onClick={() => setFiltersOpen((v) => !v)}
+              title="Filter by outreach status"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                height: 32,
+                padding: "0 12px",
+                borderRadius: 6,
+                border: activeFilterCount > 0 ? "1px solid rgba(0,122,255,0.3)" : "1px solid var(--border)",
+                background: activeFilterCount > 0 ? "rgba(0,122,255,0.08)" : "rgba(255,255,255,0.7)",
+                color: activeFilterCount > 0 ? "var(--accent)" : "var(--label)",
+                fontSize: 12.5,
+                fontWeight: 500,
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+                transition: "all 0.15s ease",
+              }}
+            >
+              <SlidersHorizontal size={13} strokeWidth={2.2} />
+              Filters
+              {activeFilterCount > 0 && (
+                <span
+                  style={{
+                    background: "var(--accent)",
+                    color: "#fff",
+                    fontSize: 10.5,
+                    fontWeight: 600,
+                    borderRadius: 999,
+                    minWidth: 15,
+                    height: 15,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    padding: "0 3px",
+                  }}
+                >
+                  {activeFilterCount}
+                </span>
+              )}
+            </button>
+
+            {filtersOpen && (
+              <div
+                className="menu-pop animate-fade-in"
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  top: 38,
+                  width: 240,
+                  background: "var(--card-bg)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 8,
+                  boxShadow: "0 8px 24px rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.06)",
+                  padding: 12,
+                  zIndex: 50,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 12,
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={applyNeedsEmailPreset}
+                  style={{
+                    textAlign: "left",
+                    fontSize: 12.5,
+                    fontWeight: 500,
+                    color: "var(--accent)",
+                    background: "rgba(0,122,255,0.06)",
+                    border: "1px solid rgba(0,122,255,0.18)",
+                    borderRadius: 6,
+                    padding: "6px 9px",
+                    cursor: "pointer",
+                  }}
+                >
+                  Needs email (not stealth, not yet emailed)
+                </button>
+
+                <FilterGroup
+                  label="Stealth"
+                  value={stealthFilter}
+                  options={STEALTH_FILTER_OPTIONS}
+                  onChange={setStealthFilter}
+                />
+                <FilterGroup
+                  label="LinkedIn"
+                  value={linkedinFilter}
+                  options={CHANNEL_FILTER_OPTIONS}
+                  onChange={setLinkedinFilter}
+                />
+                <FilterGroup
+                  label="Email"
+                  value={emailFilter}
+                  options={CHANNEL_FILTER_OPTIONS}
+                  onChange={setEmailFilter}
+                />
+
+                {activeFilterCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={clearFilters}
+                    style={{
+                      textAlign: "left",
+                      fontSize: 12,
+                      color: "var(--muted)",
+                      background: "transparent",
+                      border: "none",
+                      padding: "2px 0 0",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Clear filters
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          <span style={{ fontSize: 12.5, color: "var(--muted)", whiteSpace: "nowrap" }}>
+            {filtered.length} shown
+          </span>
+
+          {(activeFilterCount > 0 || query.trim() !== "") && (
+            <button
+              type="button"
+              onClick={clearAllFilters}
+              style={{
+                fontSize: 12.5,
+                fontWeight: 500,
+                color: "var(--accent)",
+                background: "transparent",
+                border: "none",
+                padding: 0,
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+              }}
+            >
+              Remove filters
+            </button>
+          )}
+
+          {filtered.length > 0 && (
+            <button
               onClick={() => {
                 if (selectedSlugs.size === filtered.length) {
                   setSelectedSlugs(new Set());
@@ -515,10 +548,10 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
                 fontWeight: selectedSlugs.size > 0 ? 600 : 500,
                 color: selectedSlugs.size > 0 ? "var(--accent)" : "var(--label)",
                 cursor: "pointer",
-                marginBottom: 6,
                 display: "flex",
                 alignItems: "center",
                 gap: 8,
+                height: 32,
                 transition: "all 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
                 boxShadow: selectedSlugs.size > 0 ? "0 2px 8px rgba(0, 122, 255, 0.12)" : "0 1px 2px rgba(0, 0, 0, 0.03)",
               }}
@@ -539,7 +572,9 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
                 ? `Select All (${filtered.length})`
                 : "Select All"}
             </button>
-          ) : null}
+          )}
+
+          <SearchBar query={query} setQuery={setQuery} isMac={isMac} />
         </div>
 
         {/* Cards */}

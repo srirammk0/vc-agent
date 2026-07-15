@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
-import { ArrowLeft, ArrowRight, Check, ExternalLink, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, ChevronDown, ExternalLink, X } from "lucide-react";
 import type { Founder, Startup } from "../../lib/supabase";
 import { hasEnrichmentData } from "../../lib/enrichment";
 import { queueWrite } from "../../lib/writeQueue";
@@ -42,10 +42,17 @@ export default function SpeedReview({ startups, queueSlugs, onUpdate, onClose }:
   const [index, setIndex] = useState(0);
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState<"approved" | "passed" | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
 
   const total = queueSlugs.length;
   const done = index >= total;
   const current = !done ? startups.find((s) => s.slug === queueSlugs[index]) : undefined;
+
+  // Collapse the preview whenever the card changes — it shouldn't carry over
+  // from whatever the previous card had it set to.
+  useEffect(() => {
+    setShowPreview(false);
+  }, [index]);
 
   const goPrev = useCallback(() => {
     setFlash(null);
@@ -137,7 +144,14 @@ export default function SpeedReview({ startups, queueSlugs, onUpdate, onClose }:
       <div
         className="animate-fade-in"
         onClick={onClose}
-        style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 800 }}
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(10,10,12,0.6)",
+          backdropFilter: "blur(14px) saturate(140%)",
+          WebkitBackdropFilter: "blur(14px) saturate(140%)",
+          zIndex: 800,
+        }}
       />
       <div
         style={{
@@ -176,8 +190,8 @@ export default function SpeedReview({ startups, queueSlugs, onUpdate, onClose }:
                 alignItems: "center",
                 justifyContent: "center",
                 borderRadius: 8,
-                border: "1px solid rgba(255,255,255,0.18)",
-                background: "rgba(255,255,255,0.08)",
+                border: "1px solid rgba(255,255,255,0.14)",
+                background: "#232326",
                 color: "#fff",
                 cursor: "pointer",
               }}
@@ -260,7 +274,9 @@ export default function SpeedReview({ startups, queueSlugs, onUpdate, onClose }:
                 padding: "28px 28px 24px",
                 boxShadow: "0 20px 60px rgba(0,0,0,0.35)",
                 position: "relative",
-                overflow: "hidden",
+                maxHeight: "min(620px, 62vh)",
+                overflowY: "auto",
+                overflowX: "hidden",
               }}
             >
               {flash && (
@@ -311,18 +327,70 @@ export default function SpeedReview({ startups, queueSlugs, onUpdate, onClose }:
                     />
                   </div>
                   {current.website && (
-                    <a
-                      href={toHref(current.website)}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{ fontSize: 12.5, color: "var(--accent)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}
-                    >
-                      {current.website.replace(/^https?:\/\//, "")}
-                      <ExternalLink size={11} strokeWidth={2.2} />
-                    </a>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                      <a
+                        href={toHref(current.website)}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ fontSize: 12.5, color: "var(--accent)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}
+                      >
+                        {current.website.replace(/^https?:\/\//, "")}
+                        <ExternalLink size={11} strokeWidth={2.2} />
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => setShowPreview((v) => !v)}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 4,
+                          fontSize: 11.5,
+                          fontWeight: 500,
+                          color: "var(--label)",
+                          background: "var(--surface, #f4f4f4)",
+                          border: "1px solid var(--border)",
+                          borderRadius: 999,
+                          padding: "3px 9px",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {showPreview ? "Hide preview" : "Show preview"}
+                        <ChevronDown
+                          size={12}
+                          strokeWidth={2.2}
+                          style={{
+                            transform: showPreview ? "rotate(180deg)" : "rotate(0deg)",
+                            transition: "transform 0.15s ease",
+                          }}
+                        />
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
+
+              {current.website && showPreview && (
+                <div
+                  className="animate-fade-in"
+                  style={{
+                    marginBottom: 16,
+                    borderRadius: 10,
+                    overflow: "hidden",
+                    border: "1px solid var(--border)",
+                    height: 220,
+                    background: "var(--surface, #f4f4f4)",
+                  }}
+                >
+                  <iframe
+                    src={toHref(current.website)}
+                    title={`${current.name} website preview`}
+                    loading="lazy"
+                    referrerPolicy="no-referrer"
+                    sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
+                    style={{ width: "100%", height: "100%", border: "none" }}
+                  />
+                </div>
+              )}
 
               {/* One-liner + assessment */}
               <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: enriched ? 16 : 0 }}>
@@ -459,8 +527,8 @@ function navBtnStyle(disabled: boolean): CSSProperties {
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 12,
-    border: "1px solid rgba(255,255,255,0.18)",
-    background: "rgba(255,255,255,0.08)",
+    border: "1px solid rgba(255,255,255,0.14)",
+    background: disabled ? "#1c1c1e" : "#232326",
     color: disabled ? "rgba(255,255,255,0.3)" : "#fff",
     cursor: disabled ? "not-allowed" : "pointer",
   };
@@ -472,11 +540,11 @@ function Hint({ keys, label }: { keys: string; label: string }) {
       <kbd
         style={{
           fontSize: 10.5,
-          color: "rgba(255,255,255,0.8)",
-          border: "1px solid rgba(255,255,255,0.2)",
+          color: "rgba(255,255,255,0.85)",
+          border: "1px solid rgba(255,255,255,0.16)",
           borderRadius: 5,
           padding: "1px 6px",
-          background: "rgba(255,255,255,0.08)",
+          background: "#232326",
           fontFamily: "inherit",
         }}
       >

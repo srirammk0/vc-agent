@@ -258,9 +258,17 @@ function iconBtnStyle(busy: boolean, danger = false): CSSProperties {
   };
 }
 
-export default function ScheduledRunsClient({ initial }: { initial: ScheduledTask[] }) {
-  const { tasks, refresh, refreshing, cancelTask, rescheduleTask } = useScheduledRuns(initial);
-
+/** Upcoming + Recent activity sections — shared by the full /scheduled page and
+ * the chat page's ScheduledRunsModal, so both stay in sync with one implementation. */
+export function ScheduledRunsList({
+  tasks,
+  cancelTask,
+  rescheduleTask,
+}: {
+  tasks: ScheduledTask[];
+  cancelTask?: (id: string) => Promise<string | null>;
+  rescheduleTask?: (id: string, dueAtIso: string) => Promise<string | null>;
+}) {
   const upcoming = tasks
     .filter((t) => t.status === "pending")
     .sort((a, b) => new Date(a.due_at).getTime() - new Date(b.due_at).getTime());
@@ -268,6 +276,84 @@ export default function ScheduledRunsClient({ initial }: { initial: ScheduledTas
     .filter((t) => t.status !== "pending")
     .sort((a, b) => new Date(b.due_at).getTime() - new Date(a.due_at).getTime())
     .slice(0, 30);
+
+  return (
+    <>
+      <section style={{ marginBottom: 32 }}>
+        <h2
+          style={{
+            fontSize: 12,
+            fontWeight: 600,
+            color: "var(--label)",
+            margin: "0 0 12px",
+            letterSpacing: "0.07em",
+            textTransform: "uppercase",
+          }}
+        >
+          Upcoming ({upcoming.length})
+        </h2>
+        {upcoming.length === 0 ? (
+          <div
+            style={{
+              border: "1px dashed var(--border-med)",
+              borderRadius: 10,
+              padding: 32,
+              textAlign: "center",
+              color: "var(--muted)",
+              fontSize: 13.5,
+            }}
+          >
+            Nothing scheduled right now.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {upcoming.map((t) => (
+              <TaskCard key={t.id} task={t} onCancel={cancelTask} onReschedule={rescheduleTask} />
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section>
+        <h2
+          style={{
+            fontSize: 12,
+            fontWeight: 600,
+            color: "var(--label)",
+            margin: "0 0 12px",
+            letterSpacing: "0.07em",
+            textTransform: "uppercase",
+          }}
+        >
+          Recent activity
+        </h2>
+        {recent.length === 0 ? (
+          <div
+            style={{
+              border: "1px dashed var(--border-med)",
+              borderRadius: 10,
+              padding: 32,
+              textAlign: "center",
+              color: "var(--muted)",
+              fontSize: 13.5,
+            }}
+          >
+            Nothing's run yet.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {recent.map((t) => (
+              <TaskCard key={t.id} task={t} />
+            ))}
+          </div>
+        )}
+      </section>
+    </>
+  );
+}
+
+export default function ScheduledRunsClient({ initial }: { initial: ScheduledTask[] }) {
+  const { tasks, refresh, refreshing, cancelTask, rescheduleTask } = useScheduledRuns(initial);
 
   return (
     <main style={{ minHeight: "100vh", background: "var(--page-bg)", color: "var(--body)" }}>
@@ -325,75 +411,7 @@ export default function ScheduledRunsClient({ initial }: { initial: ScheduledTas
           </button>
         </div>
 
-        <section style={{ marginBottom: 32 }}>
-          <h2
-            style={{
-              fontSize: 12,
-              fontWeight: 600,
-              color: "var(--label)",
-              margin: "0 0 12px",
-              letterSpacing: "0.07em",
-              textTransform: "uppercase",
-            }}
-          >
-            Upcoming ({upcoming.length})
-          </h2>
-          {upcoming.length === 0 ? (
-            <div
-              style={{
-                border: "1px dashed var(--border-med)",
-                borderRadius: 10,
-                padding: 32,
-                textAlign: "center",
-                color: "var(--muted)",
-                fontSize: 13.5,
-              }}
-            >
-              Nothing scheduled right now.
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {upcoming.map((t) => (
-                <TaskCard key={t.id} task={t} onCancel={cancelTask} onReschedule={rescheduleTask} />
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section>
-          <h2
-            style={{
-              fontSize: 12,
-              fontWeight: 600,
-              color: "var(--label)",
-              margin: "0 0 12px",
-              letterSpacing: "0.07em",
-              textTransform: "uppercase",
-            }}
-          >
-            Recent activity
-          </h2>
-          {recent.length === 0 ? (
-            <div
-              style={{
-                border: "1px dashed var(--border-med)",
-                borderRadius: 10,
-                padding: 32,
-                textAlign: "center",
-                color: "var(--muted)",
-                fontSize: 13.5,
-              }}
-            >
-              Nothing's run yet.
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {recent.map((t) => (
-                <TaskCard key={t.id} task={t} />
-              ))}
-            </div>
-          )}
-        </section>
+        <ScheduledRunsList tasks={tasks} cancelTask={cancelTask} rescheduleTask={rescheduleTask} />
       </div>
     </main>
   );

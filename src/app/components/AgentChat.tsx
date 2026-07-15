@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent, type MouseEvent } from "react";
 import Link from "next/link";
-import { ArrowUp, MessageSquarePlus, PanelLeft, Trash2, X, Square } from "lucide-react";
+import { ArrowUp, CalendarClock, MessageSquarePlus, PanelLeft, Trash2, X, Square } from "lucide-react";
 import ChatMessageRow from "./chat/ChatMessageRow";
+import ScheduledRunsModal from "./ScheduledRunsModal";
 import {
   createThread,
   deleteThread,
@@ -58,6 +59,7 @@ export default function AgentChat() {
   const [sendingThreads, setSendingThreads] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Map<string, string>>(new Map());
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [scheduledOpen, setScheduledOpen] = useState(false);
   const [streamTick, setStreamTick] = useState(0);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const pinBottomRef = useRef(false);
@@ -408,10 +410,23 @@ export default function AgentChat() {
         >
           <PanelLeft size={16} strokeWidth={2} />
         </button>
-        <Link href="/" className="chat-icon-btn" aria-label="Exit chat" title="Exit chat">
-          <X size={16} strokeWidth={2} />
-        </Link>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button
+            type="button"
+            className="chat-icon-btn"
+            onClick={() => setScheduledOpen(true)}
+            aria-label="Scheduled runs"
+            title="Scheduled runs"
+          >
+            <CalendarClock size={16} strokeWidth={2} />
+          </button>
+          <Link href="/" className="chat-icon-btn" aria-label="Exit chat" title="Exit chat">
+            <X size={16} strokeWidth={2} />
+          </Link>
+        </div>
       </div>
+
+      {scheduledOpen && <ScheduledRunsModal onClose={() => setScheduledOpen(false)} />}
 
       <div className="chat-page-main">
         <div className="chat-messages" ref={scrollerRef}>
