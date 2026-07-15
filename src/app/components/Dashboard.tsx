@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { CalendarClock, MessageCircle, SlidersHorizontal } from "lucide-react";
+import { CalendarClock, MessageCircle, SlidersHorizontal, Zap } from "lucide-react";
 import type { Startup } from "../../lib/supabase";
 import { hasEnrichmentData, isStaleRunning } from "../../lib/enrichment";
 import { sortStartups } from "../../lib/sortStartups";
@@ -14,6 +14,7 @@ import OutreachBadges from "./OutreachBadges";
 import StartupActions from "./StartupActions";
 import StartupPanel from "./StartupPanel";
 import CommandPalette from "./CommandPalette";
+import SpeedReview from "./SpeedReview";
 
 type Tab = "all" | "new" | "approved" | "passed";
 type ChannelFilter = "all" | "not_contacted" | "contacted" | "replied";
@@ -92,6 +93,10 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
   const [selectedSlugs, setSelectedSlugs] = useState<Set<string>>(new Set());
   const [batchBusy, setBatchBusy] = useState<string | null>(null);
   const [panelSlug, setPanelSlug] = useState<string | null>(null);
+  // Frozen snapshot of slugs from `filtered` at the moment Speed Review opens — the
+  // current tab/search/filters, so it's naturally scoped per-tab without separate
+  // per-tab entry points. Doesn't reshuffle mid-review even as statuses change.
+  const [reviewQueue, setReviewQueue] = useState<string[] | null>(null);
 
   async function handleBatchStatus(status: "new" | "approved" | "passed") {
     if (selectedSlugs.size === 0) return;
@@ -203,6 +208,14 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
           onUpdate={(partial) => updateLocal(panelStartup.slug, partial)}
         />
       )}
+      {reviewQueue && (
+        <SpeedReview
+          startups={startups}
+          queueSlugs={reviewQueue}
+          onUpdate={updateLocal}
+          onClose={() => setReviewQueue(null)}
+        />
+      )}
 
       <div style={{ maxWidth: 860, margin: "0 auto", padding: "40px 24px 60px" }}>
         {/* Page header */}
@@ -304,6 +317,30 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
                 <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
                 <path d="M16 16h5v5" />
               </svg>
+            </button>
+            <button
+              onClick={() => setReviewQueue(filtered.map((s) => s.slug))}
+              disabled={filtered.length === 0}
+              title="Speed review — go through this view one card at a time"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                height: 32,
+                padding: "0 12px",
+                borderRadius: 6,
+                border: "1px solid rgba(0,122,255,0.3)",
+                background: "rgba(0,122,255,0.08)",
+                color: "var(--accent)",
+                fontSize: 12.5,
+                fontWeight: 500,
+                cursor: filtered.length === 0 ? "not-allowed" : "pointer",
+                opacity: filtered.length === 0 ? 0.5 : 1,
+                whiteSpace: "nowrap",
+              }}
+            >
+              <Zap size={13} strokeWidth={2.2} />
+              Speed Review
             </button>
             <div ref={filtersRef} style={{ position: "relative" }}>
               <button
