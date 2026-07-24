@@ -730,9 +730,15 @@ feedback_agent = Agent(
     instructions=prompts.FEEDBACK_RULES,
     model_settings=llm.FINALIZE_FEEDBACK_SETTINGS,
 )
+# dealflow=False: this agent's only job is distilling a dashboard approve/pass reason
+# into a preference (see prompts.FEEDBACK_RULES), and its prompt embeds user-submitted
+# free text. Registering the dealflow tools gave that text a path to save_startups and
+# delete_startups — permanent data loss one successful injection away, for tools the
+# agent is told never to use. It keeps write_preferences/write_reflection, which is all
+# FEEDBACK_RULES actually asks of it.
 register_tools(
     feedback_agent,
-    dealflow=True,
+    dealflow=False,
     thesis_update=False,
     tapback=False,
     exa=False,

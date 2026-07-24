@@ -138,8 +138,10 @@ Full SQL schema (tables, indexes, RLS policies, realtime publication) is in `scr
 
 ## Dashboard (`src/`)
 
-Next.js 16 + React 19 + Supabase, gated behind a single shared-password cookie (`src/proxy.ts`,
-`src/app/login/`).
+Next.js 16 + React 19 + Supabase, gated behind a single shared password (`DASHBOARD_PASSWORD`) that
+issues an HMAC-signed session cookie (`src/lib/auth.ts`), verified on every request — pages and API
+routes alike — by `src/proxy.ts`, and independently by `api/chat.py`, which is a Vercel Python
+function the proxy never sees.
 
 - **Tabs**: All / New / Approved / Passed, with live counts.
 - **Realtime**: Supabase Postgres changes subscription for instant updates, falling back to polling if the
@@ -191,6 +193,10 @@ Trigger.dev's own tasks (`src/trigger/*.ts`) are thin forwarders — see the tab
 2. Run the SQL schema at the top of [`scripts/seed-supabase.py`](scripts/seed-supabase.py) in the SQL Editor.
 3. Apply `scripts/migrations.sql`, `scripts/migrate-created-at.sql`, `scripts/migrate-signals-company-name.sql`,
    and `scripts/migrate-signal-recheck-tracking.sql` if starting from an older schema.
+4. **Apply `scripts/migrate-rls-lockdown.sql`** on any existing project. Earlier versions of the
+   schema granted the public `anon` key full read/write on `cache` (which stores conversation
+   history, thesis and preferences) and `scheduled_tasks`, with no RLS — this revokes that and
+   enables RLS. Do this before anything else if you're already deployed.
 
 ### 2. Environment Variables
 
@@ -215,8 +221,17 @@ modal secret create vc-scout-secrets \
   SENDBLUE_FROM_NUMBER=your_sendblue_number \
   CEREBRAS_API_KEY=your_cerebras_key \
   TRIGGER_SECRET_KEY=your_trigger_dev_secret_key \
-  SCHEDULER_SHARED_SECRET=a_random_string_you_generate
+  SCHEDULER_SHARED_SECRET=a_random_string_you_generate \
+  DASHBOARD_SHARED_SECRET=another_random_string_you_generate \
+  SENDBLUE_WEBHOOK_SECRET=a_third_random_string_you_generate
 ```
+`DASHBOARD_SHARED_SECRET` guards the Modal endpoints the dashboard calls (`enrich_startup`,
+`submit_feedback`, `cancel_scheduled_task`, `reschedule_scheduled_task`) — they're public URLs
+otherwise. Set the same value on Vercel. If you leave it unset, Modal accepts
+`SCHEDULER_SHARED_SECRET` there instead, so a single-secret setup still works.
+`SENDBLUE_WEBHOOK_SECRET` is optional: append it to the webhook URL you register with SendBlue
+(`https://...-sendblue-webhook.modal.run?secret=...`). The inbound sender number is only a body
+field, so without it anyone who learns the URL can forge a message from an allowed number.
 `modal secret create` replaces the whole secret rather than merging — always pass every key, not just new
 ones, when updating.
 
@@ -238,7 +253,12 @@ npm run trigger:deploy
 
 #### Vercel / Next.js (`.env.local`)
 See `.env.example` for the full list (Supabase URL/keys, `MODAL_ENRICH_URL`, `MODAL_FEEDBACK_URL`,
-`MODAL_WEBHOOK_URL`, `SUPERMEMORY_API_KEY`).
+`MODAL_WEBHOOK_URL`, `SUPERMEMORY_API_KEY`). Auth-related vars, all required:
+- `DASHBOARD_PASSWORD` — the login password (previously hardcoded in the source; pick a new one).
+- `DASHBOARD_SESSION_SECRET` — signing key for the session cookie (`openssl rand -hex 32`). Used by
+  both the Next app and `api/chat.py`, which verifies the same token in Python.
+- `DASHBOARD_SHARED_SECRET` — same value as the Modal secret above; sent to Modal's dashboard
+  endpoints.
 
 ---
 

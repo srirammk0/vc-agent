@@ -8,4 +8,11 @@ CREATE TABLE IF NOT EXISTS cache (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
-GRANT ALL PRIVILEGES ON TABLE cache TO postgres, service_role, anon, authenticated;
+-- Service role only. This table holds conversation history, the cached thesis and
+-- preferences — the browser never touches it, and `anon` is a public key, so it gets
+-- no access. RLS with no policy denies everyone except the service role, which
+-- bypasses RLS by design. (See scripts/migrate-rls-lockdown.sql if you ran an earlier
+-- version of this file, which granted anon full read/write.)
+GRANT ALL PRIVILEGES ON TABLE cache TO postgres, service_role;
+ALTER TABLE cache ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cache FORCE ROW LEVEL SECURITY;

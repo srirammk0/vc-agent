@@ -1,3 +1,9 @@
+# Annotations stay strings (PEP 563) so `request: Request` on sendblue_webhook below
+# doesn't require fastapi to be importable at deploy time — `modal deploy` imports
+# this file locally, while fastapi only exists inside the container image. FastAPI
+# resolves the annotation there, where image.imports() has put Request in globals.
+from __future__ import annotations
+
 import modal
 import json
 import subprocess
@@ -21,6 +27,10 @@ image = (
     .add_local_dir("./agent", remote_path="/root/agent")
 )
 
+# Container-only imports — see the __future__ import above.
+with image.imports():
+    from fastapi import Request
+
 def run_agent(payload: dict) -> dict:
     result = subprocess.run(
         ["python3", "/root/agent/main.py"],
@@ -34,16 +44,44 @@ def run_agent(payload: dict) -> dict:
     return json.loads(result.stdout)
 
 
+def _check_shared_secret(payload: dict, *env_names: str) -> None:
+    """Reject a request whose body doesn't carry the expected shared secret.
+
+    Every `@modal.fastapi_endpoint` here is a public URL — Modal does not gate them
+    on anything by default. Callers are all trusted backends (Trigger.dev's tasks,
+    the dashboard's Next routes), so they can hold a secret; the browser never calls
+    these directly.
+
+    Accepts the first configured secret among env_names, so a deployment that only
+    ever set SCHEDULER_SHARED_SECRET keeps working while still allowing the
+    dashboard-facing endpoints to be split onto their own value. If none of them are
+    configured, everything is rejected — fail closed, never open.
+    """
+    import os
+    import hmac
+    from fastapi import HTTPException
+
+    provided = (payload or {}).get("secret") or ""
+    for name in env_names:
+        expected = os.environ.get(name, "")
+        if expected and hmac.compare_digest(str(provided), expected):
+            return
+    raise HTTPException(status_code=401, detail="unauthorized")
+
+
 def _check_scheduler_secret(payload: dict) -> None:
     """Guards endpoints only Trigger.dev's scheduler should call — these used to be
     Modal-cron-only (unreachable from the internet) and became HTTP-callable to let
     Trigger.dev own scheduling, so this closes the gap that opened up."""
-    import os
-    from fastapi import HTTPException
+    _check_shared_secret(payload, "SCHEDULER_SHARED_SECRET")
 
-    expected = os.environ.get("SCHEDULER_SHARED_SECRET", "")
-    if not expected or (payload or {}).get("secret") != expected:
-        raise HTTPException(status_code=401, detail="unauthorized")
+
+def _check_dashboard_secret(payload: dict) -> None:
+    """Guards endpoints the dashboard's server-side Next routes call (enrichment,
+    feedback, scheduled-task cancel/reschedule). These were reachable by anyone who
+    knew the URL, which meant unauthenticated LLM/Exa spend and the ability to cancel
+    the agent's scheduled work."""
+    _check_shared_secret(payload, "DASHBOARD_SHARED_SECRET", "SCHEDULER_SHARED_SECRET")
 
 
 def _e164(phone: str | None) -> str | None:
@@ -95,7 +133,11 @@ def notify_phone_numbers() -> list[str]:
 def is_authorized_sender(sender: str | None) -> bool:
     allowed = allowed_phone_numbers()
     if not allowed:
-        return True
+        # Fail closed. This used to return True when neither ALLOWED_PHONE_NUMBERS
+        # nor ALERT_PHONE_NUMBER was configured, which meant a misconfigured deploy
+        # let anyone who found the webhook URL drive the agent.
+        print("sendblue_webhook: no allowed numbers configured, rejecting sender")
+        return False
     sender_digits = _phone_digits(sender)
     if not sender_digits:
         return False
@@ -312,6 +354,7 @@ def sync_on_demand():
 )
 @modal.fastapi_endpoint(method="POST")
 def enrich_startup(payload: dict):
+    _check_dashboard_secret(payload)
     import os
     from datetime import datetime, timezone
     from supabase import create_client
@@ -435,6 +478,7 @@ def enrich_startup_job(slug: str, name: str):
 )
 @modal.fastapi_endpoint(method="POST")
 def cancel_scheduled_task(payload: dict):
+    _check_dashboard_secret(payload)
     import sys
     import asyncio
     sys.path.insert(0, "/root/agent")
@@ -454,6 +498,7 @@ def cancel_scheduled_task(payload: dict):
 )
 @modal.fastapi_endpoint(method="POST")
 def reschedule_scheduled_task(payload: dict):
+    _check_dashboard_secret(payload)
     import sys
     import asyncio
     from datetime import datetime, timezone
@@ -482,6 +527,7 @@ def reschedule_scheduled_task(payload: dict):
 )
 @modal.fastapi_endpoint(method="POST")
 def submit_feedback(payload: dict):
+    _check_dashboard_secret(payload)
     slug = payload.get("slug")
     name = payload.get("name", "")
     status = payload.get("status", "new")
@@ -542,9 +588,24 @@ def chat_reply_background(message: str, sender: str, message_handle: str = None)
     min_containers=1,
 )
 @modal.fastapi_endpoint(method="POST")
-async def sendblue_webhook(request: dict):
-    body = request
-    
+async def sendblue_webhook(request: Request):
+    import hmac
+    import os
+
+    body = await request.json()
+
+    # The sender is just a field in the request body, so the allowlist below only
+    # proves who SendBlue says sent it — anyone who knows this URL can post the same
+    # shape with a permitted number in it. SENDBLUE_WEBHOOK_SECRET (set as a query
+    # param on the webhook URL you register with SendBlue, or in the body) is what
+    # actually establishes the caller is SendBlue. Optional so existing deploys keep
+    # working; strongly recommended.
+    expected_secret = os.environ.get("SENDBLUE_WEBHOOK_SECRET", "")
+    if expected_secret:
+        provided = request.query_params.get("secret") or body.get("secret") or ""
+        if not hmac.compare_digest(str(provided), expected_secret):
+            return {"ok": True, "action": "ignored", "reason": "unauthorized"}
+
     if body.get("is_outbound"):
         return {"ok": True, "action": "ignored", "reason": "outbound"}
 

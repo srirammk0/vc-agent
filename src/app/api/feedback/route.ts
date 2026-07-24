@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "../../../lib/supabase";
+import { modalSecret } from "../../../lib/modalAuth";
 
 export async function POST(req: NextRequest) {
   const { slug, name, status, message } = await req.json();
@@ -8,6 +9,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       { error: "slug and message are required" },
       { status: 400 }
+    );
+  }
+
+  const secret = modalSecret();
+  if (!secret) {
+    return NextResponse.json(
+      { error: "DASHBOARD_SHARED_SECRET not configured" },
+      { status: 500 }
     );
   }
 
@@ -44,6 +53,7 @@ export async function POST(req: NextRequest) {
         name: name || slug,
         status: nextStatus || "new",
         message: message.trim(),
+        secret,
       }),
     });
 

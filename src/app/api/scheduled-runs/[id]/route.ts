@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { modalSecret } from "../../../../lib/modalAuth";
 
 export async function DELETE(
   _req: NextRequest,
@@ -14,11 +15,19 @@ export async function DELETE(
     );
   }
 
+  const secret = modalSecret();
+  if (!secret) {
+    return NextResponse.json(
+      { error: "DASHBOARD_SHARED_SECRET not configured" },
+      { status: 500 }
+    );
+  }
+
   try {
     const res = await fetch(modalUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ task_id: id }),
+      body: JSON.stringify({ task_id: id, secret }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data.error) {
@@ -61,11 +70,19 @@ export async function PATCH(
     );
   }
 
+  const secret = modalSecret();
+  if (!secret) {
+    return NextResponse.json(
+      { error: "DASHBOARD_SHARED_SECRET not configured" },
+      { status: 500 }
+    );
+  }
+
   try {
     const res = await fetch(modalUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ task_id: id, due_at }),
+      body: JSON.stringify({ task_id: id, due_at, secret }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data.error) {

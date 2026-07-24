@@ -1,11 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "../../../lib/supabase";
+import { modalSecret } from "../../../lib/modalAuth";
 
 export async function POST(req: NextRequest) {
   const { slug, name } = await req.json();
 
   if (!slug) {
     return NextResponse.json({ error: "slug required" }, { status: 400 });
+  }
+
+  const secret = modalSecret();
+  if (!secret) {
+    return NextResponse.json(
+      { error: "DASHBOARD_SHARED_SECRET not configured" },
+      { status: 500 }
+    );
   }
 
   // updated_at anchors the dashboard's staleness check (src/lib/enrichment.ts) —
@@ -29,7 +38,7 @@ export async function POST(req: NextRequest) {
     await fetch(modalUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ slug, name }),
+      body: JSON.stringify({ slug, name, secret }),
     });
   } catch (e) {
     // Never even reached Modal — a real failure, not "nothing found", so mark

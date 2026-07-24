@@ -53,11 +53,16 @@ CREATE TABLE IF NOT EXISTS cache (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
--- Grant privileges
-GRANT ALL PRIVILEGES ON TABLE startups TO postgres, service_role, anon, authenticated;
-GRANT ALL PRIVILEGES ON TABLE thesis TO postgres, service_role, anon, authenticated;
-GRANT ALL PRIVILEGES ON TABLE cache TO postgres, service_role, anon, authenticated;
-GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO postgres, service_role, anon, authenticated;
+-- Grant privileges. `anon` is the public key shipped to every browser, so it gets
+-- SELECT on the two tables the dashboard subscribes to and nothing else — never the
+-- cache table (conversation history, thesis, preferences) and never write access.
+-- All writes happen server-side with the service-role key.
+GRANT ALL PRIVILEGES ON TABLE startups TO postgres, service_role;
+GRANT ALL PRIVILEGES ON TABLE thesis TO postgres, service_role;
+GRANT ALL PRIVILEGES ON TABLE cache TO postgres, service_role;
+GRANT SELECT ON TABLE startups TO anon, authenticated;
+GRANT SELECT ON TABLE thesis TO anon, authenticated;
+GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO postgres, service_role;
 
 -- Indexes for fast dashboard queries (filter by status, sort by recency)
 CREATE INDEX IF NOT EXISTS idx_startups_status ON startups (status);
@@ -78,6 +83,10 @@ DROP POLICY IF EXISTS "anon read startups" ON startups;
 CREATE POLICY "anon read startups" ON startups FOR SELECT TO anon, authenticated USING (true);
 DROP POLICY IF EXISTS "anon read thesis" ON thesis;
 CREATE POLICY "anon read thesis" ON thesis FOR SELECT TO anon, authenticated USING (true);
+
+-- cache is service-role only: no anon grant above, RLS on with no policy at all.
+ALTER TABLE cache ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cache FORCE ROW LEVEL SECURITY;
 
 -- Migration note: if a previous `startups` table exists with scoring columns,
 -- drop it first (DROP TABLE startups CASCADE;) then recreate with the schema above.

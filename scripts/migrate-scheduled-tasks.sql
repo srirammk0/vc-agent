@@ -18,4 +18,9 @@ CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_signal
   ON scheduled_tasks ((payload->>'signal_id'))
   WHERE kind = 'signal_recheck';
 
-GRANT ALL PRIVILEGES ON TABLE scheduled_tasks TO postgres, service_role, anon, authenticated;
+-- Service role only — the dashboard's Scheduled Runs page reads this through
+-- /api/scheduled-runs (server-side), never directly from the browser, so the public
+-- anon key needs no access. RLS with no policy denies everyone but the service role.
+GRANT ALL PRIVILEGES ON TABLE scheduled_tasks TO postgres, service_role;
+ALTER TABLE scheduled_tasks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE scheduled_tasks FORCE ROW LEVEL SECURITY;

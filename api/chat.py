@@ -1,6 +1,9 @@
+import hashlib
+import hmac
 import json
 import os
 import sys
+import time
 
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -25,7 +28,46 @@ logfire.instrument_pydantic_ai()
 from agent import run_web_chat_stream  # noqa: E402
 
 
+_SESSION_COOKIE = "vc_auth"
+
+
+def _is_authenticated(request: Request) -> bool:
+    """Verify the dashboard's signed session cookie (src/lib/auth.ts).
+
+    This endpoint is a Vercel Python function, not a Next route, so src/proxy.ts
+    never runs for it — without this check the endpoint was open to the internet,
+    and it drives an agent holding save_startups/delete_startups/update_thesis/
+    schedule_agent_run plus paid Exa and Anthropic keys.
+
+    Token format: v1.<unix-expiry>.<hex hmac-sha256 of "v1.<unix-expiry>">, keyed
+    by DASHBOARD_SESSION_SECRET. Keep in sync with src/lib/auth.ts.
+    """
+    secret = os.environ.get("DASHBOARD_SESSION_SECRET", "")
+    token = request.cookies.get(_SESSION_COOKIE, "")
+    if not secret or not token:
+        return False
+
+    parts = token.split(".")
+    if len(parts) != 3 or parts[0] != "v1":
+        return False
+    _, exp_raw, sig = parts
+    try:
+        exp = int(exp_raw)
+    except ValueError:
+        return False
+    if exp <= time.time():
+        return False
+
+    expected = hmac.new(
+        secret.encode("utf-8"), f"v1.{exp_raw}".encode("utf-8"), hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(sig, expected)
+
+
 async def chat(request: Request):
+    if not _is_authenticated(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
     body = await request.json()
     messages = body.get("messages")
     if not isinstance(messages, list) or not messages:
