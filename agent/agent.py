@@ -23,6 +23,7 @@ import cache
 import llm
 import trigger_client
 import scheduled_tasks_log
+import enrich_job
 import prompts
 
 _EXA_DEEP_TTL_SECONDS = 6 * 3600
@@ -573,7 +574,7 @@ def register_tools(agent: Agent):
 assistant_agent = Agent(
     model,
     deps_type=AgentDeps,
-    model_settings=llm.FINALIZE_SMS_SETTINGS,
+    model_settings=llm.FINALIZE_SETTINGS,
 )
 assistant_agent.instructions(assistant_instructions)
 register_tools(assistant_agent)
@@ -746,11 +747,18 @@ async def run_feedback(slug: str, name: str, status: str, message: str) -> dict:
 
     deps = AgentDeps(mode="feedback")
     try:
-        # model=llm.fast_model: same cost-tiering the old separate feedback_agent
-        # had (Haiku for this narrow, mechanical job) — a per-call override on the
-        # one shared Agent instead of a second Agent object.
+        # model=llm.fast_model + model_settings=FINALIZE_FEEDBACK_SETTINGS: same
+        # cost-tiering and max_tokens ceiling the old separate feedback_agent had
+        # (Haiku, 4000 tokens — narrow enough for "write one preference") — both as
+        # per-call overrides on the one shared Agent instead of a second Agent
+        # object, which otherwise defaults to assistant_agent's own construction-time
+        # settings (Sonnet, 16000 tokens, sized for a full sweep+save turn).
         res = await agent_run_with_retry(
-            assistant_agent, prompt, deps=deps, model=llm.fast_model,
+            assistant_agent,
+            prompt,
+            deps=deps,
+            model=llm.fast_model,
+            model_settings=llm.FINALIZE_FEEDBACK_SETTINGS,
         )
         return {"ok": True, "reply": res.output}
     except Exception as e:
@@ -788,6 +796,39 @@ async def run_scheduled_agent_run(instructions: str) -> dict:
         raise
 
 
+async def run_scheduled_check(payload: dict) -> dict:
+    """Fired when a one-off delayed Trigger.dev trigger comes due — the delayed
+    counterpart to schedule_agent_run's REST call in trigger_client.schedule_check.
+    Dispatches by `kind`, runs the agent, and marks the scheduled_tasks log row
+    done with the outcome. This used to be modal_app.py's run_scheduled_check
+    endpoint; ported here unchanged except for dropping the SMS-sending branch
+    (SMS no longer exists as a surface — every outcome already lands on the
+    dashboard's Scheduled Runs page via run_scheduled_agent_run regardless)."""
+    kind = payload.get("kind")
+    result_text = None
+    try:
+        if kind in ("agent_followup", "text_followup"):
+            # agent_followup is the current name (schedule_agent_run's own kind);
+            # text_followup is kept only so any tasks scheduled before this
+            # rewrite still fire correctly.
+            instructions = payload.get("instructions")
+            if instructions:
+                result = await run_scheduled_agent_run(instructions)
+                result_text = result.get("reply") or None
+        else:
+            print(f"run_scheduled_check: unknown kind {kind!r}")
+    except Exception as e:
+        print(f"run_scheduled_check: task kind={kind} failed:", e)
+        result_text = result_text or f"failed: {e}"
+
+    try:
+        scheduled_tasks_log.mark_done(payload.get("_task_id"), result_text)
+    except Exception as e:
+        print("run_scheduled_check: mark_done failed:", e)
+
+    return {"status": "ok"}
+
+
 async def run_agent(payload: dict) -> dict:
     mode = payload.get("mode", "")
 
@@ -800,5 +841,16 @@ async def run_agent(payload: dict) -> dict:
         )
     elif mode == "scheduled_run":
         return await run_scheduled_agent_run(payload.get("instructions", ""))
+    elif mode == "scheduled_check":
+        return await run_scheduled_check(payload)
+    elif mode == "enrich":
+        return await enrich_job.run_enrichment(payload.get("slug", ""), payload.get("name", ""))
 
+    # Deliberately no "cancel_scheduled_task"/"reschedule_scheduled_task" mode here:
+    # the delete_scheduled_task chat tool calls trigger_client.cancel_scheduled_task
+    # directly (it's already running inside this same Python process, no dispatch
+    # needed), and the dashboard's Cancel/Reschedule buttons need a real synchronous
+    # answer to show the user — see src/lib/scheduledTasks.ts for why that's a
+    # small, separate TypeScript port rather than a Trigger.dev round-trip through
+    # here (which is inherently async/fire-and-forget from the caller's side).
     return {"error": "unknown mode"}

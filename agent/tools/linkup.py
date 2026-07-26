@@ -1,4 +1,4 @@
-"""Linkup web search + fetch — used for news, press checks, and light SMS lookups."""
+"""Linkup web search + fetch — used for news, press checks, and light fact lookups."""
 
 from __future__ import annotations
 

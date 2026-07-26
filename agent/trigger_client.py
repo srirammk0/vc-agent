@@ -1,10 +1,11 @@
 """Client for scheduling one-off future work on Trigger.dev.
 
-This is the counterpart to modal_app.py's `run_scheduled_check` endpoint: Trigger.dev
-calls that endpoint back when a delayed trigger fires. Trigger.dev owns timing only —
-deciding what/when to schedule stays entirely in Modal/Python (agent/agent.py's
-schedule_agent_run tool). Uses Trigger.dev's plain REST API
-directly (no JS SDK — this runs in Python/Modal, not Node).
+This is the counterpart to src/trigger/run-scheduled-check.ts: Trigger.dev calls that
+task back (running agent/main.py via its Python extension) when a delayed trigger
+fires. Trigger.dev owns timing only — deciding what/when to schedule stays entirely in
+Python (agent/agent.py's schedule_agent_run tool). Uses Trigger.dev's plain REST API
+directly (no JS SDK — this runs inside a Python subprocess Trigger.dev shells out to,
+not in Node).
 """
 
 import os
@@ -25,10 +26,12 @@ async def schedule_check(
     due_at: datetime,
     idempotency_key: Optional[str] = None,
 ) -> bool:
-    """Schedule Trigger.dev's `run-scheduled-check` task to fire at due_at (which will
-    call back into Modal's run_scheduled_check endpoint with {"kind": kind, **payload}).
-    Returns True on success, False otherwise (never raises — callers treat this as a
-    best-effort scheduling call, same as the old Supabase-backed scheduler.write_scheduled_task).
+    """Schedule Trigger.dev's `run-scheduled-check` task to fire at due_at (which
+    runs agent/main.py via python.runScript with
+    {"mode": "scheduled_check", "kind": kind, **payload} — see agent.py's
+    run_scheduled_check). Returns True on success, False otherwise (never raises —
+    callers treat this as a best-effort scheduling call, same as the old
+    Supabase-backed scheduler.write_scheduled_task).
 
     Also logs a pending row to the scheduled_tasks table (agent/scheduled_tasks_log.py)
     purely so the agent can later answer "what do I have scheduled" — this bookkeeping
@@ -39,7 +42,10 @@ async def schedule_check(
         print("trigger_client: TRIGGER_SECRET_KEY not set, cannot schedule")
         return False
 
-    full_payload = {"kind": kind, **payload}
+    # mode="scheduled_check" is what run_agent() dispatches this whole payload
+    # shape on (see agent.py) — kind is then a sub-dispatch WITHIN that mode
+    # ("agent_followup" vs. the legacy "text_followup"), unchanged from before.
+    full_payload = {"mode": "scheduled_check", "kind": kind, **payload}
     task_id = scheduled_tasks_log.log_task(kind, payload, due_at)
     if task_id:
         full_payload["_task_id"] = task_id
@@ -105,9 +111,13 @@ async def cancel_check(run_id: str) -> bool:
 
 async def cancel_scheduled_task(task_id: str) -> str:
     """Cancel a pending scheduled task by its scheduled_tasks_log id — cancels the
-    underlying Trigger.dev run (if one's tracked) and removes the log row. Shared by
-    agent.py's delete_scheduled_task tool (chat) and the dashboard's cancel endpoint
-    (modal_app.py's cancel_scheduled_task), so both go through identical logic.
+    underlying Trigger.dev run (if one's tracked) and removes the log row. Used by
+    agent.py's delete_scheduled_task chat tool. The dashboard's own Cancel button
+    (src/lib/scheduledTasks.ts) is a separate TypeScript port of this same logic
+    rather than calling into this — see that file's docstring for why (the dashboard
+    needs a real synchronous answer for its button click; Trigger.dev tasks are
+    async, so routing through one here would mean polling for a result instead of a
+    small, stable amount of duplicated REST-call logic).
 
     Returns one of: "canceled", "removed_untracked" (predates run-id tracking, log
     row removed but the underlying job couldn't be confirmed stopped), "not_found",

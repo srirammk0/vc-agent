@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "../../../lib/supabase";
-import { modalSecret } from "../../../lib/modalAuth";
+import { runScheduledCheck } from "../../../trigger/run-scheduled-check";
 
 export async function POST(req: NextRequest) {
   const { slug, name, status, message } = await req.json();
@@ -9,14 +9,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       { error: "slug and message are required" },
       { status: 400 }
-    );
-  }
-
-  const secret = modalSecret();
-  if (!secret) {
-    return NextResponse.json(
-      { error: "DASHBOARD_SHARED_SECRET not configured" },
-      { status: 500 }
     );
   }
 
@@ -36,40 +28,25 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const modalUrl = process.env.MODAL_FEEDBACK_URL;
-  if (!modalUrl) {
-    return NextResponse.json(
-      { error: "MODAL_FEEDBACK_URL not configured" },
-      { status: 500 }
-    );
-  }
-
   try {
-    const res = await fetch(modalUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        slug,
-        name: name || slug,
-        status: nextStatus || "new",
-        message: message.trim(),
-        secret,
-      }),
+    // Fire-and-forget, same as /api/enrich: the status change above already
+    // happened, and the dashboard never actually reads the agent's distilled reply
+    // (StartupActions.tsx's sendFeedback only checks res.ok) — so there's nothing
+    // worth blocking this request on. This just kicks off turning the reason into
+    // a learned preference (agent.py's mode="feedback") in the background.
+    await runScheduledCheck.trigger({
+      mode: "feedback",
+      slug,
+      name: name || slug,
+      status: nextStatus || "new",
+      message: message.trim(),
     });
-
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || data.error) {
-      return NextResponse.json(
-        { error: data.error || "feedback agent failed" },
-        { status: 502 }
-      );
-    }
-
-    return NextResponse.json({ ok: true, reply: data.reply });
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "feedback trigger failed" },
       { status: 500 }
     );
   }
+
+  return NextResponse.json({ ok: true });
 }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase, STARTUP_LIST_COLUMNS } from "../../../lib/supabase";
+import { supabase, STARTUP_LIST_COLUMNS, type Startup } from "../../../lib/supabase";
 import { sortStartups } from "../../../lib/sortStartups";
 
 export const dynamic = "force-dynamic";
@@ -7,7 +7,16 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   // List columns only — see STARTUP_LIST_COLUMNS. This route is polled, so pulling
   // the founders JSONB here was the single biggest source of Supabase egress.
-  const { data, error } = await supabase.from("startups").select(STARTUP_LIST_COLUMNS);
+  // .returns<Startup[]>(): STARTUP_LIST_COLUMNS is a plain `string`, not a string
+  // literal, so supabase-js can't statically parse it to infer a row type — without
+  // this it types the result as a branded "couldn't parse this select" error type
+  // instead. Startup itself is still a loose fit (the query omits founders/
+  // company_description/etc.), same imprecision the rest of the list-vs-detail
+  // split already accepts (see src/lib/enrichment.ts's hasEnrichmentData).
+  const { data, error } = await supabase
+    .from("startups")
+    .select(STARTUP_LIST_COLUMNS)
+    .returns<Startup[]>();
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

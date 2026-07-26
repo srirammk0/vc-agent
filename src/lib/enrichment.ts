@@ -30,10 +30,11 @@ export function hasEnrichmentData(
   return founders.some((f) => Boolean(f.positions && f.positions.length > 0));
 }
 
-// Comfortably above enrich_startup_job's own 300s Modal timeout (plus queueing
-// slack) — a row still "running" past this is stuck (the container was
-// hard-killed before it could reset enrichment_status), not genuinely in
-// progress, so it should be treated as retryable rather than perpetually busy.
+// Comfortably above the Trigger.dev task's own 600s maxDuration (trigger.config.ts)
+// running agent/enrich_job.py, plus queueing slack — a row still "running" past
+// this is stuck (the task was killed/crashed before it could reset
+// enrichment_status), not genuinely in progress, so it should be treated as
+// retryable rather than perpetually busy.
 const STALE_RUNNING_MS = 10 * 60 * 1000;
 
 export function isStaleRunning(

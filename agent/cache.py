@@ -1,8 +1,8 @@
 """Lightweight Supabase-backed cache for Exa results and LLM outputs.
 
-No external services: reuses the Supabase project already configured via the
-Modal secret. All failures degrade gracefully (a cache miss never breaks the
-caller).
+No external services: reuses the Supabase project already configured via
+SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY (set as Trigger.dev project env vars — see
+README.md). All failures degrade gracefully (a cache miss never breaks the caller).
 
 Requires a table:
 

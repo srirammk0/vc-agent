@@ -3,12 +3,13 @@
 -- Backfill for scheduled_tasks rows stuck at status='pending' long after their due_at
 -- passed, which the dashboard kept listing under "Upcoming" forever.
 --
--- How a row gets stuck: scheduled_tasks_log.mark_done() is called by Modal's
--- run_scheduled_check when a task fires, and it's deliberately best-effort (it must
--- never make a real schedule look like it failed). So if the Trigger.dev run never
--- fired, or fired without a _task_id, or mark_done itself errored, the row stays
--- 'pending' with nothing to ever move it. Nothing polls this table — Trigger.dev owns
--- timing — so "pending" here only ever meant "nobody told us otherwise".
+-- How a row gets stuck: scheduled_tasks_log.mark_done() is called by agent.py's
+-- run_scheduled_check (run via Trigger.dev's python.runScript when a task fires),
+-- and it's deliberately best-effort (it must never make a real schedule look like
+-- it failed). So if the Trigger.dev run never fired, or fired without a _task_id,
+-- or mark_done itself errored, the row stays 'pending' with nothing to ever move
+-- it. Nothing polls this table — Trigger.dev owns timing — so "pending" here only
+-- ever meant "nobody told us otherwise".
 --
 -- Going forward this is a one-time cleanup, not something that needs to keep running:
 -- the dashboard (src/lib/scheduledRuns.ts) and the agent's list_scheduled_tasks tool

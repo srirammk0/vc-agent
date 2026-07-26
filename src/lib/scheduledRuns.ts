@@ -6,15 +6,17 @@ import type { ScheduledTask } from "./supabase";
  *
  * `status` on scheduled_tasks is not authoritative. Trigger.dev owns the actual
  * timing; this table is a best-effort visibility log, and the only thing that ever
- * flips a row to 'done' is mark_done() inside Modal's run_scheduled_check — which is
+ * flips a row to 'done' is mark_done() inside agent.py's run_scheduled_check
+ * (invoked by src/trigger/run-scheduled-check.ts via python.runScript) — which is
  * explicitly allowed to fail silently (it must never make a real schedule look like
  * it failed). So a row stays 'pending' forever if the run never fired, fired without
  * a _task_id, or fired but mark_done errored. Those rows sat in "Upcoming" forever
  * claiming they were still going to happen.
  *
  * The grace window exists because a row that just came due may legitimately be
- * mid-flight: Trigger.dev fires it, Modal runs the agent (up to 10 min), and only
- * then does mark_done land. An hour is comfortably past that.
+ * mid-flight: Trigger.dev fires the task, agent/main.py runs the agent (up to the
+ * task's 600s maxDuration), and only then does mark_done land. An hour is
+ * comfortably past that.
  */
 export const OVERDUE_GRACE_MS = 60 * 60 * 1000;
 

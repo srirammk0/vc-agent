@@ -21,18 +21,19 @@ _SM_TIMEOUT = 30.0
 
 # Process-local layer in front of the Supabase-backed cache, for thesis/preferences
 # only. load_thesis/load_preferences run on EVERY agent turn (assistant_instructions
-# calls both, unconditionally, for every SMS reply, web chat message, and scheduled
-# run) — that's a guaranteed 2 Supabase round-trips per turn for a value that changes
-# only on a deliberate boss-initiated write. Modal keeps a container warm
-# (min_containers=1), so most of those round-trips can be served from memory instead.
+# calls both, unconditionally, for every dashboard chat message and scheduled run)
+# — that's a guaranteed 2 Supabase round-trips per turn for a value that changes
+# only on a deliberate boss-initiated write. Whether this actually saves anything
+# depends on the Python process being reused across invocations rather than started
+# fresh each time — true for api/chat.py's long-lived Vercel function, and for any
+# run that lands inside a warm Trigger.dev worker; a cold one just pays for a
+# Supabase round-trip on the first turn like before this layer existed. Either way
+# it's a pure win: never worse than the old always-hit-Supabase behavior.
 #
 # Deliberately scoped to just these two keys, not the generic cache.py module: this
 # doesn't change staleness bounds (still the same 5-minute TTL, same
 # _bust_*_cache-on-write invalidation, which now also clears the local copy) — it
 # only cuts network calls for a value that's read constantly and written rarely.
-# Conversation history intentionally stays out of this: two concurrent containers
-# racing on the same phone number's history need the Supabase row as the single
-# source of truth, and a per-container memory cache there could drop a message.
 _local_cache: dict[str, tuple[float, str]] = {}
 
 

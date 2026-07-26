@@ -261,8 +261,8 @@ export default function StartupActions({
         if (!res.ok) throw new Error("feedback failed");
       });
       // Undo only reverts the status — the reason you gave already got distilled
-      // into a learned preference server-side (feedback_agent), which isn't
-      // something this can cleanly claw back.
+      // into a learned preference server-side (agent.py's feedback mode), which
+      // isn't something this can cleanly claw back.
       showUndoToast(`${name} marked ${STATUS_LABEL[next]}`, () => applyPatch({ status: prevStatus }));
     } catch (e) {
       console.error(e);
