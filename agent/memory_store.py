@@ -2,7 +2,6 @@ import asyncio
 import hashlib
 import re
 import time
-from datetime import datetime, timezone
 
 from supermemory import NotFoundError, Supermemory
 
@@ -278,47 +277,6 @@ async def delete_preferences_batch(pattern_ids: list[str]) -> tuple[list[str], l
     deleted = [pid for pid, err in results if err is None]
     errors = [f"{pid}: {err}" for pid, err in results if err is not None]
     return deleted, errors
-
-
-async def write_reflection(reflection: str, source: str):
-    date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    await asyncio.wait_for(
-        asyncio.to_thread(
-            lambda: get_client().add(
-                content=reflection,
-                container_tag="vc:reflections",
-                custom_id=f"reflection-{source}-{date}",
-                metadata={"source": source, "date": date},
-            )
-        ),
-        timeout=_SM_TIMEOUT,
-    )
-
-
-async def load_recent_reflection(source: str) -> str:
-    """Latest reflection written by a given source (e.g. 'news', 'text') — used to give
-    the SMS agent visibility into what other autonomous processes have been doing."""
-    try:
-        docs = await asyncio.wait_for(
-            asyncio.to_thread(
-                get_client().documents.list,
-                container_tags=["vc:reflections"],
-                include_content=True,
-            ),
-            timeout=_SM_TIMEOUT,
-        )
-        matches = [
-            d for d in getattr(docs, "memories", [])
-            if (d.metadata or {}).get("source") == source
-        ]
-        if not matches:
-            return "No reflections yet."
-        matches.sort(key=lambda d: (d.metadata or {}).get("date", ""), reverse=True)
-        content = (getattr(matches[0], "content", "") or "").strip()
-        return truncate_text(content, 1200) or "No reflections yet."
-    except Exception as e:
-        print(f"Failed to load {source} reflection from Supermemory:", e)
-        return "No reflections yet."
 
 
 async def update_thesis(new_content: str):

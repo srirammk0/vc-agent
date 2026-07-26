@@ -105,10 +105,10 @@ def build_finalize_model() -> AnthropicModel:
 
 def build_fast_model() -> AnthropicModel:
     """Haiku 4.5 — narrow, mechanical tasks that don't need Sonnet's judgment.
-    Currently just feedback_agent (distill a dashboard approve/pass reason into a
-    preference string and optionally call one status-update tool) — real
-    effort-tiering instead of the previous fast_model = finalize_model alias, which
-    had no actual tiering despite the name."""
+    Currently just feedback distillation (agent.run_feedback passes this as a
+    per-call model= override on the shared assistant_agent — see AgentDeps.mode) —
+    real effort-tiering instead of the previous fast_model = finalize_model alias,
+    which had no actual tiering despite the name."""
     return _anthropic_model(HAIKU_MODEL)
 
 
