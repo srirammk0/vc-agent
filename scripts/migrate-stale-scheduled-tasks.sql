@@ -10,10 +10,11 @@
 -- 'pending' with nothing to ever move it. Nothing polls this table — Trigger.dev owns
 -- timing — so "pending" here only ever meant "nobody told us otherwise".
 --
--- Going forward this is handled in two places, so this backfill is a one-time cleanup:
---   * agent/sync.py sweeps overdue pending rows to 'done' on its 4-hourly cron.
---   * The dashboard and the agent's list_scheduled_tasks tool both treat a row more
---     than an hour overdue as past regardless of its stored status.
+-- Going forward this is a one-time cleanup, not something that needs to keep running:
+-- the dashboard (src/lib/scheduledRuns.ts) and the agent's list_scheduled_tasks tool
+-- (scheduled_tasks_log.list_pending) both treat a row more than an hour overdue as
+-- past regardless of its stored status, so a stuck row can't resurface as "upcoming"
+-- again even without this backfill — this just makes the stored column honest too.
 
 UPDATE scheduled_tasks
    SET status = 'done'
