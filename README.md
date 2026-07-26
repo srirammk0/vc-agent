@@ -105,6 +105,14 @@ agent turn but cached for 5 minutes (`memory_store.py`, same pattern as the star
 change on an explicit boss-initiated write. Scheduled tasks are **not** stored in Supermemory — they live in
 Supabase (see below), intentionally kept out of every agent's standing context.
 
+`load_thesis`/`load_preferences` sit behind two cache layers, not one: a process-local in-memory cache
+(`memory_store.py`'s `_local_cache`, same 5-minute TTL) in front of the existing Supabase-backed `cache`
+table. Both are read on every single agent turn regardless of surface, so this was a guaranteed 2 Supabase
+round-trips per turn for a value that only changes on a deliberate write — the in-memory layer lets a warm
+Modal container (`min_containers=1`) serve most of those from memory instead. Scoped to just these two
+keys, not the generic cache module: conversation history deliberately stays Supabase-only, since two
+concurrent containers racing on the same phone number's history need one source of truth.
+
 ---
 
 ## Supabase Schema

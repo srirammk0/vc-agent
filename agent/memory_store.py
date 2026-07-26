@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import re
+import time
 from datetime import datetime, timezone
 
 from supermemory import NotFoundError, Supermemory
@@ -18,6 +19,41 @@ _PREFERENCES_CACHE_KEY = "sm:preferences"
 
 _client = None
 _SM_TIMEOUT = 30.0
+
+# Process-local layer in front of the Supabase-backed cache, for thesis/preferences
+# only. load_thesis/load_preferences run on EVERY agent turn (assistant_instructions
+# calls both, unconditionally, for every SMS reply, web chat message, and scheduled
+# run) — that's a guaranteed 2 Supabase round-trips per turn for a value that changes
+# only on a deliberate boss-initiated write. Modal keeps a container warm
+# (min_containers=1), so most of those round-trips can be served from memory instead.
+#
+# Deliberately scoped to just these two keys, not the generic cache.py module: this
+# doesn't change staleness bounds (still the same 5-minute TTL, same
+# _bust_*_cache-on-write invalidation, which now also clears the local copy) — it
+# only cuts network calls for a value that's read constantly and written rarely.
+# Conversation history intentionally stays out of this: two concurrent containers
+# racing on the same phone number's history need the Supabase row as the single
+# source of truth, and a per-container memory cache there could drop a message.
+_local_cache: dict[str, tuple[float, str]] = {}
+
+
+def _local_get(key: str) -> str | None:
+    entry = _local_cache.get(key)
+    if entry is None:
+        return None
+    expires_at, value = entry
+    if time.monotonic() >= expires_at:
+        _local_cache.pop(key, None)
+        return None
+    return value
+
+
+def _local_set(key: str, value: str, ttl_seconds: int) -> None:
+    _local_cache[key] = (time.monotonic() + ttl_seconds, value)
+
+
+def _local_delete(key: str) -> None:
+    _local_cache.pop(key, None)
 
 
 def get_client() -> Supermemory:
@@ -42,10 +78,18 @@ def truncate_text(text: str, max_chars: int) -> str:
 async def load_thesis() -> str:
     """Boss-initiated changes only (update_thesis) — cached for 5 minutes so every
     agent turn doesn't round-trip Supermemory for something that almost never changes.
-    update_thesis busts this cache on write."""
+    update_thesis busts this cache on write.
+
+    Checks the process-local cache before the Supabase-backed one — see
+    _local_cache's docstring above. Falls through to the network on a local miss,
+    same as before this layer existed."""
+    local = _local_get(_THESIS_CACHE_KEY)
+    if local is not None:
+        return local
     if _cache_mod:
         cached = await _cache_mod.cache_get(_THESIS_CACHE_KEY, _THESIS_TTL)
         if cached is not None:
+            _local_set(_THESIS_CACHE_KEY, cached, _THESIS_TTL)
             return cached
     try:
         res = await asyncio.wait_for(
@@ -59,6 +103,7 @@ async def load_thesis() -> str:
         )
         results = getattr(res, "results", [])
         text = truncate_text(_result_text(results[0]) or "No thesis configured.", 3500) if results else "No thesis configured."
+        _local_set(_THESIS_CACHE_KEY, text, _THESIS_TTL)
         if _cache_mod:
             await _cache_mod.cache_set(_THESIS_CACHE_KEY, text)
         return text
@@ -76,10 +121,17 @@ async def load_preferences() -> str:
     preferences that happen to score low against that generic query once there are
     more than a handful saved, which is exactly the kind of thing that should never
     silently vanish from context (a "don't touch fintech" rule needs to show up every
-    time, not just when it's semantically close to "startup patterns preferences")."""
+    time, not just when it's semantically close to "startup patterns preferences").
+
+    Checks the process-local cache before the Supabase-backed one — see
+    _local_cache's docstring above load_thesis."""
+    local = _local_get(_PREFERENCES_CACHE_KEY)
+    if local is not None:
+        return local
     if _cache_mod:
         cached = await _cache_mod.cache_get(_PREFERENCES_CACHE_KEY, _PREFERENCES_TTL)
         if cached is not None:
+            _local_set(_PREFERENCES_CACHE_KEY, cached, _PREFERENCES_TTL)
             return cached
     try:
         docs = await asyncio.wait_for(
@@ -99,6 +151,7 @@ async def load_preferences() -> str:
             meta = doc.metadata or {}
             lines.append(f"- ({meta.get('type', '?')}) {content}")
         text = truncate_text("\n".join(lines), 3000) if lines else "No preferences yet."
+        _local_set(_PREFERENCES_CACHE_KEY, text, _PREFERENCES_TTL)
         if _cache_mod:
             await _cache_mod.cache_set(_PREFERENCES_CACHE_KEY, text)
         return text
@@ -108,11 +161,13 @@ async def load_preferences() -> str:
 
 
 async def _bust_thesis_cache() -> None:
+    _local_delete(_THESIS_CACHE_KEY)
     if _cache_mod:
         await _cache_mod.cache_delete(_THESIS_CACHE_KEY)
 
 
 async def _bust_preferences_cache() -> None:
+    _local_delete(_PREFERENCES_CACHE_KEY)
     if _cache_mod:
         await _cache_mod.cache_delete(_PREFERENCES_CACHE_KEY)
 
