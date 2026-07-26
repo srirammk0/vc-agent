@@ -22,8 +22,6 @@ from datetime import datetime, timezone
 
 from supabase import create_client
 
-import memory_store as sm
-
 _SB_TIMEOUT = 15.0
 
 
@@ -49,12 +47,6 @@ def _normalize_name(name: str) -> str:
     let the same company get saved twice under a different slug."""
     return re.sub(r"[^a-z0-9]", "", (name or "").lower())
 
-
-# The summary below is truncated to 6000 characters anyway (~100 lines at typical
-# name/slug lengths), so pulling the whole table on every single agent turn only ever
-# fetched rows that got thrown away. Ordered by most-recently-updated, so the rows
-# that survive are the ones that would have survived truncation regardless.
-_SUMMARY_ROW_LIMIT = 150
 
 _LIST_PAGE_SIZE = 1000  # PostgREST's own default max_rows — page in chunks of this
 # size so a table larger than one page still gets read in full, instead of the old
@@ -90,55 +82,6 @@ async def _list_raw(columns: str = "slug, name, status") -> list[dict]:
             break
         offset += _LIST_PAGE_SIZE
     return rows
-
-
-async def known_startups_summary() -> str:
-    """Compact list of the most recently touched saved startups — injected into every
-    prompt as a soft dedup hint and general sense of what's fresh. Not a tool itself
-    (no on-demand equivalent — crosscheck_startups/query_startups cover live lookups).
-    Queried live (no cache): this is the same store writes land in, so there's no
-    staleness window to protect against.
-
-    Capped and ordered by most-recently-updated first: at real dealflow size (hundreds
-    of rows) this can NOT show everything within a reasonable prompt budget, so it's
-    biased toward what's most likely to matter right now (a sweep just found something
-    that looks like it might already be tracked) rather than an arbitrary DB-order
-    slice. This is a hint, never proof of absence — for "do we already know about X"
-    (on one name or a whole batch of sourced candidates), use crosscheck_startups,
-    which checks the FULL table with an exact normalized-name match, not this capped
-    slice and not a fuzzy text search."""
-    sb = _sb_client()
-    if sb is None:
-        return "None yet."
-    try:
-        res = await asyncio.wait_for(
-            asyncio.to_thread(
-                lambda: sb.table("startups")
-                .select("name, slug, status", count="exact")
-                .order("updated_at", desc=True)
-                .limit(_SUMMARY_ROW_LIMIT)
-                .execute()
-            ),
-            timeout=_SB_TIMEOUT,
-        )
-        rows = res.data or []
-        # count="exact" rides along in the Content-Range header — the real table size
-        # without a second query or a second row's worth of egress.
-        total = res.count if res.count is not None else len(rows)
-    except Exception as e:
-        print("startups_store: failed to list startups:", e)
-        return "None yet."
-    if not rows:
-        return "None yet."
-    lines = "\n".join(
-        f"- {r.get('name', '')} (slug: {r.get('slug', '')}, status: {r.get('status', 'new')})"
-        for r in rows
-        if r.get("name") or r.get("slug")
-    )
-    truncated = sm.truncate_text(lines, 6000)
-    if truncated.endswith("…") or len(rows) < total:
-        truncated += f"\n[showing the most recently updated of {total} total — use crosscheck_startups to check the rest]"
-    return truncated
 
 
 async def crosscheck_startups(names: list[str]) -> str:

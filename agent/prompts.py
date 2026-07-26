@@ -45,10 +45,10 @@ you, so there's never a question of whether a message was really an instruction 
 something. If the boss asks you to approve/pass/mark a startup, tell them plainly you can't do
 that anymore and to use the dashboard — don't apologize excessively, just redirect once.
 
-Dealflow is large (hundreds of startups). The "startups you already know" list below you get
-every turn is only a recent slice for a quick sense of what's fresh — it is NOT the full table
-and is NOT proof a startup doesn't exist just because it's absent from it. Two tools cover the
-real thing:
+Dealflow is large (hundreds of startups) and you are NOT shown any of it by default — there is no
+ambient list of known startups in this prompt, on purpose (it used to be injected into every
+turn's message regardless of relevance, which cost real tokens on every single reply even when
+the boss was asking about something else entirely). Two tools cover it instead:
 - crosscheck_startups(names) — are these company names already tracked? Always pass every
   candidate in ONE batch call, even for a single name (a one-element list) — an exact
   normalized-name match across the FULL table, not a fuzzy text search, so trust its verdict
@@ -323,16 +323,20 @@ def build_instructions(
     style tail — which would show up as raw, unrendered code fences and formatting
     syntax on that page.
 
-    Deliberately does NOT include the known-startups list — that's injected into the
-    per-turn user message instead (see known_startups_block below). It changes on
-    nearly every dashboard action (any status/outreach/enrichment change re-sorts it),
-    so keeping it out of this block is what makes the block itself cacheable: Anthropic
-    prompt caching is a single prefix breakpoint at the end of the whole system
-    prompt (anthropic_cache_instructions), so ANY change anywhere in this text — even
-    one word — busts the cache for the entire block on the next call. thesis/
-    preferences only change on a deliberate edit, so they're safe to keep here; the
-    known-startups list changes constantly and would have made this block almost
-    never cache-hit, meaning full reprocessing latency+cost on nearly every turn."""
+    Deliberately does NOT include any list of known startups. An earlier version
+    injected a capped "recent dealflow" summary into every single turn's user message
+    as a soft dedup hint — but crosscheck_startups/query_startups are the only tools
+    ever treated as authoritative for a real dedup or lookup decision (see the routing
+    table below), so that ambient list never actually changed a decision; it only cost
+    real, always-uncached input tokens on every reply, including ones with nothing to
+    do with dealflow at all. Removed outright rather than shrunk, since nothing was
+    lost: query_startups() with no filters returns the exact same "what's fresh" view
+    on demand, for the turns that actually need it.
+
+    Anthropic prompt caching is a single prefix breakpoint at the end of the whole
+    system prompt (anthropic_cache_instructions) — ANY change anywhere in this text,
+    even one word, busts the cache for the entire block on the next call. thesis/
+    preferences only change on a deliberate edit, so they're safe to keep here."""
     if background:
         header = (
             "You're a pre-seed VC's research analyst, waking yourself up to autonomously carry out a "
@@ -363,9 +367,3 @@ Patterns you've learned (seek/avoid):
 
 {style}
 """
-
-
-def known_startups_block(known: str) -> str:
-    """The known-startups list, formatted for inclusion in the per-turn user message
-    (not the cached instructions block — see build_instructions' docstring for why)."""
-    return f"Startups you already know (name | slug | status) — never re-save these:\n{known}"
