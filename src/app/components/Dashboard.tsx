@@ -783,6 +783,7 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
                         enrichmentUpdatedAt={s.updated_at}
                         companyDescription={s.company_description}
                         founders={s.founders}
+                        enriched={s.enriched}
                         stealth={s.stealth}
                         linkedinStatus={s.linkedin_status}
                         emailStatus={s.email_status}

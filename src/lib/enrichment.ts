@@ -46,7 +46,8 @@ export function isStaleRunning(
 }
 
 export function showEnrichButton(
-  startup: Pick<Startup, "status" | "enrichment_status" | "updated_at"> & Partial<EnrichmentFields>
+  startup: Pick<Startup, "status" | "enrichment_status" | "updated_at"> &
+    Partial<EnrichmentFields> & { enriched?: boolean }
 ): boolean {
   if (startup.status !== "approved") return false;
   if (hasEnrichmentData(startup)) return false;

@@ -23,6 +23,7 @@ type Props = {
   enrichmentUpdatedAt: string | null;
   companyDescription: string | null;
   founders: Founder[] | null;
+  enriched: boolean;
   stealth: boolean;
   linkedinStatus: ChannelStatus;
   emailStatus: ChannelStatus;
@@ -60,6 +61,7 @@ export default function StartupActions({
   enrichmentUpdatedAt,
   companyDescription,
   founders,
+  enriched,
   stealth,
   linkedinStatus,
   emailStatus,
@@ -108,6 +110,7 @@ export default function StartupActions({
     status,
     enrichment_status: enrichmentStatus,
     updated_at: enrichmentUpdatedAt,
+    enriched,
     company_description: companyDescription,
     founders,
     stage: null,
