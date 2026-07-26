@@ -38,7 +38,7 @@ _USAGE_LIMITS = UsageLimits(request_limit=30)
 DEFAULT_MAX_FOLLOWUP_MINUTES = 3 * 24 * 60  # 3 days
 ABSOLUTE_MAX_FOLLOWUP_MINUTES = 30 * 24 * 60  # 30 days, hard cap regardless
 
-model = llm.model
+finalize_model = llm.finalize_model
 
 RATE_LIMIT_REPLY = (
     "models are getting hammered rn - give it a min and try again"
@@ -572,7 +572,7 @@ def register_tools(agent: Agent):
 # history) flows through AgentDeps and the caller-supplied message_history, so
 # sharing this immutable Agent + tool-schema object across every caller is safe.
 assistant_agent = Agent(
-    model,
+    finalize_model,
     deps_type=AgentDeps,
     model_settings=llm.FINALIZE_SETTINGS,
 )

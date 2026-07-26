@@ -1,9 +1,10 @@
-/** Lightweight sessionStorage helpers — survives route changes, clears on tab close. */
+/** Lightweight sessionStorage/localStorage helpers — session survives route changes and
+ * clears on tab close, local persists across tabs/sessions. */
 
-export function readSession<T>(key: string, fallback: T): T {
+function read<T>(pick: (w: Window) => Storage, key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
   try {
-    const raw = sessionStorage.getItem(key);
+    const raw = pick(window).getItem(key);
     if (!raw) return fallback;
     return JSON.parse(raw) as T;
   } catch {
@@ -11,31 +12,21 @@ export function readSession<T>(key: string, fallback: T): T {
   }
 }
 
-export function writeSession(key: string, value: unknown): void {
+function write(pick: (w: Window) => Storage, key: string, value: unknown): void {
   if (typeof window === "undefined") return;
   try {
-    sessionStorage.setItem(key, JSON.stringify(value));
+    pick(window).setItem(key, JSON.stringify(value));
   } catch {
     // ignore quota errors
   }
 }
 
-export function readLocal<T>(key: string, fallback: T): T {
-  if (typeof window === "undefined") return fallback;
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return fallback;
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
-  }
-}
+export const readSession = <T>(key: string, fallback: T): T =>
+  read((w) => w.sessionStorage, key, fallback);
+export const writeSession = (key: string, value: unknown): void =>
+  write((w) => w.sessionStorage, key, value);
 
-export function writeLocal(key: string, value: unknown): void {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    // ignore
-  }
-}
+export const readLocal = <T>(key: string, fallback: T): T =>
+  read((w) => w.localStorage, key, fallback);
+export const writeLocal = (key: string, value: unknown): void =>
+  write((w) => w.localStorage, key, value);

@@ -103,26 +103,17 @@ def _anthropic_model(model_name: str) -> AnthropicModel:
     )
 
 
-def build_finalize_model() -> AnthropicModel:
-    """Sonnet 5 — assistant_agent's default model for research/decision-critical
-    work (dashboard chat, scheduled runs; mode="feedback" overrides to fast_model
-    per-call instead — see AgentDeps.mode)."""
-    return _anthropic_model(SONNET_MODEL)
+# Sonnet 5 — assistant_agent's default model for research/decision-critical work
+# (dashboard chat, scheduled runs; mode="feedback" overrides to fast_model per-call
+# instead — see AgentDeps.mode).
+finalize_model = _anthropic_model(SONNET_MODEL)
 
-
-def build_fast_model() -> AnthropicModel:
-    """Haiku 4.5 — narrow, mechanical tasks that don't need Sonnet's judgment.
-    Currently just feedback distillation (agent.run_feedback passes this as a
-    per-call model= override on the shared assistant_agent — see AgentDeps.mode) —
-    real effort-tiering instead of the previous fast_model = finalize_model alias,
-    which had no actual tiering despite the name."""
-    return _anthropic_model(HAIKU_MODEL)
-
-
-finalize_model = build_finalize_model()
-
-model = finalize_model
-fast_model = build_fast_model()
+# Haiku 4.5 — narrow, mechanical tasks that don't need Sonnet's judgment. Currently just
+# feedback distillation (agent.run_feedback passes this as a per-call model= override
+# on the shared assistant_agent — see AgentDeps.mode) — real effort-tiering instead of
+# the previous fast_model = finalize_model alias, which had no actual tiering despite
+# the name.
+fast_model = _anthropic_model(HAIKU_MODEL)
 
 
 async def run_with_retry(agent, prompt: str, *, max_attempts: int = 8, **kwargs):
