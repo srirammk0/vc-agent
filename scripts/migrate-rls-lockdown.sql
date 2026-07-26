@@ -31,14 +31,26 @@ REVOKE ALL PRIVILEGES ON TABLE scheduled_tasks FROM anon, authenticated;
 ALTER TABLE scheduled_tasks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE scheduled_tasks FORCE ROW LEVEL SECURITY;
 
--- 3. startups / thesis: RLS was already on with a read-only policy, so these were
---    not exposed for writes — but the underlying grant was still ALL PRIVILEGES.
---    Narrow it to SELECT so the grant matches the intent (browser realtime reads
---    only); all writes go through the service role server-side.
+-- 3. startups: RLS was already on with a read-only policy, so this was not exposed
+--    for writes — but the underlying grant was still ALL PRIVILEGES. Narrow it to
+--    SELECT so the grant matches the intent (browser realtime reads only); all
+--    writes go through the service role server-side.
 REVOKE ALL PRIVILEGES ON TABLE startups FROM anon, authenticated;
-REVOKE ALL PRIVILEGES ON TABLE thesis FROM anon, authenticated;
 GRANT SELECT ON TABLE startups TO anon, authenticated;
-GRANT SELECT ON TABLE thesis TO anon, authenticated;
+
+-- `thesis` gets the same treatment IF it still exists — it may already be gone
+-- (scripts/migrate-remove-dead-sync.sql drops it, and a project seeded from the
+-- current scripts/seed-supabase.py never creates it at all). Guarded with a
+-- to_regclass check instead of a bare REVOKE/GRANT, which errors outright on a
+-- missing relation, so this script stays runnable regardless of what order you
+-- apply these in or whether thesis was ever there.
+DO $$
+BEGIN
+  IF to_regclass('public.thesis') IS NOT NULL THEN
+    EXECUTE 'REVOKE ALL PRIVILEGES ON TABLE thesis FROM anon, authenticated';
+    EXECUTE 'GRANT SELECT ON TABLE thesis TO anon, authenticated';
+  END IF;
+END $$;
 
 -- 4. Sequences were granted to anon wholesale by the original schema; nothing
 --    browser-side inserts, so take that back too.
