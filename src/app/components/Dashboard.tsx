@@ -105,6 +105,7 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
     refresh: refreshStartups,
     refreshing: refreshingStartups,
     updateLocal,
+    hydrate,
   } = useLiveStartups(initial);
   const savedUi = readSession<Partial<DashUiState>>(DASH_UI_KEY, {});
   const [tab, setTab] = useState<Tab>((savedUi.tab as Tab) ?? "all");
@@ -267,6 +268,13 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
 
   const panelStartup = panelSlug ? startups.find((s) => s.slug === panelSlug) ?? null : null;
 
+  // The list only carries STARTUP_LIST_COLUMNS, so pull the full row (founders,
+  // company_description, …) for whichever startup is actually being looked at.
+  // No-ops for a slug already hydrated this session.
+  useEffect(() => {
+    hydrate(panelSlug);
+  }, [panelSlug]);
+
   return (
     <main style={{ minHeight: "100vh", background: "var(--page-bg)", color: "var(--body)" }}>
       <CommandPalette startups={startups} />
@@ -282,6 +290,7 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
           startups={startups}
           queueSlugs={reviewQueue}
           onUpdate={updateLocal}
+          onNeedFull={hydrate}
           onClose={() => setReviewQueue(null)}
         />
       )}

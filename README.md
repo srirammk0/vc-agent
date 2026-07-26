@@ -155,7 +155,13 @@ function the proxy never sees.
 
 - **Tabs**: All / New / Approved / Passed, with live counts.
 - **Realtime**: Supabase Postgres changes subscription for instant updates, falling back to polling if the
-  public anon key isn't configured (`useLiveStartups`).
+  public anon key isn't configured (`useLiveStartups`). The poll runs at 30s and only while the tab is
+  visible — a backgrounded tab polling the whole table was the bulk of this project's Supabase egress.
+- **List vs. detail payloads**: the list selects `STARTUP_LIST_COLUMNS` (`src/lib/supabase.ts`), never `*`.
+  `founders` (tens of KB of JSONB per enriched row), `company_description` and `signal_urls` are not
+  rendered in the list, and the only thing it needed from them — the enriched badge — is the denormalized
+  `enriched` boolean (`scripts/migrate-egress-list-columns.sql`). Full rows are fetched one slug at a time
+  when a startup is actually opened (`useLiveStartups`' `hydrate()` → `/api/startup/[slug]`).
 - **Command palette** (⌘K / Ctrl+K): fuzzy-search and jump to any startup.
 - **Startup detail page**: full assessment, enrichment data, and an "Enrich" button that kicks off an
   async Modal job (founder/social research via Exa) without blocking the dashboard.

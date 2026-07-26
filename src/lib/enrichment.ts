@@ -11,7 +11,14 @@ type EnrichmentFields = Pick<
   | "team_size"
 >;
 
-export function hasEnrichmentData(startup: Partial<EnrichmentFields>): boolean {
+export function hasEnrichmentData(
+  startup: Partial<EnrichmentFields> & { enriched?: boolean }
+): boolean {
+  // List rows carry only this flag — they don't fetch the enrichment columns at all
+  // (see STARTUP_LIST_COLUMNS). Detail rows carry both, and the field checks below
+  // still decide for them, so a row enriched before this column existed and never
+  // backfilled still reads correctly once it's opened.
+  if (startup.enriched) return true;
   if (startup.company_description?.trim()) return true;
   if (startup.stage?.trim() || startup.raised?.trim() || startup.location?.trim()) {
     return true;

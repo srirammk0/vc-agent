@@ -7,11 +7,14 @@ export async function GET(
 ) {
   const { slug } = await params;
 
+  // Full row, deliberately: this is the one-slug-at-a-time counterpart to the list's
+  // trimmed STARTUP_LIST_COLUMNS. One row of founders JSONB is nothing; the same
+  // columns across the whole table on every poll was the problem. Callers are the
+  // detail panel, Speed Review, and the enrichment poll — all single-startup views
+  // that need everything.
   const { data, error } = await supabase
     .from("startups")
-    .select(
-      "slug, enrichment_status, updated_at, company_description, founders, stage, raised, location, founded, team_size, followup_count, last_followup_at"
-    )
+    .select("*")
     .eq("slug", slug)
     .maybeSingle();
 

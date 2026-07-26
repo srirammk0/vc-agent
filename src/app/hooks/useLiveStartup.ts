@@ -40,7 +40,9 @@ export function useLiveStartup(initial: Startup) {
           // ignore
         }
       };
-      const id = setInterval(poll, 2000);
+      // 5s, not 2s: enrichment takes 10-30s, so 2s spent most ticks re-fetching a
+      // row that hadn't changed. Only runs while a job is actually in flight.
+      const id = setInterval(poll, 5000);
       return () => {
         active = false;
         clearInterval(id);

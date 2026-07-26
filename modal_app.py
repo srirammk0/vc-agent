@@ -452,6 +452,9 @@ def enrich_startup_job(slug: str, name: str):
             "raised": structured.raised,
             "founders": founders,
             "enrichment_status": "complete",
+            # Denormalized flag the dashboard list reads instead of pulling this whole
+            # founders blob for every row — see scripts/migrate-egress-list-columns.sql.
+            "enriched": True,
         }
         if not has_website and structured.website:
             update["website"] = structured.website.strip()

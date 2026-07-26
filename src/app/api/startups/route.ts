@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "../../../lib/supabase";
+import { supabase, STARTUP_LIST_COLUMNS } from "../../../lib/supabase";
 import { sortStartups } from "../../../lib/sortStartups";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const { data, error } = await supabase.from("startups").select("*");
+  // List columns only — see STARTUP_LIST_COLUMNS. This route is polled, so pulling
+  // the founders JSONB here was the single biggest source of Supabase egress.
+  const { data, error } = await supabase.from("startups").select(STARTUP_LIST_COLUMNS);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

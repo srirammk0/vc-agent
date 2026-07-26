@@ -3,7 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import type { ScheduledTask } from "../../lib/supabase";
 
-const POLL_INTERVAL_MS = 15000;
+// Was 15s. Scheduled runs fire on a minutes-to-days cadence, so a 15-second poll of
+// up to 100 rows (each carrying a payload JSONB with the full run outcome text) was
+// pure egress for no freshness anyone could perceive.
+const POLL_INTERVAL_MS = 60000;
 
 /**
  * Plain polling rather than Supabase realtime — scheduled_tasks isn't guaranteed to
@@ -31,10 +34,19 @@ export function useScheduledRuns(initial: ScheduledTask[]) {
 
   useEffect(() => {
     activeRef.current = true;
-    const id = setInterval(refresh, POLL_INTERVAL_MS);
+    // Don't poll into a hidden tab — see the same guard in useLiveStartups.
+    const tick = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    const id = setInterval(tick, POLL_INTERVAL_MS);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       activeRef.current = false;
       clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
 

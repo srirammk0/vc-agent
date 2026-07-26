@@ -19,6 +19,10 @@ type Props = {
    * opened) — the queue itself doesn't reshuffle mid-review even as statuses change. */
   queueSlugs: string[];
   onUpdate: (slug: string, partial: Partial<Startup>) => void;
+  /** Fetch the full row for one slug — the list rows this component is handed carry
+   * only STARTUP_LIST_COLUMNS, so founders/stage/raised/location arrive on demand,
+   * per card, instead of for the whole table up front. */
+  onNeedFull?: (slug: string) => void;
   onClose: () => void;
 };
 
@@ -39,7 +43,13 @@ const META_FIELDS: { key: keyof Startup; label: string }[] = [
   { key: "location", label: "Location" },
 ];
 
-export default function SpeedReview({ startups, queueSlugs, onUpdate, onClose }: Props) {
+export default function SpeedReview({
+  startups,
+  queueSlugs,
+  onUpdate,
+  onNeedFull,
+  onClose,
+}: Props) {
   const [index, setIndex] = useState(0);
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState<"approved" | "passed" | null>(null);
@@ -55,6 +65,14 @@ export default function SpeedReview({ startups, queueSlugs, onUpdate, onClose }:
   useEffect(() => {
     setShowPreview(false);
   }, [index]);
+
+  // Pull the current card's full row, plus the next one so stepping forward doesn't
+  // flash empty enrichment while a fetch lands.
+  useEffect(() => {
+    if (!onNeedFull) return;
+    if (queueSlugs[index]) onNeedFull(queueSlugs[index]);
+    if (queueSlugs[index + 1]) onNeedFull(queueSlugs[index + 1]);
+  }, [index, queueSlugs, onNeedFull]);
 
   const goPrev = useCallback(() => {
     setFlash(null);

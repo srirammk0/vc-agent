@@ -50,6 +50,12 @@ def _normalize_name(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", (name or "").lower())
 
 
+# The summary below is truncated to 6000 characters anyway (~100 lines at typical
+# name/slug lengths), so pulling the whole table on every single agent turn only ever
+# fetched rows that got thrown away. Ordered by most-recently-updated, so the rows
+# that survive are the ones that would have survived truncation regardless.
+_SUMMARY_ROW_LIMIT = 150
+
 _LIST_PAGE_SIZE = 1000  # PostgREST's own default max_rows — page in chunks of this
 # size so a table larger than one page still gets read in full, instead of the old
 # unpaginated .select() silently truncating at the first ~1000 rows with no signal
@@ -108,13 +114,17 @@ async def known_startups_summary() -> str:
         res = await asyncio.wait_for(
             asyncio.to_thread(
                 lambda: sb.table("startups")
-                .select("name, slug, status")
+                .select("name, slug, status", count="exact")
                 .order("updated_at", desc=True)
+                .limit(_SUMMARY_ROW_LIMIT)
                 .execute()
             ),
             timeout=_SB_TIMEOUT,
         )
         rows = res.data or []
+        # count="exact" rides along in the Content-Range header — the real table size
+        # without a second query or a second row's worth of egress.
+        total = res.count if res.count is not None else len(rows)
     except Exception as e:
         print("startups_store: failed to list startups:", e)
         return "None yet."
@@ -125,9 +135,8 @@ async def known_startups_summary() -> str:
         for r in rows
         if r.get("name") or r.get("slug")
     )
-    total = len(rows)
     truncated = sm.truncate_text(lines, 6000)
-    if truncated.endswith("…"):
+    if truncated.endswith("…") or len(rows) < total:
         truncated += f"\n[showing the most recently updated of {total} total — use crosscheck_startups to check the rest]"
     return truncated
 
@@ -306,6 +315,11 @@ async def save_startups_batch(
         founders = item.get("founders")
         if founders:
             row["founders"] = founders
+            # Mirror hasEnrichmentData()'s rule: only real researched career history
+            # counts as enrichment, a bare name doesn't. Keeps the denormalized flag
+            # the dashboard list reads in step with the underlying data.
+            if any((f or {}).get("positions") for f in founders):
+                row["enriched"] = True
         to_insert.append(row)
 
     if not to_insert:
