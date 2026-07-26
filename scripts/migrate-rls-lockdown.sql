@@ -20,30 +20,49 @@
 -- scheduled tasks through /api/scheduled-runs (server-side, also service role).
 -- So anon needs no access at all here.
 
+-- Every REVOKE/GRANT/ALTER below is guarded with a to_regclass existence check —
+-- a bare statement against a missing table errors outright ("relation does not
+-- exist") rather than silently no-op'ing, which made this script order-dependent
+-- against scripts/migrate-remove-dead-sync.sql (drops thesis) and broke outright
+-- on a project seeded from the current scripts/seed-supabase.py, which never
+-- creates thesis at all. Guarding every table, not just thesis, means this script
+-- runs cleanly regardless of what state your project is actually in.
+
 -- 1. cache: revoke anon/authenticated entirely, then RLS with no policy = deny all
 --    for anyone but the service role (which bypasses RLS).
-REVOKE ALL PRIVILEGES ON TABLE cache FROM anon, authenticated;
-ALTER TABLE cache ENABLE ROW LEVEL SECURITY;
-ALTER TABLE cache FORCE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  IF to_regclass('public.cache') IS NOT NULL THEN
+    EXECUTE 'REVOKE ALL PRIVILEGES ON TABLE cache FROM anon, authenticated';
+    EXECUTE 'ALTER TABLE cache ENABLE ROW LEVEL SECURITY';
+    EXECUTE 'ALTER TABLE cache FORCE ROW LEVEL SECURITY';
+  END IF;
+END $$;
 
 -- 2. scheduled_tasks: same treatment.
-REVOKE ALL PRIVILEGES ON TABLE scheduled_tasks FROM anon, authenticated;
-ALTER TABLE scheduled_tasks ENABLE ROW LEVEL SECURITY;
-ALTER TABLE scheduled_tasks FORCE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  IF to_regclass('public.scheduled_tasks') IS NOT NULL THEN
+    EXECUTE 'REVOKE ALL PRIVILEGES ON TABLE scheduled_tasks FROM anon, authenticated';
+    EXECUTE 'ALTER TABLE scheduled_tasks ENABLE ROW LEVEL SECURITY';
+    EXECUTE 'ALTER TABLE scheduled_tasks FORCE ROW LEVEL SECURITY';
+  END IF;
+END $$;
 
 -- 3. startups: RLS was already on with a read-only policy, so this was not exposed
 --    for writes — but the underlying grant was still ALL PRIVILEGES. Narrow it to
 --    SELECT so the grant matches the intent (browser realtime reads only); all
 --    writes go through the service role server-side.
-REVOKE ALL PRIVILEGES ON TABLE startups FROM anon, authenticated;
-GRANT SELECT ON TABLE startups TO anon, authenticated;
+DO $$
+BEGIN
+  IF to_regclass('public.startups') IS NOT NULL THEN
+    EXECUTE 'REVOKE ALL PRIVILEGES ON TABLE startups FROM anon, authenticated';
+    EXECUTE 'GRANT SELECT ON TABLE startups TO anon, authenticated';
+  END IF;
+END $$;
 
--- `thesis` gets the same treatment IF it still exists — it may already be gone
--- (scripts/migrate-remove-dead-sync.sql drops it, and a project seeded from the
--- current scripts/seed-supabase.py never creates it at all). Guarded with a
--- to_regclass check instead of a bare REVOKE/GRANT, which errors outright on a
--- missing relation, so this script stays runnable regardless of what order you
--- apply these in or whether thesis was ever there.
+-- `thesis` may already be gone (scripts/migrate-remove-dead-sync.sql drops it, and
+-- a project seeded from the current scripts/seed-supabase.py never creates it at all).
 DO $$
 BEGIN
   IF to_regclass('public.thesis') IS NOT NULL THEN
