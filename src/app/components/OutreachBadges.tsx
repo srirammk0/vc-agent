@@ -54,15 +54,31 @@ function ChannelPill({ channel, status }: { channel: string; status: ChannelStat
   );
 }
 
+function relativeDays(iso: string | null): string {
+  if (!iso) return "";
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "";
+  const days = Math.floor((Date.now() - then) / 86400000);
+  if (days <= 0) return "today";
+  if (days === 1) return "1d ago";
+  if (days < 30) return `${days}d ago`;
+  return `${Math.floor(days / 30)}mo ago`;
+}
+
 export default function OutreachBadges({
   stealth,
   linkedinStatus,
   emailStatus,
+  followupCount = 0,
+  lastFollowupAt = null,
 }: {
   stealth: boolean;
   linkedinStatus: ChannelStatus;
   emailStatus: ChannelStatus;
+  followupCount?: number;
+  lastFollowupAt?: string | null;
 }) {
+  const since = relativeDays(lastFollowupAt);
   return (
     <>
       {stealth && (
@@ -80,6 +96,23 @@ export default function OutreachBadges({
       )}
       <ChannelPill channel="li" status={linkedinStatus} />
       <ChannelPill channel="email" status={emailStatus} />
+      {/* Only rendered once there's actually been a follow-up — a "0 follow-ups" pill
+          on every untouched row is noise, and the absence reads the same way. */}
+      {followupCount > 0 && (
+        <span
+          style={{
+            ...PILL_BASE,
+            background: "rgba(255,149,0,0.09)",
+            color: "#b26a00",
+            border: "1px solid rgba(255,149,0,0.22)",
+          }}
+          title={lastFollowupAt ? `Last follow-up ${new Date(lastFollowupAt).toLocaleString()}` : undefined}
+        >
+          <Dot />
+          {followupCount === 1 ? "1 follow-up" : `${followupCount} follow-ups`}
+          {since ? ` · ${since}` : ""}
+        </span>
+      )}
     </>
   );
 }

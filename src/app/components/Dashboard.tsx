@@ -20,12 +20,24 @@ import { useToast } from "./Toast";
 type Tab = "all" | "new" | "approved" | "passed";
 type ChannelFilter = "all" | "not_contacted" | "contacted" | "replied";
 type StealthFilter = "all" | "stealth" | "public";
+type FollowupFilter = "all" | "none" | "any" | "stale";
 
 const CHANNEL_FILTER_OPTIONS: { value: ChannelFilter; label: string }[] = [
   { value: "all", label: "All" },
   { value: "not_contacted", label: "Not contacted" },
   { value: "contacted", label: "Contacted" },
   { value: "replied", label: "Replied" },
+];
+
+// "stale" = followed up at least once, but the last one was over STALE_FOLLOWUP_DAYS
+// ago — the pile that quietly goes cold, which a plain any/none split hides.
+const STALE_FOLLOWUP_DAYS = 21;
+
+const FOLLOWUP_FILTER_OPTIONS: { value: FollowupFilter; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "none", label: "Never" },
+  { value: "any", label: "Followed up" },
+  { value: "stale", label: `Stale (${STALE_FOLLOWUP_DAYS}d+)` },
 ];
 
 const STEALTH_FILTER_OPTIONS: { value: StealthFilter; label: string }[] = [
@@ -59,13 +71,31 @@ type DashUiState = {
   stealthFilter: StealthFilter;
   linkedinFilter: ChannelFilter;
   emailFilter: ChannelFilter;
+  followupFilter: FollowupFilter;
 };
 
-const DEFAULT_FILTERS: Pick<DashUiState, "stealthFilter" | "linkedinFilter" | "emailFilter"> = {
+const DEFAULT_FILTERS: Pick<
+  DashUiState,
+  "stealthFilter" | "linkedinFilter" | "emailFilter" | "followupFilter"
+> = {
   stealthFilter: "all",
   linkedinFilter: "all",
   emailFilter: "all",
+  followupFilter: "all",
 };
+
+function matchesFollowupFilter(s: Startup, filter: FollowupFilter): boolean {
+  const count = s.followup_count ?? 0;
+  if (filter === "all") return true;
+  if (filter === "none") return count === 0;
+  if (filter === "any") return count > 0;
+  // stale
+  if (count === 0) return false;
+  if (!s.last_followup_at) return true;
+  const last = new Date(s.last_followup_at).getTime();
+  if (Number.isNaN(last)) return true;
+  return Date.now() - last > STALE_FOLLOWUP_DAYS * 86400000;
+}
 
 const DASH_UI_KEY = "dealflow-ui";
 
@@ -87,6 +117,9 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
   );
   const [emailFilter, setEmailFilter] = useState<ChannelFilter>(
     savedUi.emailFilter ?? DEFAULT_FILTERS.emailFilter
+  );
+  const [followupFilter, setFollowupFilter] = useState<FollowupFilter>(
+    savedUi.followupFilter ?? DEFAULT_FILTERS.followupFilter
   );
   const [filtersOpen, setFiltersOpen] = useState(false);
   const filtersRef = useRef<HTMLDivElement>(null);
@@ -165,8 +198,8 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
   }, []);
 
   useEffect(() => {
-    writeSession(DASH_UI_KEY, { tab, query, stealthFilter, linkedinFilter, emailFilter });
-  }, [tab, query, stealthFilter, linkedinFilter, emailFilter]);
+    writeSession(DASH_UI_KEY, { tab, query, stealthFilter, linkedinFilter, emailFilter, followupFilter });
+  }, [tab, query, stealthFilter, linkedinFilter, emailFilter, followupFilter]);
 
   useEffect(() => {
     if (!filtersOpen) return;
@@ -182,7 +215,8 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
   const activeFilterCount =
     (stealthFilter !== "all" ? 1 : 0) +
     (linkedinFilter !== "all" ? 1 : 0) +
-    (emailFilter !== "all" ? 1 : 0);
+    (emailFilter !== "all" ? 1 : 0) +
+    (followupFilter !== "all" ? 1 : 0);
 
   function applyNeedsEmailPreset() {
     setStealthFilter("public");
@@ -193,6 +227,7 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
     setStealthFilter(DEFAULT_FILTERS.stealthFilter);
     setLinkedinFilter(DEFAULT_FILTERS.linkedinFilter);
     setEmailFilter(DEFAULT_FILTERS.emailFilter);
+    setFollowupFilter(DEFAULT_FILTERS.followupFilter);
   }
 
   function clearAllFilters() {
@@ -219,6 +254,7 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
       )
       .filter((s) => (linkedinFilter === "all" ? true : s.linkedin_status === linkedinFilter))
       .filter((s) => (emailFilter === "all" ? true : s.email_status === emailFilter))
+      .filter((s) => matchesFollowupFilter(s, followupFilter))
       .filter((s) =>
         q
           ? s.name.toLowerCase().includes(q) ||
@@ -227,7 +263,7 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
           : true
       );
     return sortStartups(rows);
-  }, [startups, tab, query, stealthFilter, linkedinFilter, emailFilter]);
+  }, [startups, tab, query, stealthFilter, linkedinFilter, emailFilter, followupFilter]);
 
   const panelStartup = panelSlug ? startups.find((s) => s.slug === panelSlug) ?? null : null;
 
@@ -505,6 +541,12 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
                     options={CHANNEL_FILTER_OPTIONS}
                     onChange={setEmailFilter}
                   />
+                  <FilterGroup
+                    label="Follow-ups"
+                    value={followupFilter}
+                    options={FOLLOWUP_FILTER_OPTIONS}
+                    onChange={setFollowupFilter}
+                  />
 
                   {activeFilterCount > 0 && (
                     <button
@@ -659,6 +701,8 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
                           stealth={s.stealth}
                           linkedinStatus={s.linkedin_status}
                           emailStatus={s.email_status}
+                          followupCount={s.followup_count}
+                          lastFollowupAt={s.last_followup_at}
                         />
                         {isEnriching && (
                           <span
@@ -733,6 +777,8 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
                         stealth={s.stealth}
                         linkedinStatus={s.linkedin_status}
                         emailStatus={s.email_status}
+                        followupCount={s.followup_count}
+                        lastFollowupAt={s.last_followup_at}
                         onUpdate={(partial) => updateLocal(s.slug, partial)}
                       />
                     </div>

@@ -45,6 +45,9 @@ export type Startup = {
   stealth: boolean;
   linkedin_status: "not_contacted" | "contacted" | "replied";
   email_status: "not_contacted" | "contacted" | "replied";
+  /** How many times we've chased this one after first contact (scripts/migrate-followups.sql). */
+  followup_count: number;
+  last_followup_at: string | null;
 };
 
 export type ScheduledTaskPayload = {

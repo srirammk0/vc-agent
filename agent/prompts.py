@@ -53,7 +53,8 @@ real thing:
   candidate in ONE batch call, even for a single name (a one-element list) — an exact
   normalized-name match across the FULL table, not a fuzzy text search, so trust its verdict
   over a hunch from a similar-sounding name. Use before delete_startups/save_startups.
-- query_startups(filters, offset) — enumerate a SET matching criteria (status/stealth/outreach),
+- query_startups(filters, offset) — enumerate a SET matching criteria (status/stealth/outreach/
+  follow-ups: followed_up=false is "never chased", and every row reports its follow-up count),
   paginated so one call never dumps the whole table. If the boss wants the complete list and more
   remain after a call, call it again with offset advanced — keep paging until you've genuinely
   covered everything, don't present the first page as the whole answer unless it is.
@@ -192,7 +193,7 @@ def _common_routing_table() -> str:
 → if not there, call supermemory_search (thesis/preferences/reflections may have relevant context)
 → only call exa_deep_search_many if neither has anything
 
-"how many / which / show me all startups that are [status/stealth/linkedin/email criteria]"
+"how many / which / show me all startups that are [status/stealth/linkedin/email/follow-up criteria]"
 → call query_startups with the matching filters, paginating with offset until the full total is
   covered if the boss wants the complete answer — don't answer from just the first page and imply
   that's everything unless the result says there's nothing more

@@ -4,6 +4,7 @@ import { useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { ArrowLeft, Clock, Pencil, RefreshCw, Trash2, X } from "lucide-react";
 import type { ScheduledTask } from "../../lib/supabase";
+import { isUpcoming, ranWithoutRecordedOutcome } from "../../lib/scheduledRuns";
 import { useScheduledRuns } from "../hooks/useScheduledRuns";
 
 const KIND_LABELS: Record<string, string> = {
@@ -53,7 +54,11 @@ function TaskCard({
 }) {
   const detail = detailText(task);
   const result = task.payload?.result;
-  const isPending = task.status === "pending";
+  // Deliberately isUpcoming(), not task.status === "pending" — a long-overdue row is
+  // shown as a past run, and critically loses the Cancel/Reschedule controls, which
+  // would otherwise be offering to cancel something that already happened.
+  const isPending = isUpcoming(task);
+  const outcomeMissing = ranWithoutRecordedOutcome(task);
 
   const [editing, setEditing] = useState(false);
   const [dueValue, setDueValue] = useState(() => toDatetimeLocalValue(task.due_at));
@@ -222,6 +227,12 @@ function TaskCard({
         <p style={{ fontSize: 12, color: "var(--danger, #e5484d)", margin: "8px 0 0" }}>{error}</p>
       )}
 
+      {outcomeMissing && !result && (
+        <p style={{ fontSize: 12, color: "var(--muted)", margin: "8px 0 0", fontStyle: "italic" }}>
+          Ran — no outcome recorded.
+        </p>
+      )}
+
       {!isPending && result && (
         <div
           style={{
@@ -270,10 +281,10 @@ export function ScheduledRunsList({
   rescheduleTask?: (id: string, dueAtIso: string) => Promise<string | null>;
 }) {
   const upcoming = tasks
-    .filter((t) => t.status === "pending")
+    .filter((t) => isUpcoming(t))
     .sort((a, b) => new Date(a.due_at).getTime() - new Date(b.due_at).getTime());
   const recent = tasks
-    .filter((t) => t.status !== "pending")
+    .filter((t) => !isUpcoming(t))
     .sort((a, b) => new Date(b.due_at).getTime() - new Date(a.due_at).getTime())
     .slice(0, 30);
 

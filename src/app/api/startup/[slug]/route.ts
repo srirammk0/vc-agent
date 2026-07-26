@@ -10,7 +10,7 @@ export async function GET(
   const { data, error } = await supabase
     .from("startups")
     .select(
-      "slug, enrichment_status, updated_at, company_description, founders, stage, raised, location, founded, team_size"
+      "slug, enrichment_status, updated_at, company_description, founders, stage, raised, location, founded, team_size, followup_count, last_followup_at"
     )
     .eq("slug", slug)
     .maybeSingle();
@@ -27,13 +27,23 @@ export async function GET(
 
 const OUTREACH_CHANNEL_STATES = ["not_contacted", "contacted", "replied"];
 
+/** Matches the CHECK constraint in scripts/migrate-followups.sql. */
+const MAX_FOLLOWUP_COUNT = 99;
+
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
 ) {
   const { slug } = await params;
   const body = await req.json();
-  const { status, stealth, linkedin_status, email_status } = body;
+  const {
+    status,
+    stealth,
+    linkedin_status,
+    email_status,
+    followup_count,
+    last_followup_at,
+  } = body;
 
   const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
 
@@ -60,6 +70,31 @@ export async function PATCH(
       return NextResponse.json({ error: "invalid email_status" }, { status: 400 });
     }
     update.email_status = email_status;
+  }
+  // The client sends the absolute count it wants, not "increment" — same optimistic
+  // update + undo pattern as every other field here, and it means this route never
+  // has to read the row first to know what to write.
+  if (followup_count !== undefined) {
+    if (
+      typeof followup_count !== "number" ||
+      !Number.isInteger(followup_count) ||
+      followup_count < 0 ||
+      followup_count > MAX_FOLLOWUP_COUNT
+    ) {
+      return NextResponse.json({ error: "invalid followup_count" }, { status: 400 });
+    }
+    update.followup_count = followup_count;
+  }
+  if (last_followup_at !== undefined) {
+    if (last_followup_at !== null) {
+      if (
+        typeof last_followup_at !== "string" ||
+        Number.isNaN(new Date(last_followup_at).getTime())
+      ) {
+        return NextResponse.json({ error: "invalid last_followup_at" }, { status: 400 });
+      }
+    }
+    update.last_followup_at = last_followup_at;
   }
 
   const { error } = await supabase.from("startups").update(update).eq("slug", slug);

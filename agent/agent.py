@@ -430,14 +430,22 @@ def register_tools(
             stealth: bool | None = None,
             linkedin_status: str | None = None,
             email_status: str | None = None,
+            followed_up: bool | None = None,
             offset: int = 0,
         ) -> str:
             """Scan dealflow by structured filters (status: new/approved/passed; stealth:
-            true/false; linkedin_status/email_status: not_contacted/contacted/replied),
+            true/false; linkedin_status/email_status: not_contacted/contacted/replied;
+            followed_up: true = chased at least once, false = never followed up),
             paginated ~40 rows per call so one call never dumps the whole table. Use this
             for anything broader than one named company — "which approved startups haven't
-            been emailed", "how many are in stealth", a full audit of some slice of
-            dealflow. Leave a filter as null to not filter on it.
+            been emailed", "who have we never followed up with", "how many are in stealth",
+            a full audit of some slice of dealflow. Leave a filter as null to not filter
+            on it.
+
+            Every row also reports its follow-up count and the date of the last one, so
+            "we've chased them 3 times since March with no reply" is answerable from one
+            call. You can't change follow-up counts — logging a follow-up is a dashboard
+            action, same as approve/pass.
 
             The result tells you how many total rows matched and whether more remain. If
             the boss wants the COMPLETE list (not just a sample) and more remain, call this
@@ -450,6 +458,7 @@ def register_tools(
                     stealth=stealth,
                     linkedin_status=linkedin_status,
                     email_status=email_status,
+                    followed_up=followed_up,
                     offset=offset,
                 )
             except asyncio.TimeoutError:

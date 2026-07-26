@@ -116,7 +116,11 @@ Supermemory involved).
 
 - `startups`: name, slug, one-liner, assessment, status (`new`/`approved`/`passed`), signal URLs, and
   enrichment fields (company description, founders, stage, raised, location, team size) populated by the
-  on-demand enrichment job.
+  on-demand enrichment job, plus outreach tracking: `linkedin_status`/`email_status`
+  (not_contacted/contacted/replied) and `followup_count`/`last_followup_at`. Follow-ups are a counter
+  rather than a status — the count already encodes whether we've chased anyone, and `last_followup_at`
+  is what separates "chased twice this week" from "chased twice back in March"
+  (`scripts/migrate-followups.sql`).
 - `thesis`: the active investment thesis markdown content.
 - `signals`: legacy table from the now-removed agent-directed crawling subsystem. Nothing writes to it
   anymore; left as-is rather than migrated away (see `scripts/migrate-signal-recheck-tracking.sql` for its
@@ -132,7 +136,13 @@ Supermemory involved).
 
 Full SQL schema (tables, indexes, RLS policies, realtime publication) is in `scripts/seed-supabase.py`. See
 `scripts/migrations.sql`, `scripts/migrate-created-at.sql`, `scripts/migrate-signals-company-name.sql`, and
-`scripts/migrate-signal-recheck-tracking.sql` for incremental migrations applied since.
+`scripts/migrate-signal-recheck-tracking.sql`, `scripts/migrate-followups.sql`, and
+`scripts/migrate-stale-scheduled-tasks.sql` for incremental migrations applied since.
+
+`scheduled_tasks.status` is **not** authoritative — Trigger.dev owns timing and `mark_done` is
+best-effort, so a row can stay `pending` forever if a run never fired or its bookkeeping failed. Anything
+more than an hour past `due_at` is treated as past by the dashboard (`src/lib/scheduledRuns.ts`) and by
+the agent's `list_scheduled_tasks` tool, and `agent/sync.py` sweeps such rows to `done` on its cron.
 
 ---
 
@@ -193,6 +203,9 @@ Trigger.dev's own tasks (`src/trigger/*.ts`) are thin forwarders — see the tab
 2. Run the SQL schema at the top of [`scripts/seed-supabase.py`](scripts/seed-supabase.py) in the SQL Editor.
 3. Apply `scripts/migrations.sql`, `scripts/migrate-created-at.sql`, `scripts/migrate-signals-company-name.sql`,
    and `scripts/migrate-signal-recheck-tracking.sql` if starting from an older schema.
+   Then apply `scripts/migrate-followups.sql` (follow-up tracking columns) and
+   `scripts/migrate-stale-scheduled-tasks.sql` (one-time cleanup of scheduled runs stuck at
+   `pending`).
 4. **Apply `scripts/migrate-rls-lockdown.sql`** on any existing project. Earlier versions of the
    schema granted the public `anon` key full read/write on `cache` (which stores conversation
    history, thesis and preferences) and `scheduled_tasks`, with no RLS — this revokes that and

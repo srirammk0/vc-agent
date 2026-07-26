@@ -26,8 +26,13 @@ type Props = {
   stealth: boolean;
   linkedinStatus: ChannelStatus;
   emailStatus: ChannelStatus;
+  followupCount?: number;
+  lastFollowupAt?: string | null;
   onUpdate: (partial: Partial<Startup>) => void;
 };
+
+/** Matches the CHECK constraint in scripts/migrate-followups.sql. */
+const MAX_FOLLOWUP_COUNT = 99;
 
 const MENU_ITEMS: { value: Status; label: string; accent: string }[] = [
   { value: "approved", label: "Mark approved", accent: "var(--success)" },
@@ -58,6 +63,8 @@ export default function StartupActions({
   stealth,
   linkedinStatus,
   emailStatus,
+  followupCount = 0,
+  lastFollowupAt = null,
   onUpdate,
 }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
@@ -191,6 +198,30 @@ export default function StartupActions({
       channel,
       { [channel]: current },
       `${label} marked ${CHANNEL_LABEL[next].toLowerCase()}`
+    );
+  }
+
+  /** Logs one more follow-up and stamps the time. Undo restores BOTH the old count
+   * and the old timestamp — restoring the count alone would leave the row claiming
+   * its last follow-up happened just now. */
+  function logFollowup() {
+    if (followupCount >= MAX_FOLLOWUP_COUNT) return;
+    const next = followupCount + 1;
+    patchOutreach(
+      { followup_count: next, last_followup_at: new Date().toISOString() },
+      "followup",
+      { followup_count: followupCount, last_followup_at: lastFollowupAt },
+      `Follow-up #${next} logged for ${name}`
+    );
+  }
+
+  function clearFollowups() {
+    if (followupCount === 0) return;
+    patchOutreach(
+      { followup_count: 0, last_followup_at: null },
+      "followup",
+      { followup_count: followupCount, last_followup_at: lastFollowupAt },
+      `Follow-ups cleared for ${name}`
     );
   }
 
@@ -533,6 +564,44 @@ export default function StartupActions({
                   />
                   Email: {CHANNEL_LABEL[emailStatus]}
                 </button>
+                <button
+                  type="button"
+                  className="menu-item"
+                  onClick={logFollowup}
+                  disabled={busy === "followup" || followupCount >= MAX_FOLLOWUP_COUNT}
+                  style={{ fontSize: 13, fontWeight: 400 }}
+                >
+                  <span
+                    style={{
+                      width: 7,
+                      height: 7,
+                      borderRadius: 999,
+                      background: followupCount > 0 ? "#b26a00" : "var(--label)",
+                      flexShrink: 0,
+                    }}
+                  />
+                  Log follow-up{followupCount > 0 ? ` (${followupCount})` : ""}
+                </button>
+                {followupCount > 0 && (
+                  <button
+                    type="button"
+                    className="menu-item"
+                    onClick={clearFollowups}
+                    disabled={busy === "followup"}
+                    style={{ fontSize: 13, fontWeight: 400, color: "var(--muted)" }}
+                  >
+                    <span
+                      style={{
+                        width: 7,
+                        height: 7,
+                        borderRadius: 999,
+                        background: "var(--muted)",
+                        flexShrink: 0,
+                      }}
+                    />
+                    Clear follow-ups
+                  </button>
+                )}
               </>
             )}
           </div>

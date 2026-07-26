@@ -44,6 +44,8 @@ export default function StartupDetailBody({ startup: s, onUpdate }: Props) {
               stealth={s.stealth}
               linkedinStatus={s.linkedin_status}
               emailStatus={s.email_status}
+              followupCount={s.followup_count}
+              lastFollowupAt={s.last_followup_at}
             />
           </div>
           {s.one_liner && (
@@ -79,6 +81,8 @@ export default function StartupDetailBody({ startup: s, onUpdate }: Props) {
             stealth={s.stealth}
             linkedinStatus={s.linkedin_status}
             emailStatus={s.email_status}
+            followupCount={s.followup_count}
+            lastFollowupAt={s.last_followup_at}
             onUpdate={onUpdate}
           />
         </div>

@@ -338,6 +338,8 @@ export default function SpeedReview({ startups, queueSlugs, onUpdate, onClose }:
                       stealth={current.stealth}
                       linkedinStatus={current.linkedin_status}
                       emailStatus={current.email_status}
+                      followupCount={current.followup_count}
+                      lastFollowupAt={current.last_followup_at}
                     />
                   </div>
                   {current.website && (

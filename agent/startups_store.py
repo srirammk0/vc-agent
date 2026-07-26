@@ -182,12 +182,13 @@ async def query_startups(
     stealth: bool | None = None,
     linkedin_status: str | None = None,
     email_status: str | None = None,
+    followed_up: bool | None = None,
     offset: int = 0,
     limit: int = 40,
 ) -> str:
     """Structured, paginated scan over the full startups table — how to enumerate
-    dealflow matching real criteria ("every approved non-stealth startup not yet
-    emailed") without ever pulling the whole table into one tool call. Returns up to
+    dealflow matching real criteria ("every approved startup we've never followed
+    up with", "every approved non-stealth startup not yet emailed") without ever pulling the whole table into one tool call. Returns up to
     `limit` rows starting at `offset`, ordered by most-recently-updated, plus how many
     total rows matched. If more remain, the caller (the model) is expected to call
     this again with offset advanced by the number of rows just returned — repeat
@@ -200,7 +201,8 @@ async def query_startups(
     offset = max(0, offset)
     try:
         q = sb.table("startups").select(
-            "name, slug, status, stealth, linkedin_status, email_status",
+            "name, slug, status, stealth, linkedin_status, email_status, "
+            "followup_count, last_followup_at",
             count="exact",
         )
         if status is not None:
@@ -211,6 +213,10 @@ async def query_startups(
             q = q.eq("linkedin_status", linkedin_status)
         if email_status is not None:
             q = q.eq("email_status", email_status)
+        # followup_count is a counter, not an enum — "have we followed up" is
+        # count > 0, so the boolean filter maps onto that rather than a status value.
+        if followed_up is not None:
+            q = q.gt("followup_count", 0) if followed_up else q.eq("followup_count", 0)
         q = q.order("updated_at", desc=True).range(offset, offset + limit - 1)
         res = await asyncio.wait_for(asyncio.to_thread(lambda: q.execute()), timeout=_SB_TIMEOUT)
         rows = res.data or []
@@ -223,7 +229,10 @@ async def query_startups(
 
     lines = "\n".join(
         f"- {r.get('name', '')} (slug: {r.get('slug', '')}, status: {r.get('status', 'new')}, "
-        f"stealth: {r.get('stealth')}, linkedin: {r.get('linkedin_status')}, email: {r.get('email_status')})"
+        f"stealth: {r.get('stealth')}, linkedin: {r.get('linkedin_status')}, "
+        f"email: {r.get('email_status')}, follow-ups: {r.get('followup_count') or 0}"
+        + (f" (last {str(r.get('last_followup_at'))[:10]})" if r.get("last_followup_at") else "")
+        + ")"
         for r in rows
     )
     next_offset = offset + len(rows)

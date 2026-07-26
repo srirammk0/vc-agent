@@ -13,7 +13,7 @@ called.
 """
 
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from supabase import create_client
@@ -134,8 +134,27 @@ def delete_task(task_id: str) -> bool:
         return False
 
 
+# How long past due a still-'pending' row is given before it stops counting as
+# pending. Mirrors OVERDUE_GRACE_MS in src/lib/scheduledRuns.ts — keep them in step.
+# A row can legitimately sit past due while it's mid-flight (Trigger.dev fires it,
+# the agent run takes up to 10 minutes, mark_done lands only afterwards), but beyond
+# that it's stuck: mark_done is best-effort by design, so a run that never fired or
+# whose bookkeeping failed leaves 'pending' behind with nothing to ever clear it.
+_OVERDUE_GRACE_MINUTES = 60
+
+
+def _overdue_cutoff() -> str:
+    return (datetime.now(timezone.utc) - timedelta(minutes=_OVERDUE_GRACE_MINUTES)).isoformat()
+
+
 def list_pending(limit: int = 20) -> list[dict]:
-    """Pending scheduled tasks, soonest due first. Returns [] on any failure."""
+    """Genuinely-still-upcoming scheduled tasks, soonest due first. Returns [] on any
+    failure.
+
+    Excludes long-overdue rows: this backs the agent's list_scheduled_tasks tool, and
+    reporting a task from last month as "scheduled" is worse than omitting it — the
+    boss asks what's coming up, not what got stranded.
+    """
     sb = _sb_client()
     if sb is None:
         return []
@@ -144,6 +163,7 @@ def list_pending(limit: int = 20) -> list[dict]:
             sb.table("scheduled_tasks")
             .select("id, kind, due_at, payload")
             .eq("status", "pending")
+            .gte("due_at", _overdue_cutoff())
             .order("due_at")
             .limit(limit)
             .execute()
@@ -152,3 +172,27 @@ def list_pending(limit: int = 20) -> list[dict]:
     except Exception as e:
         print("scheduled_tasks_log: list_pending failed:", e)
         return []
+
+
+def sweep_overdue() -> int:
+    """Mark long-overdue 'pending' rows as done. Returns how many were swept (0 on
+    any failure — this is housekeeping, it must never raise into a caller).
+
+    Runs on agent/sync.py's cron so stuck rows get cleared at the source, rather than
+    every reader having to filter them out forever.
+    """
+    sb = _sb_client()
+    if sb is None:
+        return 0
+    try:
+        res = (
+            sb.table("scheduled_tasks")
+            .update({"status": "done"})
+            .eq("status", "pending")
+            .lt("due_at", _overdue_cutoff())
+            .execute()
+        )
+        return len(res.data or [])
+    except Exception as e:
+        print("scheduled_tasks_log: sweep_overdue failed:", e)
+        return 0
