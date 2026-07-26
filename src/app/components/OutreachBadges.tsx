@@ -1,3 +1,5 @@
+import { Pill } from "./ui/Pill";
+
 type ChannelStatus = "not_contacted" | "contacted" | "replied";
 
 const CHANNEL_STYLE: Record<ChannelStatus, React.CSSProperties> = {
@@ -8,12 +10,12 @@ const CHANNEL_STYLE: Record<ChannelStatus, React.CSSProperties> = {
   },
   contacted: {
     background: "rgba(0,122,255,0.08)",
-    color: "#007aff",
+    color: "var(--accent)",
     border: "1px solid rgba(0,122,255,0.18)",
   },
   replied: {
     background: "rgba(52,199,89,0.1)",
-    color: "#1a8a2e",
+    color: "var(--success-text)",
     border: "1px solid rgba(52,199,89,0.25)",
   },
 };
@@ -24,33 +26,11 @@ const CHANNEL_LABEL: Record<ChannelStatus, string> = {
   replied: "replied",
 };
 
-const PILL_BASE: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: 5,
-  borderRadius: 999,
-  padding: "2px 9px",
-  fontSize: 11.5,
-  lineHeight: "18px",
-  whiteSpace: "nowrap",
-  fontWeight: 500,
-  letterSpacing: "0.01em",
-};
-
-function Dot() {
-  return (
-    <span
-      style={{ width: 5, height: 5, borderRadius: 999, background: "currentColor", flexShrink: 0 }}
-    />
-  );
-}
-
 function ChannelPill({ channel, status }: { channel: string; status: ChannelStatus }) {
   return (
-    <span style={{ ...PILL_BASE, ...CHANNEL_STYLE[status] }}>
-      <Dot />
+    <Pill style={CHANNEL_STYLE[status]}>
       {channel}: {CHANNEL_LABEL[status]}
-    </span>
+    </Pill>
   );
 }
 
@@ -82,36 +62,32 @@ export default function OutreachBadges({
   return (
     <>
       {stealth && (
-        <span
+        <Pill
           style={{
-            ...PILL_BASE,
             background: "rgba(142,68,173,0.08)",
             color: "#8e44ad",
             border: "1px solid rgba(142,68,173,0.2)",
           }}
         >
-          <Dot />
           stealth
-        </span>
+        </Pill>
       )}
       <ChannelPill channel="li" status={linkedinStatus} />
       <ChannelPill channel="email" status={emailStatus} />
       {/* Only rendered once there's actually been a follow-up — a "0 follow-ups" pill
           on every untouched row is noise, and the absence reads the same way. */}
       {followupCount > 0 && (
-        <span
+        <Pill
           style={{
-            ...PILL_BASE,
             background: "rgba(255,149,0,0.09)",
             color: "#b26a00",
             border: "1px solid rgba(255,149,0,0.22)",
           }}
           title={lastFollowupAt ? `Last follow-up ${new Date(lastFollowupAt).toLocaleString()}` : undefined}
         >
-          <Dot />
           {followupCount === 1 ? "1 follow-up" : `${followupCount} follow-ups`}
           {since ? ` · ${since}` : ""}
-        </span>
+        </Pill>
       )}
     </>
   );

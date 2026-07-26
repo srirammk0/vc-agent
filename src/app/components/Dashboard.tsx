@@ -1,21 +1,22 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { MessageCircle, SlidersHorizontal, Zap } from "lucide-react";
 import type { Startup } from "../../lib/supabase";
-import { hasEnrichmentData, isStaleRunning } from "../../lib/enrichment";
 import { sortStartups } from "../../lib/sortStartups";
 import { readSession, writeSession } from "../../lib/persistedState";
 import { queueWrite } from "../../lib/writeQueue";
 import { useLiveStartups } from "../hooks/useLiveStartups";
-import StatusBadge from "./StatusBadge";
-import OutreachBadges from "./OutreachBadges";
-import StartupActions from "./StartupActions";
+import { useClickOutside } from "../hooks/useClickOutside";
 import StartupPanel from "./StartupPanel";
 import CommandPalette from "./CommandPalette";
 import SpeedReview from "./SpeedReview";
 import { useToast } from "./Toast";
+import { StartupRow } from "./StartupRow";
+import { BatchToolbar } from "./BatchToolbar";
+import { FilterGroup } from "./ui/FilterGroup";
+import { SearchBar } from "./ui/SearchBar";
 
 type Tab = "all" | "new" | "approved" | "passed";
 type ChannelFilter = "all" | "not_contacted" | "contacted" | "replied";
@@ -59,11 +60,6 @@ const TAB_COUNT_BADGE: Record<Tab, { bg: string; color: string }> = {
   approved: { bg: "var(--success)", color: "#fff" },
   passed: { bg: "var(--danger)", color: "#fff" },
 };
-
-function truncate(text: string | null, n: number): string {
-  if (!text) return "";
-  return text.length > n ? text.slice(0, n).trimEnd() + "…" : text;
-}
 
 type DashUiState = {
   tab: Tab;
@@ -123,7 +119,7 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
     savedUi.followupFilter ?? DEFAULT_FILTERS.followupFilter
   );
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const filtersRef = useRef<HTMLDivElement>(null);
+  const filtersRef = useClickOutside<HTMLDivElement>(filtersOpen, () => setFiltersOpen(false));
   const [isMac, setIsMac] = useState(true);
   const [selectedSlugs, setSelectedSlugs] = useState<Set<string>>(new Set());
   const [batchBusy, setBatchBusy] = useState<string | null>(null);
@@ -201,17 +197,6 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
   useEffect(() => {
     writeSession(DASH_UI_KEY, { tab, query, stealthFilter, linkedinFilter, emailFilter, followupFilter });
   }, [tab, query, stealthFilter, linkedinFilter, emailFilter, followupFilter]);
-
-  useEffect(() => {
-    if (!filtersOpen) return;
-    const onClick = (e: MouseEvent) => {
-      if (filtersRef.current && !filtersRef.current.contains(e.target as Node)) {
-        setFiltersOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", onClick);
-    return () => document.removeEventListener("mousedown", onClick);
-  }, [filtersOpen]);
 
   const activeFilterCount =
     (stealthFilter !== "all" ? 1 : 0) +
@@ -623,530 +608,43 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {filtered.map((s, i) => {
-              const isPassed = s.status === "passed";
-              const enriched = hasEnrichmentData(s);
-              const isEnriching = s.enrichment_status === "running" && !isStaleRunning(s);
-              const isSelected = selectedSlugs.has(s.slug);
-
-              return (
-                <div
-                  key={s.slug}
-                  data-startup-card
-                  className="row-enter"
-                  onClick={(e) => {
-                    const target = e.target as HTMLElement;
-                    if (target.closest("a, button, input, label, [data-no-nav]")) return;
-                    setPanelSlug(s.slug);
-                  }}
-                  style={{
-                    animationDelay: `${Math.min(i * 22, 280)}ms`,
-                    border: isSelected ? "1.5px solid var(--accent)" : "1px solid var(--border)",
-                    borderRadius: 12,
-                    background: isPassed ? "rgba(255,255,255,0.45)" : isSelected ? "rgba(0, 122, 255, 0.035)" : "var(--card-bg)",
-                    boxShadow: isSelected
-                      ? "0 4px 20px rgba(0, 122, 255, 0.12), 0 0 0 1px rgba(0, 122, 255, 0.18) inset"
-                      : isPassed
-                      ? "none"
-                      : "0 1px 4px rgba(0,0,0,0.05), 0 0 0 1px rgba(255,255,255,0.6) inset",
-                    opacity: isPassed && !isSelected ? 0.62 : 1,
-                    transform: isSelected ? "translateY(-1px)" : "translateY(0)",
-                    transition: "all 0.25s cubic-bezier(0.16, 1, 0.3, 1)",
-                    padding: "18px 20px",
-                    position: "relative",
-                    cursor: enriched ? "pointer" : "default",
-                  }}
-                >
-                  {/* Card top row: name + badges + actions */}
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "flex-start",
-                      gap: 12,
-                    }}
-                  >
-                    <div style={{ paddingTop: 2, flexShrink: 0 }} data-no-nav>
-                      <CleanCheckbox
-                        checked={isSelected}
-                        onChange={() => {
-                          const next = new Set(selectedSlugs);
-                          if (isSelected) next.delete(s.slug);
-                          else next.add(s.slug);
-                          setSelectedSlugs(next);
-                        }}
-                      />
-                    </div>
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      {/* Name + badges */}
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 7,
-                          flexWrap: "wrap",
-                          marginBottom: 3,
-                        }}
-                      >
-                        <Link
-                          href={`/startups/${s.slug}`}
-                          onClick={(e) => {
-                            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
-                            e.preventDefault();
-                            setPanelSlug(s.slug);
-                          }}
-                          style={{
-                            fontSize: 15,
-                            fontWeight: 600,
-                            color: "var(--heading)",
-                            textDecoration: isPassed ? "line-through" : "none",
-                            letterSpacing: "-0.15px",
-                          }}
-                        >
-                          {s.name}
-                        </Link>
-                        <StatusBadge status={s.status} />
-                        <OutreachBadges
-                          stealth={s.stealth}
-                          linkedinStatus={s.linkedin_status}
-                          emailStatus={s.email_status}
-                          followupCount={s.followup_count}
-                          lastFollowupAt={s.last_followup_at}
-                        />
-                        {isEnriching && (
-                          <span
-                            style={{
-                              fontSize: 11,
-                              color: "var(--accent)",
-                              fontWeight: 500,
-                              letterSpacing: "0.01em",
-                            }}
-                            className="live-dot"
-                          >
-                            enriching…
-                          </span>
-                        )}
-                        {enriched && !isEnriching && (
-                          <span
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: 4,
-                              fontSize: 11,
-                              fontWeight: 500,
-                              color: "var(--success)",
-                              background: "rgba(52,199,89,0.08)",
-                              border: "1px solid rgba(52,199,89,0.2)",
-                              borderRadius: 999,
-                              padding: "2px 8px",
-                              letterSpacing: "0.01em",
-                            }}
-                          >
-                            <span
-                              style={{
-                                width: 4,
-                                height: 4,
-                                borderRadius: 999,
-                                background: "var(--success)",
-                                flexShrink: 0,
-                              }}
-                            />
-                            enriched
-                          </span>
-                        )}
-                      </div>
-                      {/* Website */}
-                      {s.website && (
-                        <a
-                          href={s.website.startsWith("http://") || s.website.startsWith("https://") || s.website.startsWith("//") ? s.website : `https://${s.website}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          style={{
-                            fontSize: 12,
-                            color: "var(--accent)",
-                            textDecoration: "none",
-                            opacity: 0.72,
-                          }}
-                        >
-                          {s.website.replace(/^https?:\/\//, "")}
-                        </a>
-                      )}
-                    </div>
-
-                    {/* Actions (raised so menus sit above card content) */}
-                    <div style={{ flexShrink: 0, position: "relative", zIndex: 20 }} data-no-nav>
-                      <StartupActions
-                        slug={s.slug}
-                        name={s.name}
-                        status={s.status}
-                        enrichmentStatus={s.enrichment_status}
-                        enrichmentUpdatedAt={s.updated_at}
-                        companyDescription={s.company_description}
-                        founders={s.founders}
-                        enriched={s.enriched}
-                        stealth={s.stealth}
-                        linkedinStatus={s.linkedin_status}
-                        emailStatus={s.email_status}
-                        followupCount={s.followup_count}
-                        lastFollowupAt={s.last_followup_at}
-                        onUpdate={(partial) => updateLocal(s.slug, partial)}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Card body: one-liner + assessment */}
-                  {(s.one_liner || s.assessment) && (
-                    <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 4 }}>
-                      {s.one_liner && (
-                        <p
-                          style={{
-                            fontSize: 13,
-                            color: "var(--body)",
-                            lineHeight: 1.55,
-                            margin: 0,
-                          }}
-                        >
-                          {truncate(s.one_liner, 180)}
-                        </p>
-                      )}
-                      {s.assessment && (
-                        <p
-                          style={{
-                            fontSize: 12,
-                            color: "var(--label)",
-                            lineHeight: 1.55,
-                            margin: 0,
-                          }}
-                        >
-                          {truncate(s.assessment, 220)}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+            {filtered.map((s, i) => (
+              <StartupRow
+                key={s.slug}
+                startup={s}
+                index={i}
+                selected={selectedSlugs.has(s.slug)}
+                onToggleSelect={() => {
+                  const next = new Set(selectedSlugs);
+                  if (next.has(s.slug)) next.delete(s.slug);
+                  else next.add(s.slug);
+                  setSelectedSlugs(next);
+                }}
+                onOpenPanel={() => setPanelSlug(s.slug)}
+                onUpdate={(partial) => updateLocal(s.slug, partial)}
+              />
+            ))}
           </div>
         )}
       </div>
 
       {/* Floating Bulk Action Bar (Sleek HUD) */}
       {selectedSlugs.size > 0 && (
-        <div
-          className="animate-float-up"
-          style={{
-            position: "fixed",
-            bottom: 32,
-            left: "50%",
-            transform: "translateX(-50%)",
-            zIndex: 500,
-            display: "flex",
-            alignItems: "center",
-            gap: 16,
-            padding: "10px 18px",
-            background: "var(--card-bg)",
-            backdropFilter: "blur(24px) saturate(180%)",
-            WebkitBackdropFilter: "blur(24px) saturate(180%)",
-            border: "1px solid var(--border)",
-            borderRadius: 16,
-            boxShadow: "0 20px 50px rgba(0, 0, 0, 0.18), 0 2px 10px rgba(0, 0, 0, 0.06)",
+        <BatchToolbar
+          selectedCount={selectedSlugs.size}
+          totalFiltered={filtered.length}
+          batchBusy={batchBusy}
+          onToggleSelectAll={() => {
+            if (selectedSlugs.size === filtered.length) {
+              setSelectedSlugs(new Set());
+            } else {
+              setSelectedSlugs(new Set(filtered.map((s) => s.slug)));
+            }
           }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span
-              style={{
-                background: "var(--accent)",
-                color: "#fff",
-                fontSize: 12,
-                fontWeight: 600,
-                padding: "3px 9px",
-                borderRadius: 999,
-                boxShadow: "0 2px 8px rgba(0, 122, 255, 0.4)",
-              }}
-            >
-              {selectedSlugs.size}
-            </span>
-            <span style={{ fontSize: 13.5, fontWeight: 500, color: "var(--heading)", letterSpacing: "-0.1px" }}>
-              selected
-            </span>
-          </div>
-
-          <div style={{ width: 1, height: 22, background: "var(--border)" }} />
-
-          <button
-            className="hud-btn"
-            onClick={() => {
-              if (selectedSlugs.size === filtered.length) {
-                setSelectedSlugs(new Set());
-              } else {
-                setSelectedSlugs(new Set(filtered.map((s) => s.slug)));
-              }
-            }}
-            style={{
-              background: "rgba(0, 122, 255, 0.08)",
-              border: "1px solid rgba(0, 122, 255, 0.25)",
-              color: "var(--accent)",
-            }}
-          >
-            {selectedSlugs.size === filtered.length ? "Deselect All" : `Select All (${filtered.length})`}
-          </button>
-
-          <div style={{ width: 1, height: 22, background: "var(--border)" }} />
-
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <button
-              className="hud-btn"
-              onClick={() => handleBatchStatus("approved")}
-              disabled={batchBusy !== null}
-              style={{
-                background: "rgba(52, 199, 89, 0.12)",
-                border: "1px solid rgba(52, 199, 89, 0.3)",
-                color: "#1e9e4a",
-                opacity: batchBusy !== null ? 0.5 : 1,
-                cursor: batchBusy !== null ? "not-allowed" : "pointer",
-              }}
-            >
-              <span style={{ width: 6, height: 6, borderRadius: 999, background: "#1e9e4a" }} />
-              {batchBusy === "approved" ? "Approving…" : "Mark approved"}
-            </button>
-
-            <button
-              className="hud-btn"
-              onClick={() => handleBatchStatus("passed")}
-              disabled={batchBusy !== null}
-              style={{
-                background: "rgba(255, 59, 48, 0.1)",
-                border: "1px solid rgba(255, 59, 48, 0.3)",
-                color: "#d9291f",
-                opacity: batchBusy !== null ? 0.5 : 1,
-                cursor: batchBusy !== null ? "not-allowed" : "pointer",
-              }}
-            >
-              <span style={{ width: 6, height: 6, borderRadius: 999, background: "#d9291f" }} />
-              {batchBusy === "passed" ? "Passing…" : "Mark passed"}
-            </button>
-
-            <button
-              className="hud-btn"
-              onClick={() => handleBatchStatus("new")}
-              disabled={batchBusy !== null}
-              style={{
-                background: "rgba(0, 0, 0, 0.04)",
-                border: "1px solid var(--border-med)",
-                color: "var(--label)",
-                opacity: batchBusy !== null ? 0.5 : 1,
-                cursor: batchBusy !== null ? "not-allowed" : "pointer",
-              }}
-            >
-              <span style={{ width: 6, height: 6, borderRadius: 999, background: "var(--label)" }} />
-              {batchBusy === "new" ? "Resetting…" : "Mark new"}
-            </button>
-          </div>
-
-          <div style={{ width: 1, height: 22, background: "var(--border)" }} />
-
-          <button
-            onClick={() => setSelectedSlugs(new Set())}
-            disabled={batchBusy !== null}
-            style={{
-              background: "transparent",
-              border: "none",
-              color: "var(--muted)",
-              fontSize: 13,
-              fontWeight: 500,
-              cursor: batchBusy !== null ? "not-allowed" : "pointer",
-              padding: "5px 10px",
-              borderRadius: 8,
-              transition: "all 0.15s ease",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.color = "var(--heading)";
-              e.currentTarget.style.background = "rgba(0, 0, 0, 0.05)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.color = "var(--muted)";
-              e.currentTarget.style.background = "transparent";
-            }}
-            title="Clear selection"
-          >
-            Cancel
-          </button>
-        </div>
+          onBatchStatus={handleBatchStatus}
+          onCancel={() => setSelectedSlugs(new Set())}
+        />
       )}
     </main>
-  );
-}
-
-function CleanCheckbox({
-  checked,
-  onChange,
-  disabled,
-}: {
-  checked: boolean;
-  onChange?: () => void;
-  disabled?: boolean;
-}) {
-  return (
-    <div
-      role="checkbox"
-      aria-checked={checked}
-      onClick={(e) => {
-        e.stopPropagation();
-        if (!disabled && onChange) onChange();
-      }}
-      style={{
-        width: 18,
-        height: 18,
-        borderRadius: 5,
-        border: checked ? "1px solid var(--accent)" : "1.5px solid var(--border-med)",
-        background: checked ? "var(--accent)" : "rgba(255, 255, 255, 0.9)",
-        boxShadow: checked
-          ? "0 2px 8px rgba(0, 122, 255, 0.35)"
-          : "0 1px 2px rgba(0, 0, 0, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.8)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        cursor: disabled ? "not-allowed" : "pointer",
-        opacity: disabled ? 0.5 : 1,
-        transition: "all 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
-        flexShrink: 0,
-        userSelect: "none",
-      }}
-    >
-      {checked && (
-        <svg
-          className="animate-check"
-          width="11"
-          height="9"
-          viewBox="0 0 11 9"
-          fill="none"
-          style={{
-            stroke: "#ffffff",
-            strokeWidth: 2.2,
-            strokeLinecap: "round",
-            strokeLinejoin: "round",
-          }}
-        >
-          <path d="M1 4.5L4 7.5L10 1.5" />
-        </svg>
-      )}
-    </div>
-  );
-}
-
-function FilterGroup<T extends string>({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: T;
-  options: { value: T; label: string }[];
-  onChange: (v: T) => void;
-}) {
-  return (
-    <div>
-      <div
-        style={{
-          fontSize: 10.5,
-          color: "var(--muted)",
-          textTransform: "uppercase",
-          letterSpacing: "0.08em",
-          fontWeight: 500,
-          marginBottom: 6,
-        }}
-      >
-        {label}
-      </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-        {options.map((opt) => {
-          const active = opt.value === value;
-          return (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => onChange(opt.value)}
-              style={{
-                fontSize: 11.5,
-                fontWeight: 500,
-                padding: "4px 9px",
-                borderRadius: 999,
-                border: active ? "1px solid rgba(0,122,255,0.3)" : "1px solid var(--border)",
-                background: active ? "rgba(0,122,255,0.08)" : "transparent",
-                color: active ? "var(--accent)" : "var(--label)",
-                cursor: "pointer",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {opt.label}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function SearchBar({
-  query,
-  setQuery,
-  isMac,
-}: {
-  query: string;
-  setQuery: (v: string) => void;
-  isMac: boolean;
-}) {
-  return (
-    <div
-      className="glass-input"
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        height: 38,
-        padding: "0 12px",
-        minWidth: 240,
-      }}
-    >
-      <svg
-        width="13"
-        height="13"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="var(--muted)"
-        strokeWidth="2.2"
-      >
-        <circle cx="11" cy="11" r="7" />
-        <path d="m21 21-4.3-4.3" />
-      </svg>
-      <input
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="Search startups…"
-        style={{
-          border: "none",
-          outline: "none",
-          background: "transparent",
-          fontSize: 13,
-          color: "var(--body)",
-          flex: 1,
-          minWidth: 0,
-        }}
-      />
-      <kbd
-        style={{
-          fontSize: 10.5,
-          color: "var(--muted)",
-          border: "1px solid var(--border)",
-          borderRadius: 5,
-          padding: "1px 5px",
-          background: "rgba(255,255,255,0.5)",
-          fontFamily: "inherit",
-        }}
-      >
-        {isMac ? "⌘K" : "Ctrl K"}
-      </kbd>
-    </div>
   );
 }

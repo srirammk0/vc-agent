@@ -1,6 +1,7 @@
 import type { Founder, Startup } from "../../lib/supabase";
 import { hasEnrichmentData, isStaleRunning } from "../../lib/enrichment";
 import FounderTimeline from "./FounderTimeline";
+import { Pill, Dot } from "./ui/Pill";
 
 type Props = {
   startup: Pick<Startup, "slug" | "enrichment_status" | "updated_at"> & EnrichmentFields;
@@ -78,42 +79,36 @@ export default function EnrichmentSection({ startup: data }: Props) {
           </span>
         )}
         {enriched && !isRunning && (
-          <span
+          <Pill
+            dot={false}
             style={{
-              display: "inline-flex",
-              alignItems: "center",
               gap: 4,
               fontSize: 11,
-              fontWeight: 500,
               color: "var(--success)",
               background: "rgba(52,199,89,0.08)",
               border: "1px solid rgba(52,199,89,0.2)",
-              borderRadius: 999,
               padding: "2px 8px",
             }}
           >
-            <span style={{ width: 4, height: 4, borderRadius: 999, background: "var(--success)", flexShrink: 0 }} />
+            <Dot size={4} />
             enriched
-          </span>
+          </Pill>
         )}
         {isFailed && !enriched && (
-          <span
+          <Pill
+            dot={false}
             style={{
-              display: "inline-flex",
-              alignItems: "center",
               gap: 4,
               fontSize: 11,
-              fontWeight: 500,
               color: "var(--warning, #f59e0b)",
               background: "rgba(245,158,11,0.08)",
               border: "1px solid rgba(245,158,11,0.2)",
-              borderRadius: 999,
               padding: "2px 8px",
             }}
           >
-            <span style={{ width: 4, height: 4, borderRadius: 999, background: "var(--warning, #f59e0b)", flexShrink: 0 }} />
+            <Dot size={4} />
             {stale ? "stuck — retry" : "failed"}
-          </span>
+          </Pill>
         )}
       </div>
 

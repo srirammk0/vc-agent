@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { RefreshCw, X } from "lucide-react";
 import { useScheduledRuns } from "../hooks/useScheduledRuns";
+import { useEscapeKey } from "../hooks/useEscapeKey";
 import { ScheduledRunsList } from "./ScheduledRunsClient";
 
 /** Scheduled Runs, embedded as a modal (e.g. from the chat page) instead of a full
@@ -23,13 +24,7 @@ export default function ScheduledRunsModal({ onClose }: { onClose: () => void })
     };
   }, []);
 
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  useEscapeKey(true, onClose);
 
   return (
     <>

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Startup } from "../../lib/supabase";
+import { useEscapeKey } from "../hooks/useEscapeKey";
 
 export default function CommandPalette({ startups }: { startups: Startup[] }) {
   const router = useRouter();
@@ -16,13 +17,13 @@ export default function CommandPalette({ startups }: { startups: Startup[] }) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setOpen((o) => !o);
-      } else if (e.key === "Escape") {
-        setOpen(false);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  useEscapeKey(open, () => setOpen(false));
 
   useEffect(() => {
     if (open) {

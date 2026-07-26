@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ExternalLink, X } from "lucide-react";
 import type { Startup } from "../../lib/supabase";
 import StartupDetailBody from "./StartupDetailBody";
+import { useEscapeKey } from "../hooks/useEscapeKey";
 
 type Props = {
   startup: Startup;
@@ -17,15 +18,12 @@ export default function StartupPanel({ startup: s, onClose, onUpdate }: Props) {
   useEffect(() => {
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
     return () => {
       document.body.style.overflow = prevOverflow;
-      document.removeEventListener("keydown", onKey);
     };
-  }, [onClose]);
+  }, []);
+
+  useEscapeKey(true, onClose);
 
   return (
     <>

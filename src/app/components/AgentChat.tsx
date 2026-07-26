@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowUp, CalendarClock, MessageSquarePlus, PanelLeft, Trash2, X, Square } from "lucide-react";
 import ChatMessageRow from "./chat/ChatMessageRow";
 import ScheduledRunsModal from "./ScheduledRunsModal";
+import { useEscapeKey } from "../hooks/useEscapeKey";
 import {
   createThread,
   deleteThread,
@@ -95,14 +96,7 @@ export default function AgentChat() {
     setStore(loaded);
   }, []);
 
-  useEffect(() => {
-    if (!drawerOpen) return;
-    const onKey = (e: globalThis.KeyboardEvent) => {
-      if (e.key === "Escape") setDrawerOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [drawerOpen]);
+  useEscapeKey(drawerOpen, () => setDrawerOpen(false));
 
   // Applies against storeRef (always current, plain-assignment-only — see its
   // declaration above), not a render-time snapshot — required because a

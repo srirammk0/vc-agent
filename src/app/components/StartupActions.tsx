@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { showEnrichButton } from "../../lib/enrichment";
 import { queueWrite } from "../../lib/writeQueue";
+import { useClickOutside } from "../hooks/useClickOutside";
 import { useToast } from "./Toast";
 import type { Founder, Startup } from "../../lib/supabase";
 
@@ -73,7 +74,6 @@ export default function StartupActions({
   const [menuOpen, setMenuOpen] = useState(false);
   const [feedbackFor, setFeedbackFor] = useState<Status | null>(null);
   const [feedback, setFeedback] = useState("");
-  const menuRef = useRef<HTMLDivElement>(null);
   const { showUndoToast } = useToast();
 
   function closeMenu() {
@@ -81,6 +81,8 @@ export default function StartupActions({
     setFeedbackFor(null);
     setFeedback("");
   }
+
+  const menuRef = useClickOutside<HTMLDivElement>(menuOpen, closeMenu);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -93,17 +95,6 @@ export default function StartupActions({
         card.style.position = "";
       };
     }
-  }, [menuOpen]);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onClick = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        closeMenu();
-      }
-    };
-    document.addEventListener("mousedown", onClick);
-    return () => document.removeEventListener("mousedown", onClick);
   }, [menuOpen]);
 
   const enrichVisible = showEnrichButton({
