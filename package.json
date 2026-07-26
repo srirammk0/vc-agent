@@ -8,14 +8,14 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "trigger:dev": "npx trigger.dev@4.5.1 dev",
-    "trigger:deploy": "npx trigger.dev@4.5.1 deploy"
+    "trigger:dev": "npx trigger.dev@4.5.7 dev",
+    "trigger:deploy": "npx trigger.dev@4.5.7 deploy"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
     "@tailwindcss/postcss": "^4.3.1",
-    "@trigger.dev/sdk": "^4.5.1",
-    "@trigger.dev/python": "^4.5.1",
+    "@trigger.dev/sdk": "4.5.7",
+    "@trigger.dev/python": "4.5.7",
     "lucide-react": "^1.22.0",
     "next": "^16.2.9",
     "react": "^19.2.7",
