@@ -16,29 +16,26 @@ no cold starts, real token streaming plus a live tool-call trace in the UI.
 
 ```text
 ┌──────────────────────────┐        ┌──────────────────────────┐
-│ Trigger.dev              │        │ sync-scheduled           │
-│ (scheduling only)        │───────►│ (cron every 30 min)      │
-│                          │        ├──────────────────────────┤
-│ 1 fixed cron + one-off   │───────►│ run-scheduled-check      │
-│ delayed triggers (real   │        │ (delayed, one-off)       │
-│ point-in-time, not a     │        └──────────┬───────────────┘
-│ poll)                    │
-└──────────────────────────┘
+│ Trigger.dev              │───────►│ run-scheduled-check      │
+│ (scheduling only)        │        │ (delayed, one-off —      │
+│ one-off delayed triggers │        │ real point-in-time,      │
+│ (no fixed crons)         │        │ not a poll)              │
+└──────────────────────────┘        └──────────┬───────────────┘
                                             │ HTTP (shared secret)
                                             ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │ Modal — all agentic work                                            │
 │ agent/ (Python): assistant_agent (SMS + dashboard chat + scheduled runs)  │
 │ · feedback_agent                                                          │
-│ Supermemory (brain) · Supabase (mirror)                             │
+│ Supermemory (brain: thesis/preferences/reflections)                 │
+│ Supabase (dealflow, scheduled-task log, cache — no mirroring)       │
 │ agent/trigger_client.py schedules/cancels one-off checks back onto  │
 │ Trigger.dev's run-scheduled-check task (REST, with a delay)         │
 └───────┬─────────────────────────────────────────────────────────────┘
         │
         ├── SendBlue (inbound/outbound iMessage)
         ├── Exa (startup discovery, deep research)
-        ├── Linkup (news, fund blogs, press checks)
-        └── Gemma 4 on Cerebras (daily portfolio re-check conviction filter)
+        └── Linkup (news, fund blogs, press checks)
                                             ┌──────────────────────┐
                                             │ Next.js (Vercel)     │
                                             │ dashboard + chat     │
@@ -60,12 +57,11 @@ no cold starts, real token streaming plus a live tool-call trace in the UI.
 ## Scheduling (Trigger.dev)
 
 Modal has no native delayed-execution primitive (`modal.Cron` schedules are fixed at deploy time;
-`.spawn()`/`modal.Queue` are immediate-dispatch only), so **Trigger.dev owns all scheduling** — both fixed
-crons and one-off future work — while Modal keeps 100% of the agentic work. Every Trigger.dev task
-(`src/trigger/*.ts`) is a thin `fetch()` forwarding call into a hardened Modal HTTP endpoint at the right
-moment; nothing Python runs inside Trigger.dev.
+`.spawn()`/`modal.Queue` are immediate-dispatch only), so **Trigger.dev owns scheduling** — one-off future
+work, real point-in-time, not a poll — while Modal keeps 100% of the agentic work. Its one task
+(`src/trigger/run-scheduled-check.ts`) is a thin `fetch()` forwarding call into a hardened Modal HTTP
+endpoint at the right moment; nothing Python runs inside Trigger.dev.
 
-- **Fixed crons**: `sync-scheduled` (*/30 min) — forwards to its Modal endpoint.
 - **One-off delayed triggers**: the agent's own future work — a boss-requested follow-up or a
   self-scheduled check — is scheduled by calling Trigger.dev's REST trigger endpoint directly from
   Python (`agent/trigger_client.py`, no JS SDK involved) with a `delay`, targeting the `run-scheduled-check`
@@ -100,10 +96,10 @@ portfolio update, in the future) get appended to the SMS agent's own conversatio
 `append_alert_to_history`, so a follow-up text has that context without re-fetching it.
 
 **Memory model (Supermemory containers)**: `vc:thesis`, `vc:preferences` (seek/avoid patterns),
-`vc:startups`, `vc:reflections` (namespaced by source). `vc:thesis` and `vc:preferences` are read on every
-agent turn but cached for 5 minutes (`memory_store.py`, same pattern as the startup list) since they only
-change on an explicit boss-initiated write. Scheduled tasks are **not** stored in Supermemory — they live in
-Supabase (see below), intentionally kept out of every agent's standing context.
+`vc:reflections` (namespaced by source). `vc:thesis` and `vc:preferences` are read on every agent turn but
+cached for 5 minutes (`memory_store.py`) since they only change on an explicit boss-initiated write.
+Dealflow and scheduled tasks are **not** stored in Supermemory at all — they live directly in Supabase (see
+below), intentionally kept out of every agent's standing context.
 
 `load_thesis`/`load_preferences` sit behind two cache layers, not one: a process-local in-memory cache
 (`memory_store.py`'s `_local_cache`, same 5-minute TTL) in front of the existing Supabase-backed `cache`
@@ -117,10 +113,12 @@ concurrent containers racing on the same phone number's history need one source 
 
 ## Supabase Schema
 
-Supabase is a **read-only mirror** of Supermemory for the dashboard (kept in sync by `agent/sync.py`, run
-both on a 30-min cron and on-demand after every scout/feedback event, batched via `.upsert()`/`.insert()`
-rather than per-row calls) plus the `scheduled_tasks` and `cache` tables, which are written directly (no
-Supermemory involved).
+Supabase holds dealflow, the scheduled-task log, and a general-purpose cache — all written to directly,
+with no mirroring step from Supermemory. (An earlier version of this project mirrored Supermemory's thesis
+into a `thesis` table on a cron; nothing ever read that table from `src/`, so both the table and the sync
+mechanism that wrote to it — `agent/sync.py`, Modal's `sync_scheduled`/`sync_on_demand`, Trigger.dev's
+`sync-scheduled` cron — were removed outright rather than kept as unused infrastructure. If you're on an
+older deployment, `scripts/migrate-remove-dead-sync.sql` drops the leftover table and cache rows.)
 
 - `startups`: name, slug, one-liner, assessment, status (`new`/`approved`/`passed`), signal URLs, and
   enrichment fields (company description, founders, stage, raised, location, team size) populated by the
@@ -129,28 +127,32 @@ Supermemory involved).
   rather than a status — the count already encodes whether we've chased anyone, and `last_followup_at`
   is what separates "chased twice this week" from "chased twice back in March"
   (`scripts/migrate-followups.sql`).
-- `thesis`: the active investment thesis markdown content.
-- `signals`: legacy table from the now-removed agent-directed crawling subsystem. Nothing writes to it
-  anymore; left as-is rather than migrated away (see `scripts/migrate-signal-recheck-tracking.sql` for its
-  original schema history).
 - `scheduled_tasks`: was the old Supabase-polling self-scheduling table (see
   `scripts/migrate-scheduled-tasks.sql`), repurposed as a pure visibility + cancellation log now that
   Trigger.dev owns actual timing — `agent/trigger_client.py` logs a row on every schedule (stashing the
   Trigger.dev run id into the row's `payload` once known), `agent/scheduled_tasks_log.py` marks it done when
-  it fires or deletes it when canceled, and `text_agent`'s `list_scheduled_tasks`/`delete_scheduled_task`
+  it fires or deletes it when canceled, and `assistant_agent`'s `list_scheduled_tasks`/`delete_scheduled_task`
   tools read/cancel pending rows.
 - `cache`: a general-purpose cache (Exa results, LLM outputs, SMS conversation history, thesis/preferences)
   — see `agent/cache.py`.
 
+`signals` no longer exists — it was a legacy table from an already-removed agent-directed crawling
+subsystem, confirmed empty with no current writer, dropped by `scripts/migrate-remove-dead-sync.sql`
+alongside orphaned `cache` rows the same dead subsystem left behind. `scripts/migrate-signals-company-name.sql`
+and `scripts/migrate-signal-recheck-tracking.sql` remain in `scripts/` as historical record of that table's
+schema, not as migrations you need to run.
+
 Full SQL schema (tables, indexes, RLS policies, realtime publication) is in `scripts/seed-supabase.py`. See
-`scripts/migrations.sql`, `scripts/migrate-created-at.sql`, `scripts/migrate-signals-company-name.sql`, and
-`scripts/migrate-signal-recheck-tracking.sql`, `scripts/migrate-followups.sql`, and
-`scripts/migrate-stale-scheduled-tasks.sql` for incremental migrations applied since.
+`scripts/migrations.sql`, `scripts/migrate-created-at.sql`, `scripts/migrate-followups.sql`,
+`scripts/migrate-stale-scheduled-tasks.sql`, and `scripts/migrate-remove-dead-sync.sql` for incremental
+migrations applied since.
 
 `scheduled_tasks.status` is **not** authoritative — Trigger.dev owns timing and `mark_done` is
 best-effort, so a row can stay `pending` forever if a run never fired or its bookkeeping failed. Anything
 more than an hour past `due_at` is treated as past by the dashboard (`src/lib/scheduledRuns.ts`) and by
-the agent's `list_scheduled_tasks` tool, and `agent/sync.py` sweeps such rows to `done` on its cron.
+the agent's `list_scheduled_tasks` tool (`scheduled_tasks_log.list_pending`'s own cutoff) regardless of
+what the stored `status` column says — there's no periodic sweep flipping it anymore, since the read-side
+filtering already makes the stored value cosmetic.
 
 ---
 
@@ -199,14 +201,14 @@ its reply as SSE, and needs `ANTHROPIC_API_KEY`, `EXA_API_KEY`, `LINKUP_API_KEY`
 | Function | Trigger | Timeout | Description |
 |---|---|---|---|
 | `run_scheduled_check` | Trigger.dev one-off delayed trigger | 10 min | Dispatches a due self-scheduled check by `kind` (`agent_followup`/`text_followup`) |
-| `sync_scheduled` / `sync_on_demand` | Trigger.dev cron (30 min) / on-demand | 5 min | Mirrors Supermemory → Supabase |
 | `enrich_startup` | Dashboard POST | 1 min | Kicks off `enrich_startup_job` in the background |
 | `submit_feedback` | Dashboard POST | 5 min | Runs `feedback_agent` on an approve/pass reason |
 | `sendblue_webhook` | SMS webhook | 20 min | Validates the sender, spawns `chat_reply_background` |
-| `chat_reply_background` | Webhook spawn | 20 min | Runs `text_agent`, sends the reply/tapback, syncs |
+| `chat_reply_background` | Webhook spawn | 20 min | Runs `assistant_agent`, sends the reply/tapback |
+| `cancel_scheduled_task` / `reschedule_scheduled_task` | Dashboard POST | 1 min | Cancel/reschedule a pending scheduled run (same logic as the `delete_scheduled_task` chat tool) |
 
-Trigger.dev's own tasks (`src/trigger/*.ts`) are thin forwarders — see the table in
-[Scheduling](#scheduling-triggerdev) above for what each one calls.
+Trigger.dev's own task (`src/trigger/run-scheduled-check.ts`) is a thin forwarder — see
+[Scheduling](#scheduling-triggerdev) above.
 
 ---
 
@@ -215,8 +217,7 @@ Trigger.dev's own tasks (`src/trigger/*.ts`) are thin forwarders — see the tab
 ### 1. Database Setup
 1. Spin up a Supabase project.
 2. Run the SQL schema at the top of [`scripts/seed-supabase.py`](scripts/seed-supabase.py) in the SQL Editor.
-3. Apply `scripts/migrations.sql`, `scripts/migrate-created-at.sql`, `scripts/migrate-signals-company-name.sql`,
-   and `scripts/migrate-signal-recheck-tracking.sql` if starting from an older schema.
+3. Apply `scripts/migrations.sql` and `scripts/migrate-created-at.sql` if starting from an older schema.
    Then apply `scripts/migrate-followups.sql` (follow-up tracking columns) and
    `scripts/migrate-stale-scheduled-tasks.sql` (one-time cleanup of scheduled runs stuck at
    `pending`).
@@ -224,6 +225,9 @@ Trigger.dev's own tasks (`src/trigger/*.ts`) are thin forwarders — see the tab
    schema granted the public `anon` key full read/write on `cache` (which stores conversation
    history, thesis and preferences) and `scheduled_tasks`, with no RLS — this revokes that and
    enables RLS. Do this before anything else if you're already deployed.
+5. **Apply `scripts/migrate-remove-dead-sync.sql`** on any existing project. Drops the `thesis` table
+   (Supabase-side mirror of Supermemory's thesis that nothing ever read — see Supabase Schema below)
+   and the now-empty `signals` table, plus orphaned `cache` rows both left behind.
 
 ### 2. Environment Variables
 
@@ -270,8 +274,8 @@ modal deploy modal_app.py
 #### Trigger.dev
 Fill in `trigger.config.ts`'s `project` field with your Trigger.dev project ref (Trigger.dev dashboard →
 Project settings). In the Trigger.dev dashboard, add these environment variables per environment (dev + prod):
-`MODAL_SYNC_URL`, `MODAL_RUN_SCHEDULED_CHECK_URL` (the deployed Modal endpoint
-URLs, printed by `modal deploy`), and `SCHEDULER_SHARED_SECRET` (same value as the Modal secret above).
+`MODAL_RUN_SCHEDULED_CHECK_URL` (the deployed Modal endpoint URL, printed by `modal deploy`), and
+`SCHEDULER_SHARED_SECRET` (same value as the Modal secret above).
 
 Deploy with:
 ```bash
@@ -317,18 +321,18 @@ See `.env.example` for the full list (Supabase URL/keys, `MODAL_ENRICH_URL`, `MO
 ```
 agent/                Python agents and tools (deployed to Modal)
   agent.py             Agent definitions (assistant/feedback), tool registry, orchestration
-  memory_store.py      Supermemory read/write layer (thesis, preferences, startups, reflections)
+  memory_store.py      Supermemory read/write layer (thesis, preferences, reflections)
+  startups_store.py    Supabase dealflow read/write layer (startups live here directly, no mirror)
   trigger_client.py    REST client for scheduling/canceling one-off delayed triggers on Trigger.dev
   scheduled_tasks_log.py  Visibility + cancellation log for trigger_client's scheduled tasks
   llm.py               Model/settings config, retry logic
   cache.py             Supabase-backed cache (Exa results, LLM outputs, SMS history, thesis/preferences)
-  sync.py              Supermemory -> Supabase mirror (batched)
   enrich.py            Founder/company enrichment structuring
   tools/               Exa and Linkup client wrappers
 modal_app.py           All Modal function definitions and web endpoints (agentic work)
 trigger.config.ts      Trigger.dev project config
-src/trigger/           Trigger.dev tasks — thin scheduling forwarders into Modal
+src/trigger/           Trigger.dev's one task — thin scheduling forwarder into Modal
 src/app/               Next.js dashboard (App Router), API routes, components, hooks
-src/lib/               Supabase clients, Supermemory REST helper, shared types
+src/lib/               Supabase clients, shared types
 scripts/               Supabase schema + migrations, Supermemory seeding
 ```

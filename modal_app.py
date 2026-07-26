@@ -251,26 +251,6 @@ def _stop_typing_loop(
         send_typing(recipient, "stop")
 
 
-# --- Sync: mirror Supermemory's thesis -> Supabase (startups are no longer  ---
-# --- mirrored here — they live directly in Supabase, see                    ---
-# --- agent/startups_store.py). Scheduling owned by Trigger.dev              ---
-# --- (cron 0 */4 * * *, src/trigger/sync.ts) — this is a plain hardened      ---
-# --- HTTP endpoint, not a Modal cron.                                       ---
-@app.function(
-    image=image,
-    secrets=[modal.Secret.from_name("vc-scout-secrets")],
-    timeout=300,
-)
-@modal.fastapi_endpoint(method="POST")
-def sync_scheduled(payload: dict):
-    _check_scheduler_secret(payload)
-    import sys
-    sys.path.insert(0, "/root/agent")
-    from sync import sync
-    sync()
-    return {"status": "ok"}
-
-
 # --- Scheduled-check dispatch: fired by Trigger.dev's run-scheduled-check task ---
 # --- when a one-off delayed trigger comes due (follow-up texts, daily          ---
 # --- portfolio checks). This is how self-scheduling actually fires now — see   ---
@@ -323,20 +303,6 @@ def run_scheduled_check(payload: dict):
         print("run_scheduled_check: mark_done failed:", e)
 
     return {"status": "ok"}
-
-
-
-
-@app.function(
-    image=image,
-    secrets=[modal.Secret.from_name("vc-scout-secrets")],
-    timeout=300,
-)
-def sync_on_demand():
-    import sys
-    sys.path.insert(0, "/root/agent")
-    from sync import sync
-    sync()
 
 
 # Web chat now runs directly on Vercel (api/chat.py, streaming SSE via
@@ -546,7 +512,6 @@ def submit_feedback(payload: dict):
         "status": status,
         "message": message,
     })
-    sync_on_demand.spawn()
     return result
 
 
@@ -575,7 +540,6 @@ def chat_reply_background(message: str, sender: str, message_handle: str = None)
         reply = result.get("reply", "")
         if reply and recipient:
             send_sms(reply, to=recipient)
-        sync_on_demand.spawn()
     except Exception as e:
         print("chat_reply_background failed:", e)
         if recipient:

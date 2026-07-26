@@ -1,8 +1,12 @@
 """
 Supabase Schema Migration + Supermemory Seeding
 -----------------------------------------------
-Supermemory is now the agent's brain. Supabase is a read-only mirror for the
-dashboard (populated by agent/sync.py). This script:
+Supermemory holds the agent's thesis, preferences, and reflections. Supabase holds
+dealflow, the scheduled-task log, and a general-purpose cache — all written to
+directly, with no mirroring step between the two. (An earlier version of this schema
+also mirrored the thesis into a Supabase `thesis` table on a cron; nothing ever read
+it from `src/`, so it's gone — see scripts/migrate-remove-dead-sync.sql if you're
+migrating an existing project that still has it.) This script:
 
 1. Provides the new Supabase SQL schema (run it in the Supabase SQL Editor).
 2. Seeds the initial thesis and learning patterns from brain/ into Supermemory.
@@ -16,7 +20,7 @@ Instructions:
 SQL SCHEMA (RUN IN SUPABASE SQL EDITOR):
 ----------------------------------------
 
--- Simplified startups table (mirror of Supermemory vc:startups)
+-- Dealflow, written directly (no Supermemory mirroring)
 CREATE TABLE IF NOT EXISTS startups (
     slug TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -39,13 +43,6 @@ CREATE TABLE IF NOT EXISTS startups (
     founders JSONB DEFAULT '[]'
 );
 
--- Thesis table (mirror of Supermemory vc:thesis)
-CREATE TABLE IF NOT EXISTS thesis (
-    id INTEGER PRIMARY KEY DEFAULT 1,
-    content TEXT NOT NULL,
-    updated_at TIMESTAMPTZ DEFAULT now()
-);
-
 -- Cache table (Exa results + enrichment LLM outputs)
 CREATE TABLE IF NOT EXISTS cache (
     key TEXT PRIMARY KEY,
@@ -54,14 +51,12 @@ CREATE TABLE IF NOT EXISTS cache (
 );
 
 -- Grant privileges. `anon` is the public key shipped to every browser, so it gets
--- SELECT on the two tables the dashboard subscribes to and nothing else — never the
--- cache table (conversation history, thesis, preferences) and never write access.
--- All writes happen server-side with the service-role key.
+-- SELECT on `startups` (the one table the dashboard subscribes to) and nothing
+-- else — never the cache table (conversation history, thesis, preferences) and
+-- never write access. All writes happen server-side with the service-role key.
 GRANT ALL PRIVILEGES ON TABLE startups TO postgres, service_role;
-GRANT ALL PRIVILEGES ON TABLE thesis TO postgres, service_role;
 GRANT ALL PRIVILEGES ON TABLE cache TO postgres, service_role;
 GRANT SELECT ON TABLE startups TO anon, authenticated;
-GRANT SELECT ON TABLE thesis TO anon, authenticated;
 GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO postgres, service_role;
 
 -- Indexes for fast dashboard queries (filter by status, sort by recency)
@@ -78,11 +73,8 @@ ALTER PUBLICATION supabase_realtime ADD TABLE startups;
 -- RLS: dashboard reads via the anon key (realtime respects RLS).
 -- Writes stay server-side via the service role key, which bypasses RLS.
 ALTER TABLE startups ENABLE ROW LEVEL SECURITY;
-ALTER TABLE thesis ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "anon read startups" ON startups;
 CREATE POLICY "anon read startups" ON startups FOR SELECT TO anon, authenticated USING (true);
-DROP POLICY IF EXISTS "anon read thesis" ON thesis;
-CREATE POLICY "anon read thesis" ON thesis FOR SELECT TO anon, authenticated USING (true);
 
 -- cache is service-role only: no anon grant above, RLS on with no policy at all.
 ALTER TABLE cache ENABLE ROW LEVEL SECURITY;

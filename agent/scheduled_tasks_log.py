@@ -172,27 +172,3 @@ def list_pending(limit: int = 20) -> list[dict]:
     except Exception as e:
         print("scheduled_tasks_log: list_pending failed:", e)
         return []
-
-
-def sweep_overdue() -> int:
-    """Mark long-overdue 'pending' rows as done. Returns how many were swept (0 on
-    any failure — this is housekeeping, it must never raise into a caller).
-
-    Runs on agent/sync.py's cron so stuck rows get cleared at the source, rather than
-    every reader having to filter them out forever.
-    """
-    sb = _sb_client()
-    if sb is None:
-        return 0
-    try:
-        res = (
-            sb.table("scheduled_tasks")
-            .update({"status": "done"})
-            .eq("status", "pending")
-            .lt("due_at", _overdue_cutoff())
-            .execute()
-        )
-        return len(res.data or [])
-    except Exception as e:
-        print("scheduled_tasks_log: sweep_overdue failed:", e)
-        return 0

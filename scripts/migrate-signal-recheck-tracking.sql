@@ -1,3 +1,8 @@
+-- HISTORICAL RECORD ONLY — do not run. The `signals` table this targets was dropped
+-- by scripts/migrate-remove-dead-sync.sql (empty, no writer for a long time). Kept
+-- in scripts/ as a record of that table's schema history, not as a migration to apply.
+--
+-- Original note:
 -- Run once in the Supabase SQL editor.
 -- Guardrail state for signal re-checks, now that actual timing is delegated to
 -- Trigger.dev (see agent/trigger_client.py) instead of the old Supabase
