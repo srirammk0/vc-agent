@@ -1,0 +1,12 @@
+{
+  "name": "vc-research-agent-demo-recorder",
+  "private": true,
+  "description": "Records a narrated-free walkthrough video of the dashboard against mocked data — no Supabase/Anthropic/Trigger.dev credentials required.",
+  "scripts": {
+    "record": "node record.js",
+    "sse-server": "node sse-server.js"
+  },
+  "dependencies": {
+    "playwright-core": "^1.48.0"
+  }
+}
