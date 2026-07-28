@@ -13,6 +13,7 @@ type ChannelStatus = "not_contacted" | "contacted" | "replied";
 const STATUS_LABEL: Record<Status, string> = {
   new: "new",
   approved: "approved",
+  responded: "responded",
   call_booked: "call booked",
   passed: "passed",
 };
@@ -39,6 +40,7 @@ const MAX_FOLLOWUP_COUNT = 99;
 
 const MENU_ITEMS: { value: Status; label: string; accent: string }[] = [
   { value: "approved", label: "Mark approved", accent: "var(--success)" },
+  { value: "responded", label: "Mark responded", accent: "#2e9b8f" },
   { value: "call_booked", label: "Mark call booked", accent: "#5856d6" },
   { value: "passed", label: "Mark passed", accent: "var(--danger)" },
   { value: "new", label: "Mark new", accent: "var(--label)" },
@@ -228,7 +230,7 @@ export default function StartupActions({
   }
 
   function handleStatusClick(next: Status) {
-    if (next === "new" || next === "call_booked") {
+    if (next === "new" || next === "responded" || next === "call_booked") {
       setStatusQuick(next);
       return;
     }

@@ -293,7 +293,7 @@ function pause(page, ms) {
   await pause(page, 700);
 
   // ---- 3. Tabs tour ---------------------------------------------------------
-  for (const label of ["New", "Approved", "Call booked", "Passed", "All"]) {
+  for (const label of ["New", "Approved", "Responded", "Call booked", "Passed", "All"]) {
     await clickEl(page, page.getByRole("button", { name: new RegExp("^" + label) }).first(), { after: 700 });
   }
 

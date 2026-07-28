@@ -73,6 +73,16 @@ export function BatchToolbar({
 
         <Button
           variant="neutral"
+          onClick={() => onBatchStatus("responded")}
+          busy={batchBusy !== null}
+          style={{ color: "#2e9b8f", borderColor: "rgba(46,155,143,0.3)" }}
+        >
+          <Dot size={6} />
+          {batchBusy === "responded" ? "Updating…" : "Mark responded"}
+        </Button>
+
+        <Button
+          variant="neutral"
           onClick={() => onBatchStatus("call_booked")}
           busy={batchBusy !== null}
           style={{ color: "#5856d6", borderColor: "rgba(88,86,214,0.3)" }}

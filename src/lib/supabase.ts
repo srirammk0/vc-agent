@@ -23,7 +23,7 @@ export type Founder = {
   credibility_note?: string;
 };
 
-export const DEALFLOW_STATUSES = ["new", "approved", "call_booked", "passed"] as const;
+export const DEALFLOW_STATUSES = ["new", "approved", "responded", "call_booked", "passed"] as const;
 export type DealflowStatus = (typeof DEALFLOW_STATUSES)[number];
 
 export type Startup = {
