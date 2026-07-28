@@ -10,6 +10,7 @@ import { useScheduledRuns } from "../hooks/useScheduledRuns";
 const KIND_LABELS: Record<string, string> = {
   agent_followup: "Follow-up",
   text_followup: "Follow-up",
+  daily_sweep: "Daily sweep",
   daily_check: "Portfolio check",
   signal_recheck: "Signal recheck",
 };

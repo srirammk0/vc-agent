@@ -63,6 +63,12 @@ Neither Vercel nor Trigger.dev's own compute has a native "run this at an arbitr
 primitive outside of Trigger.dev's own delayed-trigger REST API — so Trigger.dev owns scheduling
 end-to-end, real point-in-time, not a poll.
 
+- **Everyday scout cadence** (deterministic): `src/trigger/daily-morning-wakeup.ts` is a Trigger.dev
+  cron at **08:00 America/Los_Angeles** every day. On wake it runs `agent/main.py` with
+  `mode="daily_morning"`, which (1) books today's remaining **5 sweeps** at fixed PT hours
+  **10 / 12 / 14 / 16 / 18** via delayed triggers (`kind: "daily_sweep"`, date+hour idempotency
+  keys so a double-fire can't duplicate the day), then (2) runs the morning sweep itself. Times
+  are owned by code — the LLM is told not to call `schedule_agent_run` during these sweeps.
 - **One-off delayed triggers**: the agent's own future work — a boss-requested follow-up or a
   self-scheduled check — is scheduled by calling Trigger.dev's REST trigger endpoint directly from Python
   (`agent/trigger_client.py`, no JS SDK involved — this runs inside the Python subprocess Trigger.dev
@@ -74,7 +80,7 @@ end-to-end, real point-in-time, not a poll.
 - **What fires**: when a trigger fires at the exact right time, `run-scheduled-check` runs
   `agent/main.py` with the fired payload — `agent.py`'s `run_agent()` dispatches on `payload["mode"]`.
   For a delayed trigger that's `mode="scheduled_check"`, which sub-dispatches by `kind`
-  (`agent_followup`, or the legacy `text_followup`) and runs the agent with the saved instructions.
+  (`agent_followup`, `daily_sweep`, or the legacy `text_followup`) and runs the agent with the saved instructions.
 - **Dashboard-triggered work** (enrichment, feedback) uses the exact same task, just triggered immediately
   via the SDK (`runScheduledCheck.trigger({mode: "enrich", ...})`) from the relevant Next.js route instead
   of via a delayed REST call — see [Orchestration](#orchestration-triggerdev) below.

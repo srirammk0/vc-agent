@@ -3,6 +3,7 @@ import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from typing import Literal
+from zoneinfo import ZoneInfo
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext, ToolDefinition
 from pydantic_ai.messages import (
@@ -37,6 +38,20 @@ _USAGE_LIMITS = UsageLimits(request_limit=30)
 # longer timeframe themselves) unlocks the higher absolute ceiling instead.
 DEFAULT_MAX_FOLLOWUP_MINUTES = 3 * 24 * 60  # 3 days
 ABSOLUTE_MAX_FOLLOWUP_MINUTES = 30 * 24 * 60  # 30 days, hard cap regardless
+
+# Everyday scout cadence (America/Los_Angeles). Morning cron at 08:00 books the
+# five later sweeps at these fixed hours, then runs the morning sweep itself —
+# times are owned by code, never by the LLM. See run_daily_morning /
+# src/trigger/daily-morning-wakeup.ts.
+_DAILY_TZ = ZoneInfo("America/Los_Angeles")
+_DAILY_SWEEP_HOURS = (10, 12, 14, 16, 18)
+_DAILY_SWEEP_INSTRUCTIONS = (
+    "Run a full startup discovery sweep now. Use exa_deep_search_many with 4-6 "
+    "well-diversified queries for pre-seed AI startups matching the thesis. "
+    "Crosscheck every candidate, dig deeper on the promising ones, and save what "
+    "fits. Do NOT call schedule_agent_run — today's remaining sweeps are already "
+    "booked on a fixed schedule."
+)
 
 finalize_model = llm.finalize_model
 
@@ -796,6 +811,51 @@ async def run_scheduled_agent_run(instructions: str) -> dict:
         raise
 
 
+async def run_daily_morning() -> dict:
+    """Everyday 08:00 PT wake-up (src/trigger/daily-morning-wakeup.ts).
+
+    Deterministic: code books today's five later sweeps at fixed PT hours, then
+    runs the morning sweep. The LLM never picks the times — schedule_agent_run is
+    explicitly forbidden in the sweep instructions. Idempotency keys are
+    date+hour so a double-fired cron cannot duplicate the day's schedule."""
+    now_pt = datetime.now(_DAILY_TZ)
+    date_key = now_pt.strftime("%Y-%m-%d")
+    booked: list[dict] = []
+
+    for hour in _DAILY_SWEEP_HOURS:
+        due_pt = now_pt.replace(hour=hour, minute=0, second=0, microsecond=0)
+        if due_pt <= now_pt:
+            booked.append({"hour": hour, "skipped": "already_past"})
+            continue
+        due_utc = due_pt.astimezone(timezone.utc)
+        ok = await trigger_client.schedule_check(
+            "daily_sweep",
+            {"instructions": _DAILY_SWEEP_INSTRUCTIONS},
+            due_utc,
+            idempotency_key=f"daily_sweep:{date_key}:{hour:02d}",
+        )
+        booked.append({"hour": hour, "due_at": due_utc.isoformat(), "ok": ok})
+
+    # Log the morning run itself so it shows on the Scheduled Runs page alongside
+    # the five later ones (status flips to done once the sweep finishes).
+    morning_task_id = scheduled_tasks_log.log_task(
+        "daily_sweep",
+        {"instructions": _DAILY_SWEEP_INSTRUCTIONS, "slot": "morning"},
+        now_pt.astimezone(timezone.utc),
+    )
+
+    result = await run_scheduled_agent_run(_DAILY_SWEEP_INSTRUCTIONS)
+    reply = result.get("reply") or ""
+
+    if morning_task_id:
+        try:
+            scheduled_tasks_log.mark_done(morning_task_id, reply or None)
+        except Exception as e:
+            print("run_daily_morning: mark_done failed:", e)
+
+    return {"status": "ok", "booked": booked, "reply": reply}
+
+
 async def run_scheduled_check(payload: dict) -> dict:
     """Fired when a one-off delayed Trigger.dev trigger comes due — the delayed
     counterpart to schedule_agent_run's REST call in trigger_client.schedule_check.
@@ -807,10 +867,11 @@ async def run_scheduled_check(payload: dict) -> dict:
     kind = payload.get("kind")
     result_text = None
     try:
-        if kind in ("agent_followup", "text_followup"):
+        if kind in ("agent_followup", "text_followup", "daily_sweep"):
             # agent_followup is the current name (schedule_agent_run's own kind);
             # text_followup is kept only so any tasks scheduled before this
-            # rewrite still fire correctly.
+            # rewrite still fire correctly; daily_sweep is the fixed everyday
+            # scout cadence booked by run_daily_morning.
             instructions = payload.get("instructions")
             if instructions:
                 result = await run_scheduled_agent_run(instructions)
@@ -843,6 +904,8 @@ async def run_agent(payload: dict) -> dict:
         return await run_scheduled_agent_run(payload.get("instructions", ""))
     elif mode == "scheduled_check":
         return await run_scheduled_check(payload)
+    elif mode == "daily_morning":
+        return await run_daily_morning()
     elif mode == "enrich":
         return await enrich_job.run_enrichment(payload.get("slug", ""), payload.get("name", ""))
 
