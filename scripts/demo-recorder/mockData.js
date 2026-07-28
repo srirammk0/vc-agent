@@ -120,7 +120,7 @@ const startups = [
     one_liner: "AI-designed small molecules for rare autoimmune disease, wet-lab validated in-house.",
     assessment:
       "Founders have real domain depth (PhD + former Genentech). Early binding-affinity data looks credible per our outside diligence call. Capital intensive but the platform angle (not single-asset) is the right shape for venture.",
-    status: "approved",
+    status: "responded",
     signal_urls: [],
     found_date: daysAgo(14),
     created_at: daysAgo(14),
