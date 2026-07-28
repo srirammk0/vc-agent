@@ -1,5 +1,8 @@
 # Demo video recorder
 
+A pre-built walkthrough is committed as [`demo.mp4`](./demo.mp4) (~5.5 MB, ~90 s).
+Use the steps below only if you want to regenerate it after UI changes.
+
 Records a polished, silent walkthrough of the dashboard — login, dealflow list,
 filters/search/command palette, a startup detail panel, batch approve + undo,
 Speed Review, the per-row outreach menu, Agent Chat (with a tool-call trace),
