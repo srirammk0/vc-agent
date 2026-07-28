@@ -85,7 +85,7 @@ const startups = [
     one_liner: "Regression testing for LLM prompts — catch silent quality drops before they ship.",
     assessment:
       "Sharp wedge into a real pain point every AI team hits eventually. Small but growing open-source community around their eval format. Founders move fast — shipped three major releases since we first saw them.",
-    status: "approved",
+    status: "call_booked",
     signal_urls: ["https://github.com/cinderstack/cinder"],
     found_date: daysAgo(9),
     created_at: daysAgo(9),

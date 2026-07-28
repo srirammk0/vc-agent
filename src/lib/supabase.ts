@@ -23,13 +23,16 @@ export type Founder = {
   credibility_note?: string;
 };
 
+export const DEALFLOW_STATUSES = ["new", "approved", "call_booked", "passed"] as const;
+export type DealflowStatus = (typeof DEALFLOW_STATUSES)[number];
+
 export type Startup = {
   slug: string;
   name: string;
   website: string | null;
   one_liner: string | null;
   assessment: string | null;
-  status: "new" | "approved" | "passed";
+  status: DealflowStatus;
   signal_urls: string[] | null;
   found_date: string | null;
   created_at: string | null;

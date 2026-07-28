@@ -126,7 +126,7 @@ worse than the old always-hit-Supabase behavior on a cold one.
 Supabase holds dealflow, the scheduled-task log, and a general-purpose cache — all written to directly,
 with no mirroring step from Supermemory.
 
-- `startups`: name, slug, one-liner, assessment, status (`new`/`approved`/`passed`), signal URLs, and
+- `startups`: name, slug, one-liner, assessment, status (`new`/`approved`/`call_booked`/`passed`), signal URLs, and
   enrichment fields (company description, founders, stage, raised, location, team size) populated by the
   on-demand enrichment job (`agent/enrich_job.py`), plus outreach tracking: `linkedin_status`/`email_status`
   (not_contacted/contacted/replied) and `followup_count`/`last_followup_at`. Follow-ups are a counter

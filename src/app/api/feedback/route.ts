@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "../../../lib/supabase";
+import { supabase, DEALFLOW_STATUSES } from "../../../lib/supabase";
 import { runScheduledCheck } from "../../../trigger/run-scheduled-check";
 
 export async function POST(req: NextRequest) {
@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
   }
 
   const nextStatus =
-    status === "approved" || status === "passed" || status === "new"
+    status && DEALFLOW_STATUSES.includes(status)
       ? status
       : null;
 

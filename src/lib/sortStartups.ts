@@ -3,7 +3,8 @@ import type { Startup } from "./supabase";
 const STATUS_ORDER: Record<Startup["status"], number> = {
   new: 0,
   approved: 1,
-  passed: 2,
+  call_booked: 2,
+  passed: 3,
 };
 
 function parseTime(value: string | null | undefined): number {
@@ -23,7 +24,7 @@ function recencyMs(s: Startup): number {
   );
 }
 
-/** All tab: new → approved → passed; within each group, most recently touched first
+/** All tab: new → approved → call booked → passed; within each group, most recently touched first
  * (so approving/passing a startup — or a batch action — bumps it to the top of its
  * new group). Ties (e.g. a bulk "Mark approved" stamps the same updated_at across
  * the whole selection) fall back to original creation recency, then slug purely for

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { MessageCircle, SlidersHorizontal, Zap } from "lucide-react";
-import type { Startup } from "../../lib/supabase";
+import type { DealflowStatus, Startup } from "../../lib/supabase";
 import { sortStartups } from "../../lib/sortStartups";
 import { readSession, writeSession } from "../../lib/persistedState";
 import { queueWrite } from "../../lib/writeQueue";
@@ -18,7 +18,7 @@ import { BatchToolbar } from "./BatchToolbar";
 import { FilterGroup } from "./ui/FilterGroup";
 import { SearchBar } from "./ui/SearchBar";
 
-type Tab = "all" | "new" | "approved" | "passed";
+type Tab = "all" | DealflowStatus;
 type ChannelFilter = "all" | "not_contacted" | "contacted" | "replied";
 type StealthFilter = "all" | "stealth" | "public";
 type FollowupFilter = "all" | "none" | "any" | "stale";
@@ -51,6 +51,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "all", label: "All" },
   { id: "new", label: "New" },
   { id: "approved", label: "Approved" },
+  { id: "call_booked", label: "Call booked" },
   { id: "passed", label: "Passed" },
 ];
 
@@ -58,6 +59,7 @@ const TAB_COUNT_BADGE: Record<Tab, { bg: string; color: string }> = {
   all: { bg: "rgba(0, 0, 0, 0.1)", color: "var(--heading)" },
   new: { bg: "var(--accent)", color: "#fff" },
   approved: { bg: "var(--success)", color: "#fff" },
+  call_booked: { bg: "#5856d6", color: "#fff" },
   passed: { bg: "var(--danger)", color: "#fff" },
 };
 
@@ -92,6 +94,13 @@ function matchesFollowupFilter(s: Startup, filter: FollowupFilter): boolean {
   if (Number.isNaN(last)) return true;
   return Date.now() - last > STALE_FOLLOWUP_DAYS * 86400000;
 }
+
+const STATUS_LABEL: Record<DealflowStatus, string> = {
+  new: "new",
+  approved: "approved",
+  call_booked: "call booked",
+  passed: "passed",
+};
 
 const DASH_UI_KEY = "dealflow-ui";
 
@@ -152,7 +161,7 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
     );
   }
 
-  async function handleBatchStatus(status: "new" | "approved" | "passed") {
+  async function handleBatchStatus(status: DealflowStatus) {
     if (selectedSlugs.size === 0) return;
     const slugs = Array.from(selectedSlugs);
     const prevStatuses = new Map(
@@ -171,7 +180,7 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
         if (!res.ok) throw new Error("batch update failed");
       });
       showUndoToast(
-        `${slugs.length} startup${slugs.length === 1 ? "" : "s"} marked ${status}`,
+        `${slugs.length} startup${slugs.length === 1 ? "" : "s"} marked ${STATUS_LABEL[status]}`,
         () => undoBatchStatus(prevStatuses)
       );
     } catch (e) {
@@ -226,6 +235,7 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
       total: startups.length,
       new: startups.filter((s) => s.status === "new").length,
       approved: startups.filter((s) => s.status === "approved").length,
+      call_booked: startups.filter((s) => s.status === "call_booked").length,
       passed: startups.filter((s) => s.status === "passed").length,
     }),
     [startups]
@@ -383,7 +393,7 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
               const count =
                 t.id === "all"
                   ? counts.total
-                  : counts[t.id as "new" | "approved" | "passed"];
+                  : counts[t.id as DealflowStatus];
               return (
                 <div key={t.id} style={{ display: "flex", alignItems: "center" }}>
                   <button

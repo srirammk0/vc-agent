@@ -357,7 +357,7 @@ def register_tools(agent: Agent):
         followed_up: bool | None = None,
         offset: int = 0,
     ) -> str:
-        """Scan dealflow by structured filters (status: new/approved/passed; stealth:
+        """Scan dealflow by structured filters (status: new/approved/call_booked/passed; stealth:
         true/false; linkedin_status/email_status: not_contacted/contacted/replied;
         followed_up: true = chased at least once, false = never followed up),
         paginated ~40 rows per call so one call never dumps the whole table. Use this
@@ -750,7 +750,7 @@ async def run_feedback(slug: str, name: str, status: str, message: str) -> dict:
     if not feedback:
         return {"error": "feedback required"}
 
-    if status not in ("new", "approved", "passed"):
+    if status not in ("new", "approved", "call_booked", "passed"):
         status = "new"
 
     prompt = (

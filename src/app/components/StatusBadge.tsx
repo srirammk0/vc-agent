@@ -1,8 +1,7 @@
 import { Pill } from "./ui/Pill";
+import type { DealflowStatus } from "../../lib/supabase";
 
-type Status = "new" | "approved" | "passed";
-
-const BADGE: Record<Status, React.CSSProperties> = {
+const BADGE: Record<DealflowStatus, React.CSSProperties> = {
   new: {
     background: "rgba(0,122,255,0.08)",
     color: "var(--accent)",
@@ -13,6 +12,11 @@ const BADGE: Record<Status, React.CSSProperties> = {
     color: "var(--success-text)",
     border: "1px solid rgba(52,199,89,0.25)",
   },
+  call_booked: {
+    background: "rgba(88,86,214,0.1)",
+    color: "#5856d6",
+    border: "1px solid rgba(88,86,214,0.25)",
+  },
   passed: {
     background: "rgba(255,59,48,0.08)",
     color: "var(--danger-text)",
@@ -20,6 +24,13 @@ const BADGE: Record<Status, React.CSSProperties> = {
   },
 };
 
-export default function StatusBadge({ status }: { status: Status }) {
-  return <Pill style={BADGE[status]}>{status}</Pill>;
+const LABEL: Record<DealflowStatus, string> = {
+  new: "new",
+  approved: "approved",
+  call_booked: "call booked",
+  passed: "passed",
+};
+
+export default function StatusBadge({ status }: { status: DealflowStatus }) {
+  return <Pill style={BADGE[status]}>{LABEL[status]}</Pill>;
 }
