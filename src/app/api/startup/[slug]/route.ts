@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "../../../../lib/supabase";
+import { supabase, DEALFLOW_STATUSES } from "../../../../lib/supabase";
 
 export async function GET(
   _req: NextRequest,
@@ -51,7 +51,7 @@ export async function PATCH(
   const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
 
   if (status !== undefined) {
-    if (!["new", "approved", "passed"].includes(status)) {
+    if (!DEALFLOW_STATUSES.includes(status)) {
       return NextResponse.json({ error: "invalid status" }, { status: 400 });
     }
     update.status = status;

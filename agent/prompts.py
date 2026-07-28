@@ -233,7 +233,7 @@ WEB_CHAT_UI_BLOCKS = """Generative UI (dashboard chat only):
 Embed structured cards inline with fenced blocks. Keep a short prose lead-in, then the block(s). Valid JSON only inside fences.
 
 ```ui:startup
-{"name":"Acme","one_liner":"…","status":"new|approved|passed","website":"https://…","assessment":"optional","embed":false}
+{"name":"Acme","one_liner":"…","status":"new|approved|call_booked|passed","website":"https://…","assessment":"optional","embed":false}
 ```
 
 ```ui:metrics

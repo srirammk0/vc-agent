@@ -18,6 +18,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import StatusBadge from "../StatusBadge";
+import { DEALFLOW_STATUSES, type DealflowStatus } from "../../../lib/supabase";
 
 export type UiBlock =
   | { kind: "startup"; data: Record<string, unknown> }
@@ -149,7 +150,9 @@ function StartupCard({ data }: { data: Record<string, unknown> }) {
   const assessment = asString(data.assessment);
   const [showIframe, setShowIframe] = useState(false);
   const badgeStatus =
-    status === "new" || status === "approved" || status === "passed" ? status : undefined;
+    status && DEALFLOW_STATUSES.includes(status as DealflowStatus)
+      ? (status as DealflowStatus)
+      : undefined;
 
   return (
     <div className="gen-card gen-startup animate-scale-in">

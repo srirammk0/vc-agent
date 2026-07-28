@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase, STARTUP_LIST_COLUMNS, type Startup } from "../../../lib/supabase";
+import { supabase, STARTUP_LIST_COLUMNS, DEALFLOW_STATUSES, type Startup } from "../../../lib/supabase";
 import { sortStartups } from "../../../lib/sortStartups";
 
 export const dynamic = "force-dynamic";
@@ -32,7 +32,7 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "slugs array required" }, { status: 400 });
   }
 
-  if (!["new", "approved", "passed"].includes(status)) {
+  if (!DEALFLOW_STATUSES.includes(status)) {
     return NextResponse.json({ error: "invalid status" }, { status: 400 });
   }
 

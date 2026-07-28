@@ -1,3 +1,4 @@
+import type { DealflowStatus } from "../../lib/supabase";
 import { Pill, Dot } from "./ui/Pill";
 import { Button } from "./ui/Button";
 
@@ -13,7 +14,7 @@ export function BatchToolbar({
   totalFiltered: number;
   batchBusy: string | null;
   onToggleSelectAll: () => void;
-  onBatchStatus: (status: "new" | "approved" | "passed") => void;
+  onBatchStatus: (status: DealflowStatus) => void;
   onCancel: () => void;
 }) {
   return (
@@ -68,6 +69,16 @@ export function BatchToolbar({
         <Button variant="success" onClick={() => onBatchStatus("approved")} busy={batchBusy !== null}>
           <Dot size={6} />
           {batchBusy === "approved" ? "Approving…" : "Mark approved"}
+        </Button>
+
+        <Button
+          variant="neutral"
+          onClick={() => onBatchStatus("call_booked")}
+          busy={batchBusy !== null}
+          style={{ color: "#5856d6", borderColor: "rgba(88,86,214,0.3)" }}
+        >
+          <Dot size={6} />
+          {batchBusy === "call_booked" ? "Booking…" : "Mark call booked"}
         </Button>
 
         <Button variant="danger" onClick={() => onBatchStatus("passed")} busy={batchBusy !== null}>

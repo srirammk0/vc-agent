@@ -5,14 +5,15 @@ import { showEnrichButton } from "../../lib/enrichment";
 import { queueWrite } from "../../lib/writeQueue";
 import { useClickOutside } from "../hooks/useClickOutside";
 import { useToast } from "./Toast";
-import type { Founder, Startup } from "../../lib/supabase";
+import type { DealflowStatus, Founder, Startup } from "../../lib/supabase";
 
-type Status = "new" | "approved" | "passed";
+type Status = DealflowStatus;
 type ChannelStatus = "not_contacted" | "contacted" | "replied";
 
 const STATUS_LABEL: Record<Status, string> = {
   new: "new",
   approved: "approved",
+  call_booked: "call booked",
   passed: "passed",
 };
 
@@ -38,6 +39,7 @@ const MAX_FOLLOWUP_COUNT = 99;
 
 const MENU_ITEMS: { value: Status; label: string; accent: string }[] = [
   { value: "approved", label: "Mark approved", accent: "var(--success)" },
+  { value: "call_booked", label: "Mark call booked", accent: "#5856d6" },
   { value: "passed", label: "Mark passed", accent: "var(--danger)" },
   { value: "new", label: "Mark new", accent: "var(--label)" },
 ];
@@ -226,7 +228,7 @@ export default function StartupActions({
   }
 
   function handleStatusClick(next: Status) {
-    if (next === "new") {
+    if (next === "new" || next === "call_booked") {
       setStatusQuick(next);
       return;
     }

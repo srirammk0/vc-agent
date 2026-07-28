@@ -49,7 +49,7 @@ export function showEnrichButton(
   startup: Pick<Startup, "status" | "enrichment_status" | "updated_at"> &
     Partial<EnrichmentFields> & { enriched?: boolean }
 ): boolean {
-  if (startup.status !== "approved") return false;
+  if (startup.status !== "approved" && startup.status !== "call_booked") return false;
   if (hasEnrichmentData(startup)) return false;
   if (startup.enrichment_status === "failed") return true;
   if (startup.enrichment_status === "running") return isStaleRunning(startup);
