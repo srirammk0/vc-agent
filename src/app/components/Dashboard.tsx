@@ -51,6 +51,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "all", label: "All" },
   { id: "new", label: "New" },
   { id: "approved", label: "Approved" },
+  { id: "responded", label: "Responded" },
   { id: "call_booked", label: "Call booked" },
   { id: "passed", label: "Passed" },
 ];
@@ -59,6 +60,7 @@ const TAB_COUNT_BADGE: Record<Tab, { bg: string; color: string }> = {
   all: { bg: "rgba(0, 0, 0, 0.1)", color: "var(--heading)" },
   new: { bg: "var(--accent)", color: "#fff" },
   approved: { bg: "var(--success)", color: "#fff" },
+  responded: { bg: "#2e9b8f", color: "#fff" },
   call_booked: { bg: "#5856d6", color: "#fff" },
   passed: { bg: "var(--danger)", color: "#fff" },
 };
@@ -98,6 +100,7 @@ function matchesFollowupFilter(s: Startup, filter: FollowupFilter): boolean {
 const STATUS_LABEL: Record<DealflowStatus, string> = {
   new: "new",
   approved: "approved",
+  responded: "responded",
   call_booked: "call booked",
   passed: "passed",
 };
@@ -235,6 +238,7 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
       total: startups.length,
       new: startups.filter((s) => s.status === "new").length,
       approved: startups.filter((s) => s.status === "approved").length,
+      responded: startups.filter((s) => s.status === "responded").length,
       call_booked: startups.filter((s) => s.status === "call_booked").length,
       passed: startups.filter((s) => s.status === "passed").length,
     }),

@@ -10,4 +10,4 @@
 ALTER TABLE startups DROP CONSTRAINT IF EXISTS startups_status_check;
 
 ALTER TABLE startups ADD CONSTRAINT startups_status_check
-  CHECK (status IN ('new', 'approved', 'call_booked', 'passed'));
+  CHECK (status IN ('new', 'approved', 'responded', 'call_booked', 'passed'));

@@ -12,6 +12,11 @@ const BADGE: Record<DealflowStatus, React.CSSProperties> = {
     color: "var(--success-text)",
     border: "1px solid rgba(52,199,89,0.25)",
   },
+  responded: {
+    background: "rgba(46,155,143,0.1)",
+    color: "#2e9b8f",
+    border: "1px solid rgba(46,155,143,0.25)",
+  },
   call_booked: {
     background: "rgba(88,86,214,0.1)",
     color: "#5856d6",
@@ -27,6 +32,7 @@ const BADGE: Record<DealflowStatus, React.CSSProperties> = {
 const LABEL: Record<DealflowStatus, string> = {
   new: "new",
   approved: "approved",
+  responded: "responded",
   call_booked: "call booked",
   passed: "passed",
 };
