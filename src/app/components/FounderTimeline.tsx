@@ -1,4 +1,4 @@
-import { ExternalLink, Sparkles } from "lucide-react";
+import { ExternalLink, Mail, Sparkles } from "lucide-react";
 import type { Founder, FounderPosition } from "../../lib/supabase";
 
 function dateRange(p: FounderPosition): string {
@@ -49,28 +49,48 @@ export default function FounderTimeline({ founder: f }: { founder: Founder }) {
         <span style={{ fontSize: 14.5, fontWeight: 650, color: "var(--heading)", letterSpacing: "-0.1px" }}>
           {f.name || "Unknown"}
         </span>
-        {f.linkedin && (
-          <a
-            href={f.linkedin.startsWith("http://") || f.linkedin.startsWith("https://") ? f.linkedin : `https://${f.linkedin}`}
-            target="_blank"
-            rel="noreferrer"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 4,
-              fontSize: 11.5,
-              fontWeight: 500,
-              color: "var(--accent)",
-              textDecoration: "none",
-              whiteSpace: "nowrap",
-              opacity: 0.85,
-              flexShrink: 0,
-            }}
-          >
-            LinkedIn
-            <ExternalLink size={11} strokeWidth={2.2} />
-          </a>
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+          {f.email && (
+            <a
+              href={`mailto:${f.email}`}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                fontSize: 11.5,
+                fontWeight: 500,
+                color: "var(--accent)",
+                textDecoration: "none",
+                whiteSpace: "nowrap",
+                opacity: 0.85,
+              }}
+            >
+              {f.email}
+              <Mail size={11} strokeWidth={2.2} />
+            </a>
+          )}
+          {f.linkedin && (
+            <a
+              href={f.linkedin.startsWith("http://") || f.linkedin.startsWith("https://") ? f.linkedin : `https://${f.linkedin}`}
+              target="_blank"
+              rel="noreferrer"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                fontSize: 11.5,
+                fontWeight: 500,
+                color: "var(--accent)",
+                textDecoration: "none",
+                whiteSpace: "nowrap",
+                opacity: 0.85,
+              }}
+            >
+              LinkedIn
+              <ExternalLink size={11} strokeWidth={2.2} />
+            </a>
+          )}
+        </div>
       </div>
 
       {f.credibility_note && (

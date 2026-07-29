@@ -18,7 +18,12 @@ import os
 
 from supabase import create_client
 
-from tools.exa import search_company, search_people, search_company_founders
+from tools.exa import (
+    search_company,
+    search_people,
+    search_company_founders,
+    search_founder_email,
+)
 from enrich import structure_enrichment, has_enrichment_content
 
 _SB_TIMEOUT = 30.0
@@ -73,11 +78,25 @@ async def run_enrichment(slug: str, name: str) -> dict:
             )
             return {"status": "no_data", "slug": slug}
 
+        website_for_email = (
+            ((existing.data or {}).get("website") or "").strip()
+            or (structured.website or "").strip()
+        )
+
+        founder_profiles = structured.founders[:5]
+        emails = await asyncio.gather(
+            *[
+                search_founder_email(f.name, name, website_for_email)
+                for f in founder_profiles
+            ]
+        )
+
         founders = [
             {
                 "name": f.name,
                 "background": f.background[:500],
                 "linkedin": f.linkedin or "",
+                "email": (emails[i] or "")[:200],
                 "positions": [
                     {
                         "company": p.company,
@@ -91,7 +110,7 @@ async def run_enrichment(slug: str, name: str) -> dict:
                 ],
                 "credibility_note": f.credibility_note[:800],
             }
-            for f in structured.founders[:5]
+            for i, f in enumerate(founder_profiles)
         ]
 
         update = {

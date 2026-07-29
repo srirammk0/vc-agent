@@ -101,6 +101,80 @@ async def search_company_founders(company_name: str) -> list[dict]:
     )
 
 
+_FOUNDER_EMAIL_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "email": {
+            "type": "string",
+            "format": "email",
+            "description": (
+                "This person's best work email at the company, if publicly discoverable "
+                "(team page, press, bio, contact page). Omit or leave empty if unknown."
+            ),
+        },
+    },
+}
+
+
+async def search_founder_email(
+    founder_name: str,
+    company_name: str,
+    website: str = "",
+) -> str:
+    """Exa deep search + contact enrichment for one founder's work email (~$0.02 when found).
+    Returns a normalized email string, or \"\" if nothing credible was found."""
+    name = (founder_name or "").strip()
+    if not name:
+        return ""
+
+    site = (website or "").strip()
+    query = f"{name} {company_name} email contact".strip()
+    if site:
+        query = f"{query} {site}"
+
+    cache = _import_cache()
+    cache_key = None
+    if cache is not None:
+        cache_key = cache.make_key("exa:founder_email", query)
+        cached = await cache.cache_get(cache_key, _ENRICH_TTL_SECONDS)
+        if cached is not None:
+            return cached if isinstance(cached, str) else ""
+
+    try:
+        res = await asyncio.wait_for(
+            asyncio.to_thread(
+                exa.search,
+                query,
+                type="deep",
+                category="people",
+                num_results=5,
+                output_schema=_FOUNDER_EMAIL_OUTPUT_SCHEMA,
+            ),
+            timeout=90.0,
+        )
+    except Exception as e:
+        print(f"Exa founder email search failed for {name}: {e}")
+        return ""
+
+    email = ""
+    output = getattr(res, "output", None)
+    if output is not None:
+        content = output.content
+        if isinstance(content, dict):
+            raw = content.get("email") or ""
+            email = str(raw).strip()
+        elif isinstance(content, str) and "@" in content:
+            email = content.strip()
+
+    if email and "@" not in email:
+        email = ""
+
+    if cache is not None and cache_key:
+        await cache.cache_set(cache_key, email)
+
+    return email
+
+
 async def search_founder_history(name: str, context: str = "") -> list[dict]:
     """Search specifically for a founder's career history — LinkedIn-targeted (via
     include_domains) with a much larger text budget than search_people, since the
