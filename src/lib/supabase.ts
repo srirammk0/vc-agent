@@ -18,6 +18,7 @@ export type Founder = {
   name?: string;
   background?: string;
   linkedin?: string;
+  email?: string;
   twitter?: string;
   positions?: FounderPosition[];
   credibility_note?: string;

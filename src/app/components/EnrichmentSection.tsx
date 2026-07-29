@@ -114,7 +114,7 @@ export default function EnrichmentSection({ startup: data }: Props) {
 
       {isRunning ? (
         <p style={{ fontSize: 13, color: "var(--label)", margin: 0 }}>
-          Fetching company and founder data…
+          Fetching company, founder data, and emails…
         </p>
       ) : isFailed && !enriched ? (
         <p style={{ fontSize: 13, color: "var(--muted)", margin: 0 }}>
