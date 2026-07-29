@@ -11,7 +11,11 @@ export async function GET() {
     .limit(100);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const hint =
+      error.message.includes("scheduled_tasks") || error.code === "42P01"
+        ? "Run scripts/migrate-scheduled-tasks.sql in the Supabase SQL editor."
+        : undefined;
+    return NextResponse.json({ error: error.message, hint, tasks: [] }, { status: 500 });
   }
 
   return NextResponse.json({ tasks: data ?? [] });

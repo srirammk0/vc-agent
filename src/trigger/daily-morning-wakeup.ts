@@ -15,9 +15,11 @@ import { python } from "@trigger.dev/python";
  */
 export const dailyMorningWakeup = schedules.task({
   id: "daily-morning-wakeup",
+  maxDuration: 600,
   cron: {
     pattern: "0 8 * * *",
     timezone: "America/Los_Angeles",
+    environments: ["PRODUCTION"],
   },
   run: async () => {
     const result = await python.runScript("agent/main.py", [

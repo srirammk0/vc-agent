@@ -18,6 +18,7 @@ import { python } from "@trigger.dev/python";
 // target — renaming it would mean updating that URL for no functional benefit.
 export const runScheduledCheck = task({
   id: "run-scheduled-check",
+  maxDuration: 600,
   run: async (payload: Record<string, unknown>) => {
     const result = await python.runScript("agent/main.py", [JSON.stringify(payload)]);
     return JSON.parse(result.stdout);

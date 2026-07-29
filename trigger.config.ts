@@ -1,5 +1,20 @@
 import { defineConfig } from "@trigger.dev/sdk";
+import { syncEnvVars } from "@trigger.dev/build/extensions/core";
 import { pythonExtension } from "@trigger.dev/python/extension";
+import { config as loadEnv } from "dotenv";
+
+loadEnv();
+
+const TRIGGER_SYNC_KEYS = [
+  "ANTHROPIC_API_KEY",
+  "EXA_API_KEY",
+  "LINKUP_API_KEY",
+  "SUPERMEMORY_API_KEY",
+  "SUPABASE_URL",
+  "SUPABASE_SERVICE_ROLE_KEY",
+  "TRIGGER_SECRET_KEY",
+  "LOGFIRE_TOKEN",
+] as const;
 
 // Trigger.dev owns both scheduling (one-off delayed triggers — see
 // agent/trigger_client.py) and running the agent's Python: the one task in
@@ -31,6 +46,13 @@ export default defineConfig({
 
   build: {
     extensions: [
+      // Push local .env secrets into Trigger.dev on deploy so production runs
+      // have the same keys as Vercel (agent API keys, Supabase, TRIGGER_SECRET_KEY).
+      syncEnvVars(async () =>
+        TRIGGER_SYNC_KEYS
+          .filter((name) => process.env[name])
+          .map((name) => ({ name, value: process.env[name]!, isSecret: true }))
+      ),
       // Installs Python + requirements.txt into the task's build container and
       // bundles agent/**/*.py alongside the Node build, so python.runScript can
       // shell out to agent/main.py. Config shape (requirementsFile/scripts) and

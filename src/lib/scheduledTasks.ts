@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { cancelTriggerRun, triggerSecret } from "./triggerClient";
 
 /**
  * TypeScript port of agent/trigger_client.py's cancel_check/cancel_scheduled_task/
@@ -23,7 +24,6 @@ import { supabase } from "./supabase";
  */
 
 const TRIGGER_TRIGGER_URL = "https://api.trigger.dev/api/v1/tasks/run-scheduled-check/trigger";
-const TRIGGER_RUNS_URL = "https://api.trigger.dev/api/v2/runs";
 
 type TaskPayload = Record<string, unknown> & { _trigger_run_id?: string };
 
@@ -32,24 +32,6 @@ type ScheduledTaskRow = {
   kind: string | null;
   payload: TaskPayload | null;
 };
-
-function triggerSecret(): string {
-  return process.env.TRIGGER_SECRET_KEY || "";
-}
-
-async function cancelRun(runId: string): Promise<boolean> {
-  const secret = triggerSecret();
-  if (!secret || !runId) return false;
-  try {
-    const res = await fetch(`${TRIGGER_RUNS_URL}/${runId}/cancel`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" },
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
 
 /** Schedule Trigger.dev's run-scheduled-check task to fire at dueAt. Returns the
  * new Trigger.dev run id on success, or null (never throws — best-effort, same as
@@ -97,7 +79,7 @@ export async function cancelScheduledTask(taskId: string): Promise<CancelStatus>
 
   const runId = task.payload?._trigger_run_id;
   if (runId) {
-    const ok = await cancelRun(runId);
+    const ok = await cancelTriggerRun(runId);
     if (!ok) return "cancel_failed";
   }
   await supabase.from("scheduled_tasks").delete().eq("id", taskId);
@@ -121,7 +103,7 @@ export async function rescheduleScheduledTask(
   const oldPayload = task.payload ?? {};
   const runId = oldPayload._trigger_run_id;
   if (runId) {
-    const ok = await cancelRun(runId);
+    const ok = await cancelTriggerRun(runId);
     if (!ok) return "cancel_failed";
   }
 

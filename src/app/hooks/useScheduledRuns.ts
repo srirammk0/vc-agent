@@ -16,17 +16,32 @@ const POLL_INTERVAL_MS = 60000;
 export function useScheduledRuns(initial: ScheduledTask[]) {
   const [tasks, setTasks] = useState<ScheduledTask[]>(initial);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadHint, setLoadHint] = useState<string | null>(null);
   const activeRef = useRef(true);
 
   async function refresh() {
     setRefreshing(true);
     try {
       const res = await fetch("/api/scheduled-runs");
-      if (!res.ok) return;
-      const { tasks: rows } = await res.json();
-      if (activeRef.current && Array.isArray(rows)) setTasks(rows);
-    } catch {
-      // ignore
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (activeRef.current) {
+          setLoadError(data.error || `Failed to load (${res.status})`);
+          setLoadHint(typeof data.hint === "string" ? data.hint : null);
+        }
+        return;
+      }
+      if (activeRef.current) {
+        setLoadError(null);
+        setLoadHint(null);
+        if (Array.isArray(data.tasks)) setTasks(data.tasks);
+      }
+    } catch (e) {
+      if (activeRef.current) {
+        setLoadError(e instanceof Error ? e.message : "Failed to load scheduled runs");
+        setLoadHint(null);
+      }
     } finally {
       setRefreshing(false);
     }
@@ -88,5 +103,5 @@ export function useScheduledRuns(initial: ScheduledTask[]) {
     }
   }
 
-  return { tasks, refresh, refreshing, cancelTask, rescheduleTask };
+  return { tasks, refresh, refreshing, loadError, loadHint, cancelTask, rescheduleTask };
 }

@@ -365,7 +365,36 @@ export function ScheduledRunsList({
 }
 
 export default function ScheduledRunsClient({ initial }: { initial: ScheduledTask[] }) {
-  const { tasks, refresh, refreshing, cancelTask, rescheduleTask } = useScheduledRuns(initial);
+  const {
+    tasks,
+    refresh,
+    refreshing,
+    loadError,
+    loadHint,
+    cancelTask,
+    rescheduleTask,
+  } = useScheduledRuns(initial);
+  const [wakeupBusy, setWakeupBusy] = useState(false);
+  const [wakeupMsg, setWakeupMsg] = useState<string | null>(null);
+
+  async function runMorningWakeup() {
+    setWakeupBusy(true);
+    setWakeupMsg(null);
+    try {
+      const res = await fetch("/api/scheduled-runs/wakeup", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setWakeupMsg(data.error || "Failed to start morning wake-up");
+        return;
+      }
+      setWakeupMsg("Morning wake-up started — refresh in a minute to see scheduled sweeps.");
+      await refresh();
+    } catch (e) {
+      setWakeupMsg(e instanceof Error ? e.message : "Failed to start morning wake-up");
+    } finally {
+      setWakeupBusy(false);
+    }
+  }
 
   return (
     <main style={{ minHeight: "100vh", background: "var(--page-bg)", color: "var(--body)" }}>
@@ -401,27 +430,73 @@ export default function ScheduledRunsClient({ initial }: { initial: ScheduledTas
               What the agent has queued up for itself, and what it did last time it woke up.
             </p>
           </div>
-          <button
-            onClick={() => refresh()}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button
+              onClick={() => runMorningWakeup()}
+              disabled={wakeupBusy}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                height: 32,
+                padding: "0 12px",
+                borderRadius: 6,
+                border: "1px solid var(--border)",
+                background: "rgba(255,255,255,0.7)",
+                color: "var(--label)",
+                fontSize: 12.5,
+                fontWeight: 500,
+                cursor: wakeupBusy ? "not-allowed" : "pointer",
+                opacity: wakeupBusy ? 0.6 : 1,
+              }}
+            >
+              {wakeupBusy ? "Starting…" : "Run wake-up now"}
+            </button>
+            <button
+              onClick={() => refresh()}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                height: 32,
+                padding: "0 12px",
+                borderRadius: 6,
+                border: "1px solid var(--border)",
+                background: "rgba(255,255,255,0.7)",
+                color: "var(--label)",
+                fontSize: 12.5,
+                fontWeight: 500,
+                cursor: "pointer",
+              }}
+            >
+              <RefreshCw size={13} strokeWidth={2.2} className={refreshing ? "animate-spin" : ""} />
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        {(loadError || wakeupMsg) && (
+          <div
             style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              height: 32,
-              padding: "0 12px",
-              borderRadius: 6,
-              border: "1px solid var(--border)",
-              background: "rgba(255,255,255,0.7)",
-              color: "var(--label)",
-              fontSize: 12.5,
-              fontWeight: 500,
-              cursor: "pointer",
+              marginBottom: 16,
+              padding: "12px 14px",
+              borderRadius: 8,
+              border: "1px solid rgba(255,59,48,0.2)",
+              background: loadError ? "rgba(255,59,48,0.06)" : "rgba(0,122,255,0.06)",
+              color: loadError ? "var(--danger-text, #c41e1e)" : "var(--accent)",
+              fontSize: 13,
+              lineHeight: 1.45,
             }}
           >
-            <RefreshCw size={13} strokeWidth={2.2} className={refreshing ? "animate-spin" : ""} />
-            Refresh
-          </button>
-        </div>
+            {loadError && (
+              <>
+                <strong>Could not load scheduled runs:</strong> {loadError}
+                {loadHint && <div style={{ marginTop: 6, color: "var(--label)" }}>{loadHint}</div>}
+              </>
+            )}
+            {!loadError && wakeupMsg && wakeupMsg}
+          </div>
+        )}
 
         <ScheduledRunsList tasks={tasks} cancelTask={cancelTask} rescheduleTask={rescheduleTask} />
       </div>
