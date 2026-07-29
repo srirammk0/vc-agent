@@ -424,7 +424,12 @@ export default function AgentChat() {
 
       <div className="chat-page-main">
         <div className="chat-messages" ref={scrollerRef}>
-          {!hydrated ? null : empty ? (
+          {!hydrated ? (
+            <div className="chat-empty">
+              <div className="chat-empty-brand">VC Scout</div>
+              <p className="chat-empty-sub" style={{ marginTop: 12 }}>Loading chat…</p>
+            </div>
+          ) : empty ? (
             <div className="chat-empty">
               <div className="chat-empty-brand">VC Scout</div>
               <h1 className="chat-empty-title">Ask the agent</h1>

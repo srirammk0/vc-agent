@@ -1,5 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
 
+import { DEALFLOW_STATUSES, type DealflowStatus } from "./dealflowStatus";
+
+export { DEALFLOW_STATUSES, type DealflowStatus };
+
 export const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -23,9 +27,6 @@ export type Founder = {
   positions?: FounderPosition[];
   credibility_note?: string;
 };
-
-export const DEALFLOW_STATUSES = ["new", "approved", "responded", "call_booked", "passed"] as const;
-export type DealflowStatus = (typeof DEALFLOW_STATUSES)[number];
 
 export type Startup = {
   slug: string;
