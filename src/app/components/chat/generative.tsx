@@ -18,7 +18,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import StatusBadge from "../StatusBadge";
-import { DEALFLOW_STATUSES, type DealflowStatus } from "../../../lib/supabase";
+import { DEALFLOW_STATUSES, type DealflowStatus } from "../../../lib/dealflowStatus";
 
 export type UiBlock =
   | { kind: "startup"; data: Record<string, unknown> }

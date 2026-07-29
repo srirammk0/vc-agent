@@ -1,5 +1,5 @@
 import { Pill } from "./ui/Pill";
-import type { DealflowStatus } from "../../lib/supabase";
+import type { DealflowStatus } from "../../lib/dealflowStatus";
 
 const BADGE: Record<DealflowStatus, React.CSSProperties> = {
   new: {
