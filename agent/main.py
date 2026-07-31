@@ -1,4 +1,10 @@
 import sys
+
+# Redirect stdout before any import that might print — Trigger.dev parses the final
+# JSON line from stdout via python.runScript.
+if __name__ == "__main__":
+    sys.stdout = sys.stderr
+
 import json
 import asyncio
 import os
@@ -19,22 +25,19 @@ logfire.instrument_pydantic_ai()
 
 
 def main():
-    # Redirect stdout to stderr immediately to prevent breaking JSON parsing
-    original_stdout = sys.stdout
-    sys.stdout = sys.stderr
-
     # Payload comes as the first CLI arg (Trigger.dev python.runScript) or stdin (local)
     raw = sys.argv[1] if len(sys.argv) > 1 else sys.stdin.read()
     payload = json.loads(raw)
-    
+
+    real_stdout = sys.__stdout__
     try:
         result = asyncio.run(run_agent(payload))
     finally:
-        # Restore stdout for the final JSON print
-        sys.stdout = original_stdout
-        
-    # Only one print to stdout — the caller parses the last line as JSON
-    print(json.dumps(result))
+        pass
+
+    # Only one print to real stdout — the caller parses the last line as JSON
+    real_stdout.write(json.dumps(result) + "\n")
+    real_stdout.flush()
 
 
 if __name__ == "__main__":

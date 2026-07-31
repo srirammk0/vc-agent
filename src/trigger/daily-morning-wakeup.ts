@@ -1,5 +1,6 @@
 import { schedules } from "@trigger.dev/sdk";
 import { python } from "@trigger.dev/python";
+import { parsePythonStdout } from "../lib/parsePythonStdout";
 
 /**
  * Everyday morning wake-up (8:00 America/Los_Angeles).
@@ -25,6 +26,6 @@ export const dailyMorningWakeup = schedules.task({
     const result = await python.runScript("agent/main.py", [
       JSON.stringify({ mode: "daily_morning" }),
     ]);
-    return JSON.parse(result.stdout);
+    return parsePythonStdout(result.stdout);
   },
 });

@@ -18,12 +18,7 @@ import os
 
 from supabase import create_client
 
-from tools.exa import (
-    search_company,
-    search_people,
-    search_company_founders,
-    search_founder_email,
-)
+from tools.exa import search_company, search_people, search_company_founders
 from enrich import structure_enrichment, has_enrichment_content
 
 _SB_TIMEOUT = 30.0
@@ -78,25 +73,17 @@ async def run_enrichment(slug: str, name: str) -> dict:
             )
             return {"status": "no_data", "slug": slug}
 
-        website_for_email = (
-            ((existing.data or {}).get("website") or "").strip()
-            or (structured.website or "").strip()
-        )
-
         founder_profiles = structured.founders[:5]
-        emails = await asyncio.gather(
-            *[
-                search_founder_email(f.name, name, website_for_email)
-                for f in founder_profiles
-            ]
-        )
+        # Founder email lookup is deferred — Clay API integration planned for better
+        # contact finding. Exa deep email search was slow, often returned junk addresses,
+        # and could destabilize enrichment; leave email empty until Clay is wired up.
 
         founders = [
             {
                 "name": f.name,
                 "background": f.background[:500],
                 "linkedin": f.linkedin or "",
-                "email": (emails[i] or "")[:200],
+                "email": "",
                 "positions": [
                     {
                         "company": p.company,
@@ -110,7 +97,7 @@ async def run_enrichment(slug: str, name: str) -> dict:
                 ],
                 "credibility_note": f.credibility_note[:800],
             }
-            for i, f in enumerate(founder_profiles)
+            for f in founder_profiles
         ]
 
         update = {
@@ -132,6 +119,7 @@ async def run_enrichment(slug: str, name: str) -> dict:
 
         await _sb_call(lambda: sb.table("startups").update(update).eq("slug", slug).execute())
     except Exception as e:
+        print(f"run_enrichment failed for {slug}: {type(e).__name__}: {e}")
         # A real exception (Exa/LLM failure, bad response) — "failed", not
         # "pending", so the dashboard shows this as an actual error rather than
         # indistinguishable from "searched and found nothing."

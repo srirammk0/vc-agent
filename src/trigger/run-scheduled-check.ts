@@ -1,5 +1,6 @@
 import { task } from "@trigger.dev/sdk";
 import { python } from "@trigger.dev/python";
+import { parsePythonStdout } from "../lib/parsePythonStdout";
 
 // The one Trigger.dev task for every piece of agent work that isn't live web chat
 // (api/chat.py on Vercel handles that directly, unchanged — no Trigger.dev
@@ -21,6 +22,6 @@ export const runScheduledCheck = task({
   maxDuration: 600,
   run: async (payload: Record<string, unknown>) => {
     const result = await python.runScript("agent/main.py", [JSON.stringify(payload)]);
-    return JSON.parse(result.stdout);
+    return parsePythonStdout(result.stdout);
   },
 });
