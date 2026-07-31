@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
-from typing import Any, Optional
+from typing import Any
 from urllib.parse import urlparse
 
 import httpx
@@ -20,6 +20,8 @@ except ImportError:
     cache = None
 
 CLAY_BASE = "https://api.clay.com/public/v0"
+# Clay-managed Work Email function — stable catalog id (not workspace-specific).
+WORK_EMAIL_ROUTINE_ID = "work-email"
 _EMAIL_TTL_SECONDS = 7 * 24 * 3600
 _POLL_INTERVAL_SECONDS = 2.0
 _POLL_TIMEOUT_SECONDS = 180.0
@@ -49,12 +51,8 @@ def _api_key() -> str:
     )
 
 
-def _work_email_routine_id() -> str:
-    return os.environ.get("CLAY_WORK_EMAIL_ROUTINE_ID", "").strip()
-
-
 def clay_email_enabled() -> bool:
-    return bool(_api_key() and _work_email_routine_id())
+    return bool(_api_key())
 
 
 def domain_from_website(website: str) -> str:
@@ -258,13 +256,7 @@ async def find_work_emails(
     if not domain:
         return [""] * len(founders)
 
-    routine_id = _work_email_routine_id()
     if not clay_email_enabled():
-        if _api_key() and not routine_id:
-            print(
-                "Clay email skipped: set CLAY_WORK_EMAIL_ROUTINE_ID "
-                "(find via `clay routines list` → Work Email routine id)"
-            )
         return [""] * len(founders)
 
     items: list[dict] = []
@@ -313,7 +305,7 @@ async def find_work_emails(
 
     results_by_id: dict[str, dict] = {}
     if uncached_items:
-        run_id = await _start_routine_run(routine_id, uncached_items)
+        run_id = await _start_routine_run(WORK_EMAIL_ROUTINE_ID, uncached_items)
         if run_id:
             results_by_id = await _poll_run_results(run_id)
 

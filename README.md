@@ -253,8 +253,7 @@ prod) — this is where `agent/main.py` actually runs now, so it needs everythin
 ANTHROPIC_API_KEY
 EXA_API_KEY
 LINKUP_API_KEY
-CLAY_API_KEY               # founder work email enrichment (Enrich button)
-CLAY_WORK_EMAIL_ROUTINE_ID # Clay Work Email routine id (function:tbl_...)
+CLAY_API_KEY               # founder work email enrichment (Clay managed Work Email function)
 SUPERMEMORY_API_KEY
 SUPABASE_URL
 SUPABASE_SERVICE_ROLE_KEY
