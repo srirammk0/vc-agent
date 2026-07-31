@@ -18,6 +18,7 @@ import os
 
 from supabase import create_client
 
+from tools.clay import clay_email_enabled, domain_from_website, find_work_emails
 from tools.exa import search_company, search_people, search_company_founders
 from enrich import structure_enrichment, has_enrichment_content
 
@@ -74,16 +75,30 @@ async def run_enrichment(slug: str, name: str) -> dict:
             return {"status": "no_data", "slug": slug}
 
         founder_profiles = structured.founders[:5]
-        # Founder email lookup is deferred — Clay API integration planned for better
-        # contact finding. Exa deep email search was slow, often returned junk addresses,
-        # and could destabilize enrichment; leave email empty until Clay is wired up.
+        website_for_email = (
+            ((existing.data or {}).get("website") or "").strip()
+            or (structured.website or "").strip()
+        )
+        company_domain = domain_from_website(website_for_email)
+
+        emails: list[str] = [""] * len(founder_profiles)
+        if clay_email_enabled() and company_domain:
+            try:
+                emails = await find_work_emails(founder_profiles, company_domain)
+            except Exception as e:
+                print(
+                    f"Clay email enrichment failed for {slug} "
+                    f"({type(e).__name__}: {e}) — continuing without emails"
+                )
+        elif clay_email_enabled() and not company_domain:
+            print(f"Clay email skipped for {slug}: no company domain available")
 
         founders = [
             {
                 "name": f.name,
                 "background": f.background[:500],
                 "linkedin": f.linkedin or "",
-                "email": "",
+                "email": (emails[i] or "")[:200],
                 "positions": [
                     {
                         "company": p.company,
@@ -97,7 +112,7 @@ async def run_enrichment(slug: str, name: str) -> dict:
                 ],
                 "credibility_note": f.credibility_note[:800],
             }
-            for f in founder_profiles
+            for i, f in enumerate(founder_profiles)
         ]
 
         update = {
