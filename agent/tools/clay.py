@@ -187,8 +187,14 @@ async def _start_routine_run(routine_id: str, items: list[dict]) -> str | None:
         f"/routines/{rid}/run",
         json_body={"items": items},
     )
-    if status != 200 or not isinstance(data, dict):
+    if status not in (200, 202) or not isinstance(data, dict):
         print(f"Clay routine start failed ({status}): {data}")
+        if status == 404:
+            print(
+                "Clay Work Email routine not registered for API — in Clay open "
+                "Functions → Work Email (managed) → Integrations → enable API, "
+                "then retry Enrich."
+            )
         return None
 
     run_id = (data.get("routine_run_id") or "").strip()
