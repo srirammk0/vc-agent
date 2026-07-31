@@ -18,7 +18,7 @@ import os
 
 from supabase import create_client
 
-from tools.clay import clay_email_enabled, domain_from_website, find_work_emails
+from tools.apollo import apollo_email_enabled, domain_from_website, find_work_emails
 from tools.exa import search_company, search_people, search_company_founders
 from enrich import structure_enrichment, has_enrichment_content
 
@@ -82,16 +82,16 @@ async def run_enrichment(slug: str, name: str) -> dict:
         company_domain = domain_from_website(website_for_email)
 
         emails: list[str] = [""] * len(founder_profiles)
-        if clay_email_enabled() and company_domain:
+        if apollo_email_enabled() and company_domain:
             try:
                 emails = await find_work_emails(founder_profiles, company_domain)
             except Exception as e:
                 print(
-                    f"Clay email enrichment failed for {slug} "
+                    f"Apollo email enrichment failed for {slug} "
                     f"({type(e).__name__}: {e}) — continuing without emails"
                 )
-        elif clay_email_enabled() and not company_domain:
-            print(f"Clay email skipped for {slug}: no company domain available")
+        elif apollo_email_enabled() and not company_domain:
+            print(f"Apollo email skipped for {slug}: no company domain available")
 
         founders = [
             {
