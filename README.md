@@ -253,7 +253,6 @@ prod) — this is where `agent/main.py` actually runs now, so it needs everythin
 ANTHROPIC_API_KEY
 EXA_API_KEY
 LINKUP_API_KEY
-APOLLO_API_KEY             # founder work email enrichment (Apollo people/match)
 SUPERMEMORY_API_KEY
 SUPABASE_URL
 SUPABASE_SERVICE_ROLE_KEY

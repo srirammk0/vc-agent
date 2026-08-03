@@ -5,6 +5,7 @@ import StatusBadge from "./StatusBadge";
 import OutreachBadges from "./OutreachBadges";
 import StartupActions from "./StartupActions";
 import { Pill, Dot } from "./ui/Pill";
+import { VisitsChip, EmailChip } from "./WebAnalyticsSection";
 import { CleanCheckbox } from "./ui/CleanCheckbox";
 
 function truncate(text: string | null, n: number): string {
@@ -135,6 +136,8 @@ export function StartupRow({
                 enriched
               </Pill>
             )}
+            <VisitsChip visits={s.monthly_visits} />
+            <EmailChip hasEmail={s.has_email} />
           </div>
           {/* Website */}
           {s.website && (

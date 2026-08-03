@@ -6,6 +6,8 @@ import OutreachBadges from "./OutreachBadges";
 import StartupActions from "./StartupActions";
 import StartupEmbeds from "./StartupEmbeds";
 import EnrichmentSection from "./EnrichmentSection";
+import WebAnalyticsSection from "./WebAnalyticsSection";
+import CompetitorsSection from "./CompetitorsSection";
 
 type Props = {
   startup: Startup;
@@ -119,6 +121,15 @@ export default function StartupDetailBody({ startup: s, onUpdate }: Props) {
           team_size: s.team_size,
         }}
       />
+
+      <WebAnalyticsSection
+        monthlyVisits={s.monthly_visits}
+        globalRank={s.global_rank}
+        webAnalytics={s.web_analytics}
+        fiberMeta={s.fiber_meta}
+      />
+
+      <CompetitorsSection competitors={s.competitors} />
 
       {s.signal_urls && s.signal_urls.length > 0 && (
         <Section title="Signal URLs">

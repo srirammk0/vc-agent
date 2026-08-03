@@ -2,6 +2,7 @@ import type { Founder, Startup } from "../../lib/supabase";
 import { hasEnrichmentData, isStaleRunning } from "../../lib/enrichment";
 import FounderTimeline from "./FounderTimeline";
 import { Pill, Dot } from "./ui/Pill";
+import ProviderLogo from "./ProviderLogo";
 
 type Props = {
   startup: Pick<Startup, "slug" | "enrichment_status" | "updated_at"> & EnrichmentFields;
@@ -94,6 +95,12 @@ export default function EnrichmentSection({ startup: data }: Props) {
             enriched
           </Pill>
         )}
+        {enriched && !isRunning && (
+          <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+            <ProviderLogo provider="fiber" size={14} />
+            <ProviderLogo provider="similarweb" size={14} />
+          </span>
+        )}
         {isFailed && !enriched && (
           <Pill
             dot={false}
@@ -114,7 +121,7 @@ export default function EnrichmentSection({ startup: data }: Props) {
 
       {isRunning ? (
         <p style={{ fontSize: 13, color: "var(--label)", margin: 0 }}>
-          Fetching company, founder data, and emails…
+          Fetching Fiber + Similarweb data…
         </p>
       ) : isFailed && !enriched ? (
         <p style={{ fontSize: 13, color: "var(--muted)", margin: 0 }}>

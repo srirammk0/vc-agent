@@ -1,16 +1,7 @@
-"""Enrichment job — relocated here from modal_app.py's enrich_startup_job when
-Modal was removed in favor of running everything through Trigger.dev's Python
-extension (see agent/main.py, src/trigger/run-scheduled-check.ts). Writes directly
-to Supabase, no agent/LLM-loop involvement beyond the narrow structuring call in
-enrich.py — reached via run_agent()'s mode="enrich" dispatch instead of a
-standalone Modal function, everything else about the job is unchanged.
+"""Enrichment job — Exa Connect (Fiber + Similarweb) with cheap Exa-search fallback.
 
-The three Exa searches were sequential (asyncio.run() one at a time) in the Modal
-version, since that function was synchronous top-to-bottom. Now that this runs
-inside run_agent()'s existing event loop, they're awaited concurrently instead —
-they're independent read-only lookups with no ordering dependency, so this is a
-strict improvement picked up for free while relocating the code, not a behavior
-change worth avoiding.
+Primary path: one Agent run (~$0.05 Connect + compute). Fallback: legacy 3× Exa
+search + Haiku if Agent fails (no Apollo — emails come from Fiber only).
 """
 
 import asyncio
@@ -18,9 +9,9 @@ import os
 
 from supabase import create_client
 
-from tools.apollo import apollo_email_enabled, domain_from_website, find_work_emails
-from tools.exa import search_company, search_people, search_company_founders
 from enrich import structure_enrichment, has_enrichment_content
+from tools.exa import search_company, search_people, search_company_founders
+from tools.exa_connect import run_enrich_connect
 
 _SB_TIMEOUT = 30.0
 
@@ -36,23 +27,152 @@ async def _sb_call(fn):
     return await asyncio.wait_for(asyncio.to_thread(fn), timeout=_SB_TIMEOUT)
 
 
+def _normalize_email(raw: str) -> str:
+    email = (raw or "").strip().lower()
+    if not email or "@" not in email:
+        return ""
+    return email[:200]
+
+
+def _map_connect_to_update(
+    data: dict,
+    existing_website: str,
+) -> dict | None:
+    founders_raw = data.get("founders") or []
+    founder_profiles = []
+    has_email = False
+
+    for f in founders_raw[:5]:
+        if not isinstance(f, dict):
+            continue
+        name = (f.get("name") or "").strip()
+        if not name:
+            continue
+        email = _normalize_email(f.get("email") or "")
+        if email:
+            has_email = True
+        positions = []
+        for p in (f.get("positions") or [])[:8]:
+            if not isinstance(p, dict):
+                continue
+            positions.append(
+                {
+                    "company": (p.get("company") or "")[:200],
+                    "title": (p.get("title") or "")[:200],
+                    "start_date": (p.get("start_date") or "")[:40],
+                    "end_date": (p.get("end_date") or "")[:40],
+                    "is_current": bool(p.get("is_current")),
+                    "description": (p.get("description") or "")[:400],
+                }
+            )
+        founder_profiles.append(
+            {
+                "name": name[:200],
+                "background": (f.get("background") or "")[:500],
+                "linkedin": (f.get("linkedin") or "")[:500],
+                "email": email,
+                "positions": positions,
+                "credibility_note": (f.get("credibility_note") or "")[:800],
+            }
+        )
+
+    desc = (data.get("company_description") or "").strip()
+    if not desc and not any(f.get("positions") for f in founder_profiles):
+        return None
+
+    monthly_visits = data.get("monthly_visits")
+    try:
+        monthly_visits_int = int(monthly_visits) if monthly_visits is not None else None
+    except (TypeError, ValueError):
+        monthly_visits_int = None
+
+    global_rank = data.get("global_rank")
+    try:
+        global_rank_int = int(global_rank) if global_rank is not None else None
+    except (TypeError, ValueError):
+        global_rank_int = None
+
+    growth = data.get("visit_growth_pct")
+    try:
+        growth_f = float(growth) if growth is not None else None
+    except (TypeError, ValueError):
+        growth_f = None
+
+    competitors = []
+    for c in (data.get("competitors") or [])[:5]:
+        if not isinstance(c, dict):
+            continue
+        competitors.append(
+            {
+                "name": (c.get("name") or "")[:200],
+                "domain": (c.get("domain") or "")[:200],
+                "monthly_visits": c.get("monthly_visits"),
+            }
+        )
+
+    web_analytics: dict = {"source": "similarweb"}
+    if monthly_visits_int is not None:
+        web_analytics["monthly_visits"] = monthly_visits_int
+    if global_rank_int is not None:
+        web_analytics["global_rank"] = global_rank_int
+    if growth_f is not None:
+        web_analytics["visit_growth_pct"] = growth_f
+
+    fiber_meta: dict = {}
+    emp = data.get("fiber_employee_count")
+    if emp is not None:
+        try:
+            fiber_meta["employee_count"] = int(emp)
+        except (TypeError, ValueError):
+            pass
+    linkedin_co = (data.get("company_linkedin") or "").strip()
+    if linkedin_co:
+        fiber_meta["company_linkedin"] = linkedin_co[:500]
+
+    website = (data.get("website") or "").strip()
+    has_website = bool(existing_website.strip())
+
+    update: dict = {
+        "company_description": desc[:1500],
+        "founded": (data.get("founded") or "")[:100] or None,
+        "location": (data.get("location") or "")[:200] or None,
+        "team_size": (data.get("team_size") or "")[:100] or None,
+        "stage": (data.get("stage") or "")[:200] or None,
+        "raised": (data.get("raised") or "")[:200] or None,
+        "founders": founder_profiles,
+        "enrichment_status": "complete",
+        "enriched": bool(desc or any(f.get("positions") for f in founder_profiles)),
+        "monthly_visits": monthly_visits_int,
+        "global_rank": global_rank_int,
+        "web_analytics": web_analytics,
+        "competitors": competitors,
+        "fiber_meta": fiber_meta,
+        "has_email": has_email,
+    }
+
+    if not has_website and website:
+        update["website"] = website[:500]
+
+    return update
+
+
 async def run_enrichment(slug: str, name: str) -> dict:
-    """The dashboard's Enrich button already flips enrichment_status to "running"
-    (src/app/api/enrich/route.ts, synchronously, before triggering this) — this
-    function only does the actual research + write."""
     sb = _sb_client()
 
     try:
         existing = await _sb_call(
             lambda: sb.table("startups").select("website").eq("slug", slug).single().execute()
         )
-        has_website = bool(((existing.data or {}).get("website") or "").strip())
+        website = ((existing.data or {}).get("website") or "").strip()
 
-        # Two founder searches: a generic one (surfaces who the founders even are)
-        # plus a LinkedIn-targeted one with a much larger text budget (surfaces
-        # actual career history, not just a one-line bio) — both feed the same
-        # structuring call so the model has enough raw material for a real
-        # timeline + credibility read, not just a name and a job title.
+        connect_data = await run_enrich_connect(name, website)
+        if connect_data:
+            update = _map_connect_to_update(connect_data, website)
+            if update:
+                await _sb_call(lambda: sb.table("startups").update(update).eq("slug", slug).execute())
+                return {"status": "enriched", "slug": slug, "source": "connect"}
+
+        # Cheap fallback — no Connect credits, no Apollo
         company, people, founder_history = await asyncio.gather(
             search_company(f"{name} startup company"),
             search_people(f"founder CEO {name}"),
@@ -62,10 +182,6 @@ async def run_enrichment(slug: str, name: str) -> dict:
         structured = await structure_enrichment(name, company, people + founder_history)
 
         if not structured or not has_enrichment_content(structured):
-            # Genuinely nothing found — distinct from the except block below
-            # (a real crash), so the dashboard can tell "we tried and came up
-            # empty" apart from "it broke." Both are retryable via Enrich again,
-            # but only "failed" should read as an error to the user.
             await _sb_call(
                 lambda: sb.table("startups")
                 .update({"enrichment_status": "pending"})
@@ -74,31 +190,12 @@ async def run_enrichment(slug: str, name: str) -> dict:
             )
             return {"status": "no_data", "slug": slug}
 
-        founder_profiles = structured.founders[:5]
-        website_for_email = (
-            ((existing.data or {}).get("website") or "").strip()
-            or (structured.website or "").strip()
-        )
-        company_domain = domain_from_website(website_for_email)
-
-        emails: list[str] = [""] * len(founder_profiles)
-        if apollo_email_enabled() and company_domain:
-            try:
-                emails = await find_work_emails(founder_profiles, company_domain)
-            except Exception as e:
-                print(
-                    f"Apollo email enrichment failed for {slug} "
-                    f"({type(e).__name__}: {e}) — continuing without emails"
-                )
-        elif apollo_email_enabled() and not company_domain:
-            print(f"Apollo email skipped for {slug}: no company domain available")
-
         founders = [
             {
                 "name": f.name,
                 "background": f.background[:500],
                 "linkedin": f.linkedin or "",
-                "email": (emails[i] or "")[:200],
+                "email": "",
                 "positions": [
                     {
                         "company": p.company,
@@ -112,7 +209,7 @@ async def run_enrichment(slug: str, name: str) -> dict:
                 ],
                 "credibility_note": f.credibility_note[:800],
             }
-            for i, f in enumerate(founder_profiles)
+            for f in structured.founders[:5]
         ]
 
         update = {
@@ -124,20 +221,17 @@ async def run_enrichment(slug: str, name: str) -> dict:
             "raised": structured.raised,
             "founders": founders,
             "enrichment_status": "complete",
-            # Denormalized flag the dashboard list reads instead of pulling this
-            # whole founders blob for every row — see
-            # scripts/migrate-egress-list-columns.sql.
             "enriched": True,
+            "has_email": False,
         }
-        if not has_website and structured.website:
+        if not website and structured.website:
             update["website"] = structured.website.strip()
 
         await _sb_call(lambda: sb.table("startups").update(update).eq("slug", slug).execute())
+        return {"status": "enriched", "slug": slug, "source": "fallback"}
+
     except Exception as e:
         print(f"run_enrichment failed for {slug}: {type(e).__name__}: {e}")
-        # A real exception (Exa/LLM failure, bad response) — "failed", not
-        # "pending", so the dashboard shows this as an actual error rather than
-        # indistinguishable from "searched and found nothing."
         await _sb_call(
             lambda: sb.table("startups")
             .update({"enrichment_status": "failed"})
@@ -145,5 +239,3 @@ async def run_enrichment(slug: str, name: str) -> dict:
             .execute()
         )
         return {"status": "error", "slug": slug, "error": str(e)}
-
-    return {"status": "enriched", "slug": slug}

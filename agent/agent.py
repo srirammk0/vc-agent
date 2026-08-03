@@ -25,6 +25,7 @@ import llm
 import trigger_client
 import scheduled_tasks_log
 import enrich_job
+import fiber_sourcing_job
 import prompts
 
 _EXA_DEEP_TTL_SECONDS = 6 * 3600
@@ -908,6 +909,8 @@ async def run_agent(payload: dict) -> dict:
         return await run_daily_morning()
     elif mode == "enrich":
         return await enrich_job.run_enrichment(payload.get("slug", ""), payload.get("name", ""))
+    elif mode == "fiber_sourcing":
+        return await fiber_sourcing_job.run_fiber_sourcing_job()
 
     # Deliberately no "cancel_scheduled_task"/"reschedule_scheduled_task" mode here:
     # the delete_scheduled_task chat tool calls trigger_client.cancel_scheduled_task

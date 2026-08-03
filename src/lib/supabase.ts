@@ -28,6 +28,24 @@ export type Founder = {
   credibility_note?: string;
 };
 
+export type WebAnalytics = {
+  monthly_visits?: number;
+  global_rank?: number;
+  visit_growth_pct?: number;
+  source?: "similarweb" | "fiber";
+};
+
+export type Competitor = {
+  name?: string;
+  domain?: string;
+  monthly_visits?: number | null;
+};
+
+export type FiberMeta = {
+  employee_count?: number;
+  company_linkedin?: string;
+};
+
 export type Startup = {
   slug: string;
   name: string;
@@ -50,27 +68,17 @@ export type Startup = {
   stealth: boolean;
   linkedin_status: "not_contacted" | "contacted" | "replied";
   email_status: "not_contacted" | "contacted" | "replied";
-  /** How many times we've chased this one after first contact (scripts/migrate-followups.sql). */
   followup_count: number;
   last_followup_at: string | null;
-  /** Denormalized "has real enrichment data" flag so the list never has to pull the
-   * founders JSONB just to decide whether to show a badge. See
-   * scripts/migrate-egress-list-columns.sql. */
   enriched: boolean;
+  monthly_visits: number | null;
+  global_rank: number | null;
+  web_analytics: WebAnalytics | null;
+  competitors: Competitor[] | null;
+  fiber_meta: FiberMeta | null;
+  has_email: boolean;
 };
 
-/**
- * Columns the dealflow list actually renders, filters, or sorts on.
- *
- * Deliberately NOT `*`: `founders` (tens of KB of JSONB on an enriched row),
- * `company_description` and `signal_urls` are never shown in the list, and pulling
- * them for every row on every render/poll was the bulk of this project's Supabase
- * egress. The full row is fetched one slug at a time, only when a startup is
- * actually opened (see /api/startup/[slug] and useLiveStartups' hydrate()).
- *
- * `assessment` stays because the list both renders a truncated version of it and
- * searches its full text client-side.
- */
 export const STARTUP_LIST_COLUMNS = [
   "slug",
   "name",
@@ -88,6 +96,8 @@ export const STARTUP_LIST_COLUMNS = [
   "followup_count",
   "last_followup_at",
   "enriched",
+  "monthly_visits",
+  "has_email",
 ].join(", ");
 
 export type ScheduledTaskPayload = {
