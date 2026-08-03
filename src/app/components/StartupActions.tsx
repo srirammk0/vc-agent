@@ -28,6 +28,7 @@ type Props = {
   companyDescription: string | null;
   founders: Founder[] | null;
   enriched: boolean;
+  hasEmail?: boolean;
   stealth: boolean;
   linkedinStatus: ChannelStatus;
   emailStatus: ChannelStatus;
@@ -69,6 +70,7 @@ export default function StartupActions({
   companyDescription,
   founders,
   enriched,
+  hasEmail,
   stealth,
   linkedinStatus,
   emailStatus,
@@ -110,7 +112,9 @@ export default function StartupActions({
     enriched,
     company_description: companyDescription,
     founders,
-    has_email: founders?.some((f) => Boolean(f.email?.trim())),
+    // List rows omit founders — use the denormalized has_email column there.
+    has_email:
+      hasEmail ?? founders?.some((f) => Boolean(f.email?.trim())) ?? false,
     stage: null,
     raised: null,
     location: null,

@@ -12,16 +12,15 @@ type EnrichmentFields = Pick<
 >;
 
 export function hasEnrichmentData(
-  startup: Partial<EnrichmentFields> & { enriched?: boolean }
+  startup: Partial<EnrichmentFields> & { enriched?: boolean; has_email?: boolean }
 ): boolean {
-  // List rows carry only this flag — they don't fetch the enrichment columns at all
-  // (see STARTUP_LIST_COLUMNS). Detail rows carry both, and the field checks below
-  // still decide for them, so a row enriched before this column existed and never
-  // backfilled still reads correctly once it's opened.
+  // List rows carry only denormalized flags — they don't fetch founders /
+  // company_description (see STARTUP_LIST_COLUMNS). Detail rows carry both.
   // A startup is only fully enriched once at least one founder email exists.
-  // Keep the denormalized flag as a fast path, but never let it bypass this requirement.
   const founders = (startup.founders ?? []) as Founder[];
-  const hasEmail = founders.some((f) => Boolean(f.email?.trim()));
+  const hasEmail =
+    startup.has_email === true ||
+    founders.some((f) => Boolean(f.email?.trim()));
   if (!hasEmail) return false;
   if (startup.enriched) return true;
   if (startup.company_description?.trim()) return true;

@@ -82,6 +82,7 @@ export default function StartupDetailBody({ startup: s, onUpdate }: Props) {
             companyDescription={s.company_description}
             founders={s.founders}
             enriched={s.enriched}
+            hasEmail={s.has_email}
             stealth={s.stealth}
             linkedinStatus={s.linkedin_status}
             emailStatus={s.email_status}
