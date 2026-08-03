@@ -13,7 +13,7 @@ from tools.exa_connect import run_enrich_connect
 _SB_TIMEOUT = 30.0
 
 _ENRICH_SELECT = (
-    "slug, name, website, company_description, founded, location, team_size, "
+    "slug, name, website, company_description, founded, location, team_size, enrichment_error, "
     "stage, raised, founders, monthly_visits, global_rank, web_analytics, "
     "competitors, fiber_meta, has_email, enriched"
 )
@@ -345,12 +345,13 @@ async def run_enrichment(slug: str, name: str) -> dict:
         if not website and structured.website:
             fb_update["website"] = structured.website.strip()
 
+        fb_update["enrichment_error"] = None
         await _sb_call(lambda: sb.table("startups").update(fb_update).eq("slug", slug).execute())
         return {"status": "enriched", "slug": slug, "source": "fallback"}
 
     except Exception as e:
         print(f"run_enrichment failed for {slug}: {type(e).__name__}: {e}")
         await _sb_call(
-            lambda: sb.table("startups").update({"enrichment_status": "failed"}).eq("slug", slug).execute()
+            lambda: sb.table("startups").update({"enrichment_status": "failed", "enrichment_error": f"{type(e).__name__}: {e}"}).eq("slug", slug).execute()
         )
         return {"status": "error", "slug": slug, "error": str(e)}

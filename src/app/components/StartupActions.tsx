@@ -23,6 +23,7 @@ type Props = {
   name: string;
   status: Status;
   enrichmentStatus: "pending" | "running" | "complete" | "failed";
+  enrichmentError: string | null;
   enrichmentUpdatedAt: string | null;
   companyDescription: string | null;
   founders: Founder[] | null;
@@ -63,6 +64,7 @@ export default function StartupActions({
   name,
   status,
   enrichmentStatus,
+  enrichmentError,
   enrichmentUpdatedAt,
   companyDescription,
   founders,
@@ -108,6 +110,7 @@ export default function StartupActions({
     enriched,
     company_description: companyDescription,
     founders,
+    has_email: founders?.some((f) => Boolean(f.email?.trim())),
     stage: null,
     raised: null,
     location: null,
@@ -318,6 +321,7 @@ export default function StartupActions({
             : enrichmentStatus === "failed" || enrichmentStatus === "running"
             ? "Retry enrich"
             : "Enrich"}
+          {enrichmentStatus === "failed" && enrichmentError ? ` (${enrichmentError.slice(0, 60)})` : ""}
         </button>
       )}
 

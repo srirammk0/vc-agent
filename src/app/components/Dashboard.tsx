@@ -21,7 +21,14 @@ import { SearchBar } from "./ui/SearchBar";
 type Tab = "all" | DealflowStatus;
 type ChannelFilter = "all" | "not_contacted" | "contacted" | "replied";
 type StealthFilter = "all" | "stealth" | "public";
+type EmailPresenceFilter = "all" | "has" | "missing";
 type FollowupFilter = "all" | "none" | "any" | "stale";
+
+const EMAIL_PRESENCE_OPTIONS: { value: EmailPresenceFilter; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "has", label: "Has email" },
+  { value: "missing", label: "Does not have email" },
+];
 
 const CHANNEL_FILTER_OPTIONS: { value: ChannelFilter; label: string }[] = [
   { value: "all", label: "All" },
@@ -70,7 +77,7 @@ type DashUiState = {
   query: string;
   stealthFilter: StealthFilter;
   linkedinFilter: ChannelFilter;
-  emailFilter: ChannelFilter;
+  emailFilter: EmailPresenceFilter;
   followupFilter: FollowupFilter;
 };
 
@@ -124,8 +131,8 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
   const [linkedinFilter, setLinkedinFilter] = useState<ChannelFilter>(
     savedUi.linkedinFilter ?? DEFAULT_FILTERS.linkedinFilter
   );
-  const [emailFilter, setEmailFilter] = useState<ChannelFilter>(
-    savedUi.emailFilter ?? DEFAULT_FILTERS.emailFilter
+  const [emailFilter, setEmailFilter] = useState<EmailPresenceFilter>(
+    (savedUi.emailFilter as EmailPresenceFilter) ?? DEFAULT_FILTERS.emailFilter
   );
   const [followupFilter, setFollowupFilter] = useState<FollowupFilter>(
     savedUi.followupFilter ?? DEFAULT_FILTERS.followupFilter
@@ -218,7 +225,7 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
 
   function applyNeedsEmailPreset() {
     setStealthFilter("public");
-    setEmailFilter("not_contacted");
+    setEmailFilter("missing");
   }
 
   function clearFilters() {
@@ -253,7 +260,7 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
         stealthFilter === "all" ? true : stealthFilter === "stealth" ? s.stealth : !s.stealth
       )
       .filter((s) => (linkedinFilter === "all" ? true : s.linkedin_status === linkedinFilter))
-      .filter((s) => (emailFilter === "all" ? true : s.email_status === emailFilter))
+      .filter((s) => emailFilter === "all" ? true : emailFilter === "has" ? s.has_email : !s.has_email)
       .filter((s) => matchesFollowupFilter(s, followupFilter))
       .filter((s) =>
         q
@@ -546,7 +553,7 @@ export default function Dashboard({ initial }: { initial: Startup[] }) {
                   <FilterGroup
                     label="Email"
                     value={emailFilter}
-                    options={CHANNEL_FILTER_OPTIONS}
+                    options={EMAIL_PRESENCE_OPTIONS}
                     onChange={setEmailFilter}
                   />
                   <FilterGroup

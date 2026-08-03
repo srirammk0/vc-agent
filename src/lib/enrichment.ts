@@ -51,7 +51,7 @@ export function isStaleRunning(
 
 export function showEnrichButton(
   startup: Pick<Startup, "status" | "enrichment_status" | "updated_at"> &
-    Partial<EnrichmentFields> & { enriched?: boolean }
+    Partial<EnrichmentFields> & { enriched?: boolean; has_email?: boolean }
 ): boolean {
   if (
     startup.status !== "approved" &&
@@ -59,6 +59,12 @@ export function showEnrichButton(
     startup.status !== "call_booked"
   )
     return false;
+  // Email enrichment is the actionable completion signal for the dashboard. Once
+  // a founder email exists, don't keep offering the same enrichment action even
+  // if other optional enrichment fields are still missing.
+  const founders = (startup.founders ?? []) as Founder[];
+  const hasEmail = startup.has_email ?? founders.some((f) => Boolean(f.email?.trim()));
+  if (hasEmail) return false;
   if (hasEnrichmentData(startup)) return false;
   if (startup.enrichment_status === "failed") return true;
   if (startup.enrichment_status === "running") return isStaleRunning(startup);

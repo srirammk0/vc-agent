@@ -58,6 +58,7 @@ export type Startup = {
   created_at: string | null;
   updated_at: string | null;
   enrichment_status: "pending" | "running" | "complete" | "failed";
+  enrichment_error: string | null;
   company_description: string | null;
   founded: string | null;
   location: string | null;
@@ -90,6 +91,7 @@ export const STARTUP_LIST_COLUMNS = [
   "created_at",
   "updated_at",
   "enrichment_status",
+  "enrichment_error",
   "stealth",
   "linkedin_status",
   "email_status",

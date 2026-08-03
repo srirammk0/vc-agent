@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
   // apart from one still genuinely in progress.
   await supabase
     .from("startups")
-    .update({ enrichment_status: "running", updated_at: new Date().toISOString() })
+    .update({ enrichment_status: "running", enrichment_error: null, updated_at: new Date().toISOString() })
     .eq("slug", slug);
 
   try {
@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
     // it "failed" (not "pending") same as agent/enrich_job.py's own except block.
     await supabase
       .from("startups")
-      .update({ enrichment_status: "failed" })
+      .update({ enrichment_status: "failed", enrichment_error: e instanceof Error ? e.message : "enrich trigger failed" })
       .eq("slug", slug);
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "enrich trigger failed" },

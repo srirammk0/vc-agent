@@ -77,6 +77,7 @@ export default function StartupDetailBody({ startup: s, onUpdate }: Props) {
             name={s.name}
             status={s.status}
             enrichmentStatus={s.enrichment_status}
+            enrichmentError={s.enrichment_error}
             enrichmentUpdatedAt={s.updated_at}
             companyDescription={s.company_description}
             founders={s.founders}
