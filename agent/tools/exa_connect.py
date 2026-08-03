@@ -214,26 +214,186 @@ async def _agent_run(
     return data
 
 
-async def run_enrich_connect(name: str, website: str = "") -> dict[str, Any] | None:
-    """One Agent run: Fiber (company/people/email) + Similarweb (traffic + competitors)."""
+def _lookup_schema(focus: str) -> dict[str, Any]:
+    if focus == "fiber":
+        props = {k: ENRICH_OUTPUT_SCHEMA["properties"][k] for k in (
+            "company_description", "website", "founded", "location", "team_size",
+            "stage", "raised", "fiber_employee_count", "company_linkedin", "founders",
+        )}
+        return {"type": "object", "properties": props}
+    if focus == "similarweb":
+        props = {k: ENRICH_OUTPUT_SCHEMA["properties"][k] for k in (
+            "monthly_visits", "global_rank", "visit_growth_pct", "competitors",
+        )}
+        return {"type": "object", "properties": props}
+    return ENRICH_OUTPUT_SCHEMA
+
+
+def build_partial_enrich_schema(gaps: Any) -> dict[str, Any] | None:
+    """Build output_schema containing only fields we still need (see enrich_gaps.EnrichGaps)."""
+    props: dict[str, Any] = {}
+    if gaps.company_description:
+        props["company_description"] = ENRICH_OUTPUT_SCHEMA["properties"]["company_description"]
+    if gaps.company_meta:
+        for field in ("founded", "location", "team_size", "stage", "raised"):
+            props[field] = ENRICH_OUTPUT_SCHEMA["properties"][field]
+    if gaps.website:
+        props["website"] = ENRICH_OUTPUT_SCHEMA["properties"]["website"]
+    if gaps.founders_timeline or gaps.founder_emails:
+        props["founders"] = ENRICH_OUTPUT_SCHEMA["properties"]["founders"]
+    if gaps.fiber_employee_count:
+        props["fiber_employee_count"] = ENRICH_OUTPUT_SCHEMA["properties"]["fiber_employee_count"]
+    if gaps.company_linkedin:
+        props["company_linkedin"] = ENRICH_OUTPUT_SCHEMA["properties"]["company_linkedin"]
+    if gaps.monthly_visits:
+        props["monthly_visits"] = ENRICH_OUTPUT_SCHEMA["properties"]["monthly_visits"]
+    if gaps.global_rank:
+        props["global_rank"] = ENRICH_OUTPUT_SCHEMA["properties"]["global_rank"]
+    if gaps.visit_growth:
+        props["visit_growth_pct"] = ENRICH_OUTPUT_SCHEMA["properties"]["visit_growth_pct"]
+    if gaps.competitors:
+        props["competitors"] = ENRICH_OUTPUT_SCHEMA["properties"]["competitors"]
+    if not props:
+        return None
+    required = ["company_description"] if "company_description" in props else list(props.keys())[:1]
+    return {"type": "object", "required": required, "properties": props}
+
+
+def _build_partial_query(name: str, website: str, gaps: Any, known_context: str) -> str:
     site = (website or "").strip()
+    need_lines: list[str] = []
+    if gaps.needs_fiber():
+        fiber_bits = []
+        if gaps.company_description:
+            fiber_bits.append("company overview")
+        if gaps.company_meta:
+            fiber_bits.append("stage/raised/team/location/founded")
+        if gaps.founders_timeline:
+            fiber_bits.append("founder career timelines")
+        if gaps.founder_emails:
+            fiber_bits.append("founder work emails only (timelines already known)")
+        if gaps.fiber_employee_count or gaps.company_linkedin:
+            fiber_bits.append("employee count and company LinkedIn")
+        if gaps.website:
+            fiber_bits.append("official domain")
+        need_lines.append(f"Fiber.ai: {', '.join(fiber_bits)}.")
+    if gaps.needs_similarweb():
+        sw_bits = []
+        if gaps.monthly_visits:
+            sw_bits.append("monthly visits")
+        if gaps.global_rank:
+            sw_bits.append("global rank")
+        if gaps.visit_growth:
+            sw_bits.append("traffic growth %")
+        if gaps.competitors:
+            sw_bits.append("up to 5 competitors")
+        need_lines.append(f"Similarweb: {', '.join(sw_bits)}.")
+
     query = (
-        f"VC diligence enrichment for startup '{name}'. "
-        f"Use Fiber.ai for company profile, founders, work emails, employee count, funding. "
-        f"Use Similarweb for estimated monthly visits, global rank, traffic growth, and up to 5 competitors. "
-        f"Only include facts you can support from provider data — do not invent."
+        f"VC diligence partial enrichment for startup '{name}'. "
+        f"ONLY fill the fields listed below — do not return data we already have. "
+        f"Only include facts supported by provider data.\n"
+        f"Still needed:\n" + "\n".join(need_lines)
     )
     if site:
-        query += f" Known website/domain: {site}."
+        query += f"\nKnown website/domain: {site}."
+    if known_context:
+        query += f"\n\nAlready on file (do NOT re-fetch or repeat):\n{known_context[:2500]}"
+    return query
 
-    cache_key = f"exa:agent:enrich:{name.lower()}:{site.lower()}"
-    return await _agent_run(
-        cache_key,
-        query,
-        ENRICH_OUTPUT_SCHEMA,
-        _DATA_SOURCES_ENRICH,
-        _ENRICH_TIMEOUT,
-    )
+
+async def run_enrich_connect(
+    name: str,
+    website: str = "",
+    slug: str = "",
+    gaps: Any = None,
+    known_context: str = "",
+) -> dict[str, Any] | None:
+    """One Agent run with only the Connect providers and schema fields still needed."""
+    if gaps is not None and not gaps.needs_any():
+        return None
+
+    site = (website or "").strip()
+    if gaps is not None:
+        schema = build_partial_enrich_schema(gaps)
+        if schema is None:
+            return None
+        data_sources: list[dict[str, str]] = []
+        if gaps.needs_fiber():
+            data_sources.append({"provider": "fiber"})
+        if gaps.needs_similarweb():
+            data_sources.append({"provider": "similarweb"})
+        query = _build_partial_query(name, site, gaps, known_context)
+        sig = gaps.signature()
+    else:
+        schema = ENRICH_OUTPUT_SCHEMA
+        data_sources = list(_DATA_SOURCES_ENRICH)
+        query = (
+            f"VC diligence enrichment for startup '{name}'. "
+            f"Use Fiber.ai for company profile, founders, work emails, employee count, funding. "
+            f"Use Similarweb for estimated monthly visits, global rank, traffic growth, and up to 5 competitors. "
+            f"Only include facts you can support from provider data — do not invent."
+        )
+        if site:
+            query += f" Known website/domain: {site}."
+        sig = "full"
+
+    cache_key = f"exa:agent:enrich:{slug or name.lower()}:{site.lower()}:{sig}"
+    return await _agent_run(cache_key, query, schema, data_sources, _ENRICH_TIMEOUT)
+
+
+async def run_connect_lookup(
+    company_name: str,
+    website: str = "",
+    focus: str = "full",
+) -> dict[str, Any] | None:
+    """Chat-tool lookup — one company, credit-conscious provider selection."""
+    focus = (focus or "full").strip().lower()
+    if focus not in ("fiber", "similarweb", "full"):
+        focus = "full"
+
+    name = (company_name or "").strip()
+    if not name:
+        return None
+
+    site = (website or "").strip()
+    if focus == "fiber":
+        sources = list(_DATA_SOURCES_FIBER_ONLY)
+        schema = _lookup_schema("fiber")
+        query = (
+            f"Structured B2B lookup for '{name}' via Fiber.ai: company profile, "
+            f"funding, founders with career history and work emails if available."
+        )
+    elif focus == "similarweb":
+        sources = [{"provider": "similarweb"}]
+        schema = _lookup_schema("similarweb")
+        query = (
+            f"Web analytics for '{name}' via Similarweb: monthly visits, global rank, "
+            f"growth, and up to 5 competitors."
+        )
+    else:
+        sources = list(_DATA_SOURCES_ENRICH)
+        schema = ENRICH_OUTPUT_SCHEMA
+        query = (
+            f"Full VC diligence lookup for '{name}': Fiber (company, founders, emails) "
+            f"plus Similarweb (traffic and competitors)."
+        )
+    if site:
+        query += f" Domain/website: {site}."
+
+    cache_key = f"exa:agent:lookup:{focus}:{name.lower()}:{site.lower()}"
+    return await _agent_run(cache_key, query, schema, sources, _ENRICH_TIMEOUT)
+
+
+def format_connect_result(data: dict[str, Any] | None, max_chars: int = 8000) -> str:
+    if not data:
+        return "No structured results returned."
+    import json
+
+    text = json.dumps(data, indent=2, default=str)
+    if len(text) > max_chars:
+        return text[:max_chars] + "\n…[truncated]"
+    return text
 
 
 async def run_fiber_sourcing(thesis_snippet: str) -> list[dict[str, Any]]:

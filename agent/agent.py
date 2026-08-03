@@ -27,6 +27,7 @@ import scheduled_tasks_log
 import enrich_job
 import fiber_sourcing_job
 import prompts
+from tools.exa_connect import run_connect_lookup, run_fiber_sourcing, format_connect_result
 
 _EXA_DEEP_TTL_SECONDS = 6 * 3600
 # Ceiling on model round-trips within a single run — a normal sweep/reply is a
@@ -256,6 +257,38 @@ def register_tools(agent: Agent):
             if len(trimmed) < len(queries):
                 result += f"\n\n[{len(queries) - len(trimmed)} additional quer{'y' if len(queries) - len(trimmed) == 1 else 'ies'} dropped — duplicate or over the 5-query cap]"
             return result
+        except asyncio.TimeoutError:
+            return _T
+        except Exception as e:
+            return _err(e)
+
+    @agent.tool(prepare=assistant_only)
+    async def exa_connect_lookup(
+        ctx: RunContext,
+        company_name: str,
+        website: str = "",
+        focus: str = "full",
+    ) -> str:
+        """Structured Exa Connect lookup — costs real credits (~$0.02 Fiber, ~$0.03 Similarweb). ONE company per call. focus: \"fiber\" (founders, funding, work emails, headcount), \"similarweb\" (monthly visits, competitors), or \"full\" (both — only when you need everything). Use for structured B2B/traffic on a known company; use exa_deep_search_many for open-ended web discovery."""
+        try:
+            data = await run_connect_lookup(company_name, website, focus)
+            return format_connect_result(data)
+        except asyncio.TimeoutError:
+            return _T
+        except Exception as e:
+            return _err(e)
+
+    @agent.tool(prepare=assistant_only)
+    async def exa_fiber_source_list(ctx: RunContext) -> str:
+        """One Fiber.ai Agent run against the investment thesis — up to 10 structured pre-seed/seed companies (~$0.02 Connect). Does NOT save to dealflow: crosscheck_startups then save_startups yourself. Use for list-building instead of only web search. Do NOT call more than once per run."""
+        try:
+            thesis = await sm.load_thesis()
+            companies = await run_fiber_sourcing(thesis)
+            if not companies:
+                return "Fiber sourcing returned no companies."
+            import json
+
+            return json.dumps(companies, indent=2, default=str)[:8000]
         except asyncio.TimeoutError:
             return _T
         except Exception as e:

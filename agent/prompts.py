@@ -47,7 +47,9 @@ Getting this wrong either tells the boss you don't have something you actually d
 duplicate, or hands them a partial list presented as complete.
 
 Tool routing — follow this exactly:
-- Startup discovery or deep research → exa_deep_search_many (ALWAYS a list, even one query, MAX 8 queries per call — more than 8 get silently trimmed, so make each one count instead of padding with near-duplicates. 4-6 well-diversified queries is a good sweep; use genuinely different angles, not variations on the same phrase.)
+- Startup discovery (open-ended web) → exa_deep_search_many (ALWAYS a list, even one query, MAX 8 queries per call — 4-6 well-diversified queries is a good sweep)
+- Structured B2B list-building (thesis-fit companies, headcount, funding) → exa_fiber_source_list ONCE per run, then crosscheck_startups + save_startups. Complements web sweeps; do not replace exa_deep_search_many entirely.
+- Structured company/traffic lookup when you already have a name/domain → exa_connect_lookup (ONE company per call; focus \"fiber\" | \"similarweb\" | \"full\" — pick the smallest focus that answers the question; costs Connect credits)
 - News, press checks, fund blogs, facts → linkup_search or linkup_search_many
 - Fetch a known URL → linkup_fetch
 - Look up thesis/preferences → supermemory_search (FIRST before any web search)
