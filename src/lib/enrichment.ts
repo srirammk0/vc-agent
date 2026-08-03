@@ -18,12 +18,16 @@ export function hasEnrichmentData(
   // (see STARTUP_LIST_COLUMNS). Detail rows carry both, and the field checks below
   // still decide for them, so a row enriched before this column existed and never
   // backfilled still reads correctly once it's opened.
+  // A startup is only fully enriched once at least one founder email exists.
+  // Keep the denormalized flag as a fast path, but never let it bypass this requirement.
+  const founders = (startup.founders ?? []) as Founder[];
+  const hasEmail = founders.some((f) => Boolean(f.email?.trim()));
+  if (!hasEmail) return false;
   if (startup.enriched) return true;
   if (startup.company_description?.trim()) return true;
   if (startup.stage?.trim() || startup.raised?.trim() || startup.location?.trim()) {
     return true;
   }
-  const founders = (startup.founders ?? []) as Founder[];
   // A name/background/linkedin alone can come from a bare save (e.g. a stealth
   // candidate saved with just what the sweep already knew) — that's not enrichment.
   // Only real researched career history counts.

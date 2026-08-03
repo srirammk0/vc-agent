@@ -222,7 +222,9 @@ def _merge_connect_into_update(existing: dict, data: dict, gaps) -> dict | None:
     has_timeline = any(
         isinstance(f, dict) and (f.get("positions") or []) for f in (founders_final if isinstance(founders_final, list) else [])
     )
-    update["enriched"] = bool(desc or has_timeline)
+    # A startup is fully enriched only when the researched enrichment exists
+    # and at least one founder has a usable email address.
+    update["enriched"] = bool((desc or has_timeline) and has_email)
 
     # Nothing new besides status flags
     if len(update) <= 2 and not update.get("company_description") and not update.get("founders"):
@@ -245,7 +247,10 @@ async def run_enrichment(slug: str, name: str) -> dict:
         if not gaps.needs_any():
             await _sb_call(
                 lambda: sb.table("startups")
-                .update({"enrichment_status": "complete", "enriched": row.get("enriched") or True})
+                .update({
+                    "enrichment_status": "complete",
+                    "enriched": bool(row.get("enriched") and row.get("has_email")),
+                })
                 .eq("slug", slug)
                 .execute()
             )
