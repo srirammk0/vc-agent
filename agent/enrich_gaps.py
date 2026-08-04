@@ -33,6 +33,13 @@ def _has_company_meta(row: dict) -> bool:
     return any(_text(row.get(f)) for f in ("founded", "location", "team_size", "stage", "raised"))
 
 
+# Cancel Similarweb enrichment for now (skips the per-run Similarweb Connect spend
+# and never fires an enrichment run that only needs traffic/rank/competitors).
+# Flip to True to re-enable monthly visits / global rank / visit growth /
+# competitors enrichment. Existing Similarweb data already stored is preserved.
+SIMILARWEB_ENABLED = False
+
+
 @dataclass
 class EnrichGaps:
     company_description: bool = False
@@ -95,10 +102,10 @@ def assess_enrich_gaps(row: dict) -> EnrichGaps:
         website=not _text(row.get("website")),
         founders_timeline=not _founders_have_timeline(founders),
         founder_emails=_founders_have_timeline(founders) and _founders_need_email(founders),
-        monthly_visits=not has_visits,
-        global_rank=not has_visits and row.get("global_rank") is None,
-        visit_growth=not has_visits and web_analytics.get("visit_growth_pct") is None,
-        competitors=not has_competitors,
+        monthly_visits=SIMILARWEB_ENABLED and not has_visits,
+        global_rank=SIMILARWEB_ENABLED and not has_visits and row.get("global_rank") is None,
+        visit_growth=SIMILARWEB_ENABLED and not has_visits and web_analytics.get("visit_growth_pct") is None,
+        competitors=SIMILARWEB_ENABLED and not has_competitors,
         fiber_employee_count=need_fiber_company and fiber_meta.get("employee_count") is None,
         company_linkedin=need_fiber_company and not _text(fiber_meta.get("company_linkedin")),
     )
