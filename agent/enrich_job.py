@@ -2,8 +2,13 @@
 
 import asyncio
 import os
+import time
+from datetime import datetime, timedelta, timezone
 
+import httpx
 from supabase import create_client
+
+import observability
 
 from enrich import structure_enrichment, has_enrichment_content
 from enrich_gaps import assess_enrich_gaps, known_context_summary
@@ -234,7 +239,153 @@ def _merge_connect_into_update(existing: dict, data: dict, gaps) -> dict | None:
     return update
 
 
+# Re-trigger target — the same Trigger.dev task the dashboard route fires for a
+# single enrich (src/trigger/run-scheduled-check.ts -> agent/main.py mode="enrich"),
+# called via the same REST endpoint trigger_client.py already uses for scheduling.
+_TRIGGER_TRIGGER_URL = "https://api.trigger.dev/api/v1/tasks/run-scheduled-check/trigger"
+
+# Matches src/lib/enrichment.ts STALE_RUNNING_MS — a row still "running" past this
+# is stuck (task killed before it reset the status), so it's safe to requeue.
+_STALE_RUNNING_MS = 10 * 60 * 1000
+
+
+async def trigger_enrich(slug: str, name: str) -> bool:
+    """Fire an enrichment run for one startup, via Trigger.dev (fire-and-forget,
+    like the dashboard's enrich button). Best-effort; never raises."""
+    secret = os.environ.get("TRIGGER_SECRET_KEY", "")
+    if not secret:
+        print("enrich_job: TRIGGER_SECRET_KEY not set, cannot re-trigger enrichment")
+        return False
+    body = {
+        "payload": {"mode": "enrich", "slug": slug, "name": name},
+        "options": {},
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            res = await client.post(
+                _TRIGGER_TRIGGER_URL,
+                headers={
+                    "Authorization": f"Bearer {secret}",
+                    "Content-Type": "application/json",
+                },
+                json=body,
+            )
+            res.raise_for_status()
+            return True
+    except Exception as e:
+        print(f"enrich_job: trigger_enrich failed for {slug}: {type(e).__name__}: {e}")
+        return False
+
+
+async def requeue_stale_enrichments() -> dict:
+    """Recover enrichment work that would otherwise sit stuck or failed and need a
+    human to redo it: re-triggers any startup whose enrichment either errored
+    (status='failed') or was killed mid-run (status='running' but stale, i.e. the
+    task never reset it). Never re-triggers 'pending' (genuinely no data) or
+    'complete', so no-data startups don't loop forever. Emits a Logfire summary.
+    """
+    sb = _sb_client()
+    rows: list[dict] = []
+    try:
+        failed = await _sb_call(
+            lambda: sb.table("startups")
+            .select("slug, name, enrichment_status")
+            .eq("enrichment_status", "failed")
+            .execute()
+        )
+        rows.extend((failed.data or []) if failed.data is not None else [])
+    except Exception as e:
+        print(f"enrich_job: requeue query (failed) error: {e}")
+        return {"requeued": [], "error": str(e)}
+
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(milliseconds=_STALE_RUNNING_MS)
+        stale = await _sb_call(
+            lambda: sb.table("startups")
+            .select("slug, name, enrichment_status")
+            .eq("enrichment_status", "running")
+            .lt("updated_at", cutoff.isoformat())
+            .execute()
+        )
+        rows.extend((stale.data or []) if stale.data is not None else [])
+    except Exception as e:
+        print(f"enrich_job: requeue query (stale) error: {e}")
+
+    # De-dup (a row can't be both, but be safe), and skip rows that already have data.
+    seen: set[str] = set()
+    requeued: list[str] = []
+    for r in rows:
+        slug = (r.get("slug") or "").strip()
+        if not slug or slug in seen:
+            continue
+        seen.add(slug)
+        try:
+            # Reset to running up front (same as the dashboard's /api/enrich route)
+            # so a row we successfully re-trigger isn't re-reaped by a later pass.
+            await _sb_call(
+                lambda: sb.table("startups")
+                .update(
+                    {
+                        "enrichment_status": "running",
+                        "enrichment_error": None,
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                )
+                .eq("slug", slug)
+                .execute()
+            )
+        except Exception as e:
+            print(f"enrich_job: requeue reset failed for {slug}: {e}")
+            continue
+        if await trigger_enrich(slug, (r.get("name") or "").strip()):
+            requeued.append(slug)
+        else:
+            # Failed to reach Trigger.dev — put it back to failed so it's retried
+            # next pass instead of being stranded as "running".
+            try:
+                await _sb_call(
+                    lambda: sb.table("startups")
+                    .update({"enrichment_status": "failed"})
+                    .eq("slug", slug)
+                    .execute()
+                )
+            except Exception:
+                pass
+
+    with observability.span("enrich.requeue", attempted=len(rows), requeued=len(requeued)) as s:
+        s.set_attribute("requeued", ",".join(requeued))
+    return {"requeued": requeued, "attempted": len(rows)}
+
+
 async def run_enrichment(slug: str, name: str) -> dict:
+    """Public entry point — wraps the real enrichment in a Logfire span and emits an
+    outcome metric + duration histogram per startup, so no enrichment is invisible:
+    which slug, which gaps were filled, which source, how long it took, and whether it
+    failed (observability.record_enrichment).
+    """
+    start = time.time()
+    with observability.span("enrich.startup", slug=slug, name=(name or "")[:200]) as s:
+        result = await _run_enrichment(slug, name)
+        s.set_attributes(
+            {
+                "status": str(result.get("status", "")),
+                "source": str(result.get("source", "")),
+                "filled": str(result.get("filled", "")),
+                "error": str(result.get("error", "")),
+            }
+        )
+        observability.record_enrichment(
+            slug,
+            status=str(result.get("status", "unknown")),
+            source=str(result.get("source", "")),
+            filled=str(result.get("filled", "")),
+            error=str(result.get("error", "")),
+            duration_s=time.time() - start,
+        )
+        return result
+
+
+async def _run_enrichment(slug: str, name: str) -> dict:
     sb = _sb_client()
 
     try:

@@ -20,6 +20,7 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 import logfire
 logfire.configure(send_to_logfire="if-token-present")
 
+import observability
 from agent import run_agent
 logfire.instrument_pydantic_ai()
 
@@ -30,14 +31,19 @@ def main():
     payload = json.loads(raw)
 
     real_stdout = sys.__stdout__
+    mode = payload.get("mode", "unknown")
     try:
-        result = asyncio.run(run_agent(payload))
+        # Per-run Logfire span covering every mode (enrich, scheduled_run,
+        # feedback, daily_morning, fiber_sourcing, requeue_enrichment, ...), in
+        # addition to the pydantic-ai / llm spans already emitted.
+        with observability.span("agent.run", mode=mode, slug=payload.get("slug", "")) as s:
+            result = asyncio.run(run_agent(payload))
+            s.set_attribute("summary", str(result)[:600])
+            # Only one print to real stdout — the caller parses the last line as JSON
+            real_stdout.write(json.dumps(result) + "\n")
+            real_stdout.flush()
     finally:
         pass
-
-    # Only one print to real stdout — the caller parses the last line as JSON
-    real_stdout.write(json.dumps(result) + "\n")
-    real_stdout.flush()
 
 
 if __name__ == "__main__":

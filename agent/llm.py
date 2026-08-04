@@ -12,6 +12,8 @@ import os
 import asyncio
 
 import httpx
+
+import observability
 from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
 from pydantic_ai.providers.anthropic import AnthropicProvider
@@ -116,10 +118,43 @@ finalize_model = _anthropic_model(SONNET_MODEL)
 fast_model = _anthropic_model(HAIKU_MODEL)
 
 
-async def run_with_retry(agent, prompt: str, *, max_attempts: int = 8, **kwargs):
+def _resolved_model_name(agent, kwargs: dict) -> str:
+    """Best-effort model name for cost labeling, or 'unknown'.
+
+    Handles both pydantic-ai model objects (which may expose the id via a
+    ``name`` attribute/method or a ``model_name`` attribute) and plain strings.
+    """
+    model_obj = kwargs.get("model") or getattr(agent, "model", None)
+    if model_obj is None:
+        return "unknown"
+    if isinstance(model_obj, str):
+        return model_obj
+    # 1) name attribute (plain or callable)
+    name = getattr(model_obj, "name", None)
+    if callable(name):
+        try:
+            return str(name())
+        except Exception:
+            pass
+    elif name:
+        return str(name)
+    # 2) model_name attribute (AnthropicModel etc.)
+    model_name = getattr(model_obj, "model_name", None)
+    if model_name:
+        return str(model_name)
+    return "unknown"
+
+
+async def run_with_retry(agent, prompt: str, *, max_attempts: int = 8, purpose: str = "general", **kwargs):
+    """Run an agent with transient-error retries, recording token + USD cost to
+    Logfire on every successful run (observability.record_llm_usage). ``purpose``
+    becomes a metric attribute so spend can be split by enrichment / feedback /
+    scheduled_run / general / web_chat.
+    """
+    model_name = _resolved_model_name(agent, kwargs)
     for attempt in range(max_attempts):
         try:
-            return await agent.run(prompt, **kwargs)
+            res = await agent.run(prompt, **kwargs)
         except Exception as e:
             if not _is_transient_error(e) or attempt == max_attempts - 1:
                 raise
@@ -129,3 +164,16 @@ async def run_with_retry(agent, prompt: str, *, max_attempts: int = 8, **kwargs)
                 f"(attempt {attempt + 1}/{max_attempts})"
             )
             await asyncio.sleep(delay)
+        else:
+            try:
+                usage = res.usage()
+                observability.record_llm_usage(
+                    model_name,
+                    getattr(usage, "request_tokens", 0) or 0,
+                    getattr(usage, "response_tokens", 0) or 0,
+                    purpose=purpose,
+                )
+            except Exception:
+                # Cost logging must never break the run.
+                pass
+            return res

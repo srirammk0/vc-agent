@@ -26,6 +26,7 @@ import trigger_client
 import scheduled_tasks_log
 import enrich_job
 import fiber_sourcing_job
+import observability
 import prompts
 from tools.exa_connect import run_connect_lookup, run_fiber_sourcing, format_connect_result
 
@@ -756,6 +757,17 @@ async def run_web_chat_stream(messages: list[dict], should_stop=None):
                                     return
                                 if await _client_gone():
                                     return
+            try:
+                usage = agent_run.usage()
+                observability.record_llm_usage(
+                    llm.SONNET_MODEL,
+                    getattr(usage, "request_tokens", 0) or 0,
+                    getattr(usage, "response_tokens", 0) or 0,
+                    purpose="web_chat",
+                )
+            except Exception:
+                # Cost logging must never break a chat turn.
+                pass
             break
         except Exception as e:
             if not started and llm._is_transient_error(e) and attempt < max_attempts - 1:
@@ -808,6 +820,7 @@ async def run_feedback(slug: str, name: str, status: str, message: str) -> dict:
             deps=deps,
             model=llm.fast_model,
             model_settings=llm.FINALIZE_FEEDBACK_SETTINGS,
+            purpose="feedback",
         )
         return {"ok": True, "reply": res.output}
     except Exception as e:
@@ -837,7 +850,7 @@ async def run_scheduled_agent_run(instructions: str) -> dict:
     )
 
     try:
-        res = await agent_run_with_retry(assistant_agent, prompt, deps=deps)
+        res = await agent_run_with_retry(assistant_agent, prompt, deps=deps, purpose="scheduled_run")
         return {"reply": res.output}
     except Exception as e:
         if llm._is_rate_limit_error(e):
@@ -855,6 +868,13 @@ async def run_daily_morning() -> dict:
     now_pt = datetime.now(_DAILY_TZ)
     date_key = now_pt.strftime("%Y-%m-%d")
     booked: list[dict] = []
+
+    # Re-queue any enrichment that errored or got stuck mid-run overnight so
+    # nothing needs a human to redo it (best-effort; never blocks the sweep).
+    try:
+        await enrich_job.requeue_stale_enrichments()
+    except Exception as e:
+        print("run_daily_morning: requeue_stale_enrichments failed:", e)
 
     for hour in _DAILY_SWEEP_HOURS:
         due_pt = now_pt.replace(hour=hour, minute=0, second=0, microsecond=0)
@@ -944,6 +964,8 @@ async def run_agent(payload: dict) -> dict:
         return await enrich_job.run_enrichment(payload.get("slug", ""), payload.get("name", ""))
     elif mode == "fiber_sourcing":
         return await fiber_sourcing_job.run_fiber_sourcing_job()
+    elif mode == "requeue_enrichment":
+        return await enrich_job.requeue_stale_enrichments()
 
     # Deliberately no "cancel_scheduled_task"/"reschedule_scheduled_task" mode here:
     # the delete_scheduled_task chat tool calls trigger_client.cancel_scheduled_task
