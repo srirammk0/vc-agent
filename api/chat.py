@@ -65,6 +65,10 @@ def _is_authenticated(request: Request) -> bool:
 
 
 async def chat(request: Request):
+    # Kill switch: set AGENT_DISABLED=1 in Vercel env to take the agent offline
+    # while the rest of the dashboard stays up.
+    if os.environ.get("AGENT_DISABLED"):
+        return JSONResponse({"error": "agent is disabled"}, status_code=503)
     if not _is_authenticated(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
 
